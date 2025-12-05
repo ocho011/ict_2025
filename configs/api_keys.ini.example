@@ -1,0 +1,13 @@
+# Binance API Configuration Example
+# Copy this file to api_keys.ini and fill in your credentials
+# SECURITY: api_keys.ini is in .gitignore - NEVER commit it!
+
+[binance]
+# Get your API keys from https://testnet.binancefuture.com/ (testnet)
+# or https://www.binance.com/en/my/settings/api-management (production)
+api_key = your_binance_api_key_here
+api_secret = your_binance_api_secret_here
+
+# Use testnet for development and testing
+# Set to false ONLY when ready for production trading with real funds
+testnet = true

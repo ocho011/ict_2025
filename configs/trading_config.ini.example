@@ -1,0 +1,28 @@
+# Trading Strategy Configuration Example
+# Copy this file to trading_config.ini and customize your strategy
+
+[trading]
+# Trading pair (USDT-M Futures)
+symbol = BTCUSDT
+
+# Timeframe intervals (comma-separated)
+# Supported: 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w
+intervals = 1m,5m,15m
+
+# Strategy to use (must match a strategy class name)
+strategy = MockStrategy
+
+# Leverage (1-125x for Binance Futures)
+# WARNING: Higher leverage = higher risk
+leverage = 1
+
+# Maximum risk per trade (as decimal, e.g., 0.01 = 1%)
+# Recommended: 0.01-0.02 (1-2% of account)
+max_risk_per_trade = 0.01
+
+# Take profit ratio relative to risk
+# Example: 2.0 means 2:1 reward:risk ratio
+take_profit_ratio = 2.0
+
+# Stop loss percentage (as decimal, e.g., 0.02 = 2%)
+stop_loss_percent = 0.02

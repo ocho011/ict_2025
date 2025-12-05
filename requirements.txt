@@ -1,0 +1,15 @@
+# Core dependencies for ICT 2025 Trading System
+# Production requirements only
+
+# Binance API
+binance-futures-connector>=4.1.0
+
+# Data processing
+pandas>=2.2.0
+numpy>=1.26.0
+
+# Async HTTP
+aiohttp>=3.9.0
+
+# Configuration
+python-dotenv>=1.0.0

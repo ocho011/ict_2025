@@ -1,0 +1,93 @@
+{
+	"meta": {
+		"generatedAt": "2025-12-03T22:03:31.057Z",
+		"tasksAnalyzed": 10,
+		"totalTasks": 10,
+		"analysisCount": 10,
+		"thresholdScore": 5,
+		"projectName": "Taskmaster",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 1,
+			"taskTitle": "Project Foundation & Environment Setup",
+			"complexityScore": 4,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down into: 1) Create directory structure with all __init__.py files, 2) Create requirements.txt and requirements-dev.txt with all dependencies, 3) Implement ConfigManager class in src/utils/config.py with INI file parsing, 4) Create pyproject.toml with project metadata and build configuration, 5) Setup example config files (api_keys.ini.example, trading_config.ini.example) and update .gitignore",
+			"reasoning": "Greenfield project setup with well-defined directory structure. The task is straightforward file/directory creation with some boilerplate code. The existing .gitignore already covers Python files. Moderate complexity due to ConfigManager implementation requiring environment variable override support and validation logic. No complex algorithms or external API integration needed."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Data Models & Core Types Definition",
+			"complexityScore": 3,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Implement Candle dataclass with OHLCV fields and property methods (body_size, is_bullish), 2) Implement Signal dataclass with SignalType enum and trade parameters, 3) Implement Order dataclass with OrderType/OrderSide/OrderStatus enums matching Binance API, 4) Implement Position and Event dataclasses with EventType enum for event-driven architecture",
+			"reasoning": "Standard dataclass implementations with Enums. No external dependencies, just Python type definitions. The PRD provides exact specifications. Low complexity but requires attention to Binance API compatibility for enum values. Property methods are simple calculations. Well-scoped with clear specifications."
+		},
+		{
+			"taskId": 3,
+			"taskTitle": "Binance API Connection & WebSocket Data Collector",
+			"complexityScore": 7,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown",
+			"reasoning": "High complexity due to external API integration with binance-futures-connector library. Requires understanding of WebSocket lifecycle, async patterns, and Binance-specific message formats. Error handling, reconnection logic, and thread safety add complexity. Need to handle both testnet and mainnet environments. Performance requirements (100+ messages/sec) require careful implementation."
+		},
+		{
+			"taskId": 4,
+			"taskTitle": "Event-Driven Architecture & Async Queue System",
+			"complexityScore": 7,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down into: 1) Implement EventBus class with subscriber registry and event type routing, 2) Implement multi-queue system (data/signal/order) with asyncio.Queue and configurable size limits, 3) Implement async queue processors with timeout handling and error recovery, 4) Implement TradingEngine orchestrator class with event handler registration, 5) Implement graceful startup/shutdown with proper task cancellation and cleanup",
+			"reasoning": "Core architectural component requiring deep asyncio understanding. Multiple queues with different priorities and overflow behaviors add complexity. Need to handle async/sync handler compatibility, proper task lifecycle management, and prevent event jamming. The PRD emphasizes this is critical for 24-hour operation stability. Requires careful design to avoid race conditions and deadlocks."
+		},
+		{
+			"taskId": 5,
+			"taskTitle": "Mock Strategy & Signal Generation Pipeline",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Implement BaseStrategy abstract class with candle buffer management and abstract methods, 2) Implement MockSMACrossoverStrategy with fast/slow SMA calculation using numpy, 3) Implement TP/SL calculation logic with configurable risk/reward ratios, 4) Implement StrategyFactory pattern for strategy instantiation and registration",
+			"reasoning": "Moderate complexity with standard design patterns (Strategy, Factory). The mock SMA strategy is intentionally simple for pipeline validation. Requires numpy for calculations but algorithms are straightforward. Buffer management and signal generation logic need proper implementation. This task validates the entire data→signal flow before implementing actual ICT strategies."
+		},
+		{
+			"taskId": 6,
+			"taskTitle": "Order Execution Manager & Binance API Integration",
+			"complexityScore": 8,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break down into: 1) Implement OrderExecutionManager class with REST client setup and leverage/margin configuration, 2) Implement execute_signal method with market entry order placement, 3) Implement TP/SL order placement using TAKE_PROFIT_MARKET and STOP_MARKET order types, 4) Implement position and account balance query methods, 5) Implement price formatting according to symbol tick size specifications, 6) Implement error handling with retry logic, rate limiting, and order cancellation",
+			"reasoning": "Highest complexity task involving real money operations. Requires precise Binance Futures API integration with multiple order types. Price formatting must match symbol specifications. Error handling is critical - must handle rate limits, network errors, and API rejections gracefully. Need to manage order state and implement proper audit logging. Financial consequences of bugs are severe."
+		},
+		{
+			"taskId": 7,
+			"taskTitle": "Risk Management Module",
+			"complexityScore": 5,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Implement position size calculation with percentage-based risk and stop loss distance, 2) Implement signal validation for TP/SL logic correctness and position conflicts, 3) Implement risk/reward ratio calculation and maximum position size limiting, 4) Implement lot size rounding according to Binance symbol specifications",
+			"reasoning": "Moderate complexity with clear mathematical formulas provided in the PRD. The position sizing algorithm is well-defined. Validation logic for signals is straightforward. Main complexity is in handling edge cases (zero SL distance, position size limits) and ensuring lot size compliance with Binance requirements. Capital protection is critical so testing must be thorough."
+		},
+		{
+			"taskId": 8,
+			"taskTitle": "Logging & Monitoring System",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Implement TradingLogger class with console and file handlers using RotatingFileHandler, 2) Implement trade-specific logging with TimedRotatingFileHandler and TradeLogFilter, 3) Implement structured JSON trade logging with log_trade static method, 4) Implement performance logging decorator with execution time measurement",
+			"reasoning": "Standard Python logging implementation with rotating handlers. The logging module is well-documented and patterns are standard. Multiple handlers with different formatters and filters add some complexity. JSON structured logging for trades is straightforward. Low external dependencies, mostly Python stdlib. Well-scoped with clear requirements."
+		},
+		{
+			"taskId": 9,
+			"taskTitle": "Configuration Management & INI Parser",
+			"complexityScore": 4,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Break down into: 1) Implement APIConfig and TradingConfig dataclasses for typed configuration, 2) Implement load_api_config with environment variable override support, 3) Implement load_trading_config with strategy-specific section parsing, 4) Implement configuration validation with clear error messages and example file creation",
+			"reasoning": "Standard configparser usage with environment variable overlay. The dataclasses for typed config are straightforward. Validation logic is well-defined with clear ranges (leverage 1-125, risk 0-10%). Environment variable precedence is a common pattern. Example files need proper documentation. Similar complexity to Task 1 ConfigManager but more focused scope."
+		},
+		{
+			"taskId": 10,
+			"taskTitle": "Main Application Entry Point & Integration",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down into: 1) Implement TradingBot class with component initialization sequence, 2) Implement event handler setup connecting all modules via EventBus, 3) Implement signal processing flow from candle to order execution, 4) Implement graceful shutdown with signal handlers (SIGINT/SIGTERM) and resource cleanup, 5) Implement main() entry point with asyncio event loop management and error handling",
+			"reasoning": "Integration task requiring all other components to be complete. Complexity lies in proper initialization order, event wiring, and shutdown handling. Signal handlers for graceful termination need careful implementation. Error handling at the top level must prevent crashes while logging issues. Async coordination between multiple systems (WebSocket, EventBus) requires testing. Dependencies on 7 other tasks make this naturally complex."
+		}
+	]
+}

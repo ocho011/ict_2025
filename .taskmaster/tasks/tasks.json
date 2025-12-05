@@ -1,0 +1,763 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "1",
+        "title": "Project Foundation & Environment Setup",
+        "description": "Initialize the Python project structure with proper packaging, dependencies, configuration management, and development environment setup for the Binance USDT-M Futures trading system.",
+        "details": "Create the foundational project structure:\n\n1. **Directory Structure**:\n```\nict_2025/\n├── src/\n│   ├── __init__.py\n│   ├── main.py\n│   ├── core/\n│   │   ├── __init__.py\n│   │   ├── data_collector.py\n│   │   ├── event_handler.py\n│   │   └── exceptions.py\n│   ├── strategies/\n│   │   ├── __init__.py\n│   │   ├── base.py\n│   │   └── mock_strategy.py\n│   ├── indicators/\n│   │   ├── __init__.py\n│   │   └── base.py\n│   ├── execution/\n│   │   ├── __init__.py\n│   │   └── order_manager.py\n│   ├── risk/\n│   │   ├── __init__.py\n│   │   └── manager.py\n│   ├── models/\n│   │   ├── __init__.py\n│   │   ├── candle.py\n│   │   ├── signal.py\n│   │   ├── order.py\n│   │   └── position.py\n│   └── utils/\n│       ├── __init__.py\n│       ├── logger.py\n│       └── config.py\n├── configs/\n│   ├── api_keys.ini.example\n│   └── trading_config.ini.example\n├── logs/\n├── tests/\n│   └── __init__.py\n├── requirements.txt\n├── requirements-dev.txt\n├── pyproject.toml\n└── README.md\n```\n\n2. **requirements.txt**:\n```\nbinance-futures-connector>=4.1.0\npandas>=2.2.0\nnumpy>=1.26.0\npython-dotenv>=1.0.0\naiohttp>=3.9.0\n```\n\n3. **Configuration Management**:\n- Use `configparser` for .ini files (api_keys.ini, trading_config.ini)\n- Create `src/utils/config.py` with ConfigManager class\n- Support environment variable overrides for sensitive data\n- Implement testnet/mainnet toggle via config\n\n4. **pyproject.toml** for modern Python packaging with metadata.",
+        "testStrategy": "1. Verify all directories are created correctly\n2. Run `pip install -r requirements.txt` successfully\n3. Import all modules without errors: `python -c \"from src import main\"`\n4. Verify config loading with sample .ini files\n5. Check .gitignore excludes sensitive files (api_keys.ini, .env, logs/)",
+        "priority": "high",
+        "dependencies": [],
+        "status": "done",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Create Directory Structure with All __init__.py Files",
+            "description": "Create the complete project directory hierarchy including src/, core/, strategies/, indicators/, execution/, risk/, models/, utils/, configs/, logs/, and tests/ directories with all required __init__.py files for Python package initialization.",
+            "dependencies": [],
+            "details": "Create the following directory structure:\n\n1. Root directories: src/, configs/, logs/, tests/\n2. Under src/: core/, strategies/, indicators/, execution/, risk/, models/, utils/\n3. Create __init__.py in each Python package directory (src and all subdirectories under src, plus tests/)\n4. Create placeholder files:\n   - src/main.py (entry point stub)\n   - src/core/data_collector.py, event_handler.py, exceptions.py\n   - src/strategies/base.py, mock_strategy.py\n   - src/indicators/base.py\n   - src/execution/order_manager.py\n   - src/risk/manager.py\n   - src/models/candle.py, signal.py, order.py, position.py\n   - src/utils/logger.py, config.py\n\nEach __init__.py should be empty initially or contain module-level docstrings describing the package purpose.",
+            "status": "done",
+            "testStrategy": "1. Verify all directories exist using os.path.isdir()\n2. Verify all __init__.py files exist in package directories\n3. Run `python -c \"import src\"` to confirm package structure is valid\n4. Run `python -c \"from src.core import exceptions\"` to test nested imports",
+            "updatedAt": "2025-12-05T12:36:57.147Z",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Create requirements.txt and requirements-dev.txt",
+            "description": "Create the dependency files listing all production and development dependencies with pinned minimum versions for the Binance USDT-M Futures trading system.",
+            "dependencies": [
+              1
+            ],
+            "details": "Create requirements.txt with production dependencies:\n```\nbinance-futures-connector>=4.1.0\npandas>=2.2.0\nnumpy>=1.26.0\npython-dotenv>=1.0.0\naiohttp>=3.9.0\n```\n\nCreate requirements-dev.txt with development dependencies:\n```\n-r requirements.txt\npytest>=8.0.0\npytest-asyncio>=0.23.0\npytest-cov>=4.1.0\nmypy>=1.8.0\nruff>=0.2.0\nblack>=24.1.0\npre-commit>=3.6.0\n```\n\nEnsure version constraints are compatible and allow for security updates while maintaining stability.",
+            "status": "done",
+            "testStrategy": "1. Run `pip install -r requirements.txt` in a clean virtual environment\n2. Run `pip install -r requirements-dev.txt` to verify dev dependencies\n3. Verify no version conflicts with `pip check`\n4. Test that binance-futures-connector imports correctly",
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T12:37:06.839Z"
+          },
+          {
+            "id": 3,
+            "title": "Implement ConfigManager Class with INI File Parsing",
+            "description": "Implement the ConfigManager class in src/utils/config.py that loads configuration from INI files, supports environment variable overrides for sensitive data, and provides typed access to API and trading configurations.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement in src/utils/config.py:\n\n1. Define dataclasses: APIConfig (api_key, api_secret, is_testnet) and TradingConfig (symbol, intervals, strategy, leverage, risk params)\n\n2. ConfigManager class:\n   - __init__(self, config_dir: str = 'configs')\n   - Load from api_keys.ini and trading_config.ini using configparser\n   - Environment variable override: Check BINANCE_API_KEY, BINANCE_API_SECRET, BINANCE_TESTNET before INI values\n   - _load_api_config() -> APIConfig\n   - _load_trading_config() -> TradingConfig\n   - validate() method to check required fields\n   - Properties: is_testnet, api_config, trading_config\n\n3. Error handling:\n   - FileNotFoundError with helpful message pointing to .example files\n   - ValueError for invalid config values (negative leverage, invalid percentages)\n   - Mask sensitive data in any error messages or logs",
+            "status": "done",
+            "testStrategy": "1. Test loading valid config files with all required fields\n2. Test environment variable override takes precedence over INI values\n3. Test FileNotFoundError with helpful message when config missing\n4. Test validation catches invalid values (leverage < 1, risk > 1.0)\n5. Test that API keys are not exposed in error messages",
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T12:37:08.525Z"
+          },
+          {
+            "id": 4,
+            "title": "Create pyproject.toml with Project Metadata and Build Configuration",
+            "description": "Create pyproject.toml for modern Python packaging with complete project metadata, build system configuration, tool settings for linting/formatting, and optional dependency groups.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Create pyproject.toml with:\n\n1. Build system:\n```toml\n[build-system]\nrequires = [\"setuptools>=68.0\", \"wheel\"]\nbuild-backend = \"setuptools.build_meta\"\n```\n\n2. Project metadata:\n```toml\n[project]\nname = \"ict-2025-trading\"\nversion = \"0.1.0\"\ndescription = \"Binance USDT-M Futures Trading System\"\nrequires-python = \">=3.11\"\ndependencies = [...] # from requirements.txt\n\n[project.optional-dependencies]\ndev = [...] # from requirements-dev.txt\n```\n\n3. Tool configurations:\n- [tool.pytest.ini_options]: testpaths, asyncio_mode\n- [tool.mypy]: strict mode settings\n- [tool.ruff]: line-length=88, select rules\n- [tool.black]: line-length=88\n\n4. Package discovery:\n```toml\n[tool.setuptools.packages.find]\nwhere = [\".\"]\n```",
+            "status": "done",
+            "testStrategy": "1. Run `pip install -e .` to verify editable install works\n2. Run `python -c \"import src\"` after install\n3. Verify tool configs work: `ruff check src/`, `mypy src/`, `black --check src/`\n4. Verify metadata: `pip show ict-2025-trading`",
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T12:37:09.991Z"
+          },
+          {
+            "id": 5,
+            "title": "Setup Example Config Files and Update .gitignore",
+            "description": "Create example configuration files (api_keys.ini.example, trading_config.ini.example) with documented placeholders and update .gitignore to exclude sensitive files, logs, and environment-specific data.",
+            "dependencies": [
+              1,
+              3
+            ],
+            "details": "1. Create configs/api_keys.ini.example:\n```ini\n[binance]\n# Get your API keys from https://www.binance.com/en/my/settings/api-management\n# For testnet: https://testnet.binancefuture.com\napi_key = YOUR_API_KEY_HERE\napi_secret = YOUR_API_SECRET_HERE\n\n[settings]\n# Set to true for testnet, false for mainnet (CAUTION: real funds)\nis_testnet = true\n```\n\n2. Create configs/trading_config.ini.example:\n```ini\n[trading]\nsymbol = BTCUSDT\nintervals = 5m,15m,1h\nstrategy = mock\n\n[risk]\nleverage = 10\nmax_risk_per_trade = 0.01\ntake_profit_ratio = 2.0\nstop_loss_percent = 0.02\n\n[logging]\nlog_level = INFO\nlog_dir = logs\n```\n\n3. Update .gitignore to add:\n```\n# Sensitive config files\nconfigs/api_keys.ini\n.env\n\n# Logs\nlogs/\n*.log\n\n# Local development\n.vscode/\n.idea/\n```",
+            "status": "done",
+            "testStrategy": "1. Verify .example files exist and contain placeholder text\n2. Verify .gitignore patterns exclude api_keys.ini (create test file, run git status)\n3. Verify logs/ directory is excluded from git\n4. Test that copying .example to actual file and filling values works with ConfigManager\n5. Verify comments in example files are helpful for new developers",
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T12:37:11.445Z"
+          }
+        ],
+        "complexity": 4,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Break down into: 1) Create directory structure with all __init__.py files, 2) Create requirements.txt and requirements-dev.txt with all dependencies, 3) Implement ConfigManager class in src/utils/config.py with INI file parsing, 4) Create pyproject.toml with project metadata and build configuration, 5) Setup example config files (api_keys.ini.example, trading_config.ini.example) and update .gitignore",
+        "updatedAt": "2025-12-05T12:37:11.445Z"
+      },
+      {
+        "id": "2",
+        "title": "Data Models & Core Types Definition",
+        "description": "Define all core data structures (Candle, Signal, Order, Position, Event) using Python dataclasses with proper type hints and validation for the trading system.",
+        "details": "Implement data models in `src/models/`:\n\n1. **candle.py**:\n```python\nfrom dataclasses import dataclass, field\nfrom datetime import datetime\nfrom typing import Optional\nfrom enum import Enum\n\n@dataclass\nclass Candle:\n    symbol: str\n    interval: str  # '1m', '5m', '15m', '1h', '4h', '1d'\n    open_time: datetime\n    open: float\n    high: float\n    low: float\n    close: float\n    volume: float\n    close_time: datetime\n    is_closed: bool = False\n    \n    @property\n    def body_size(self) -> float:\n        return abs(self.close - self.open)\n    \n    @property\n    def is_bullish(self) -> bool:\n        return self.close > self.open\n```\n\n2. **signal.py**:\n```python\nclass SignalType(Enum):\n    LONG_ENTRY = \"long_entry\"\n    SHORT_ENTRY = \"short_entry\"\n    CLOSE_LONG = \"close_long\"\n    CLOSE_SHORT = \"close_short\"\n\n@dataclass\nclass Signal:\n    signal_type: SignalType\n    symbol: str\n    entry_price: float\n    take_profit: float\n    stop_loss: float\n    strategy_name: str\n    timestamp: datetime\n    confidence: float = 1.0\n    metadata: dict = field(default_factory=dict)\n```\n\n3. **order.py**:\n```python\nclass OrderType(Enum):\n    MARKET = \"MARKET\"\n    LIMIT = \"LIMIT\"\n    STOP_MARKET = \"STOP_MARKET\"\n    TAKE_PROFIT_MARKET = \"TAKE_PROFIT_MARKET\"\n\nclass OrderSide(Enum):\n    BUY = \"BUY\"\n    SELL = \"SELL\"\n\nclass OrderStatus(Enum):\n    NEW = \"NEW\"\n    FILLED = \"FILLED\"\n    PARTIALLY_FILLED = \"PARTIALLY_FILLED\"\n    CANCELED = \"CANCELED\"\n    REJECTED = \"REJECTED\"\n\n@dataclass\nclass Order:\n    symbol: str\n    side: OrderSide\n    order_type: OrderType\n    quantity: float\n    price: Optional[float] = None\n    stop_price: Optional[float] = None\n    order_id: Optional[str] = None\n    status: OrderStatus = OrderStatus.NEW\n```\n\n4. **position.py**:\n```python\n@dataclass\nclass Position:\n    symbol: str\n    side: str  # 'LONG' or 'SHORT'\n    entry_price: float\n    quantity: float\n    leverage: int\n    unrealized_pnl: float = 0.0\n    liquidation_price: Optional[float] = None\n```\n\n5. **event.py** for the event-driven architecture:\n```python\nclass EventType(Enum):\n    CANDLE_UPDATE = \"candle_update\"\n    CANDLE_CLOSED = \"candle_closed\"\n    SIGNAL_GENERATED = \"signal_generated\"\n    ORDER_PLACED = \"order_placed\"\n    ORDER_FILLED = \"order_filled\"\n    POSITION_OPENED = \"position_opened\"\n    POSITION_CLOSED = \"position_closed\"\n\n@dataclass\nclass Event:\n    event_type: EventType\n    data: Any\n    timestamp: datetime = field(default_factory=datetime.utcnow)\n```",
+        "testStrategy": "1. Unit tests for each dataclass instantiation with valid/invalid data\n2. Test property methods (body_size, is_bullish)\n3. Verify Enum values are correct for Binance API compatibility\n4. Test serialization/deserialization for logging purposes\n5. Validate type hints with mypy: `mypy src/models/`",
+        "priority": "high",
+        "dependencies": [
+          "1"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement Candle Dataclass with OHLCV Fields and Properties",
+            "description": "Create the Candle dataclass in src/models/candle.py with all OHLCV (Open, High, Low, Close, Volume) fields, timestamp fields, and computed property methods for technical analysis.",
+            "dependencies": [],
+            "details": "Implement candle.py with:\n1. Import statements: dataclass, field from dataclasses; datetime from datetime; Optional from typing\n2. Candle dataclass fields: symbol (str), interval (str for '1m','5m','15m','1h','4h','1d'), open_time (datetime), open (float), high (float), low (float), close (float), volume (float), close_time (datetime), is_closed (bool, default=False)\n3. Property method body_size: returns abs(self.close - self.open) for candle body calculation\n4. Property method is_bullish: returns self.close > self.open to identify bullish candles\n5. Add __post_init__ validation to ensure high >= max(open, close) and low <= min(open, close)\n6. Create src/models/__init__.py with Candle export",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Instantiate Candle with valid OHLCV data, 2) Test body_size calculation for bullish/bearish candles, 3) Test is_bullish returns True for close > open and False otherwise, 4) Test with various interval strings, 5) Run mypy for type validation",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement Signal Dataclass with SignalType Enum",
+            "description": "Create the Signal dataclass and SignalType enum in src/models/signal.py for representing trade signals with entry, take-profit, stop-loss parameters and metadata.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement signal.py with:\n1. Import statements: dataclass, field from dataclasses; datetime from datetime; Enum from enum\n2. SignalType Enum with values: LONG_ENTRY='long_entry', SHORT_ENTRY='short_entry', CLOSE_LONG='close_long', CLOSE_SHORT='close_short'\n3. Signal dataclass fields: signal_type (SignalType), symbol (str), entry_price (float), take_profit (float), stop_loss (float), strategy_name (str), timestamp (datetime), confidence (float, default=1.0), metadata (dict, default_factory=dict)\n4. Add computed property for risk_reward_ratio: abs(take_profit - entry_price) / abs(entry_price - stop_loss)\n5. Export Signal and SignalType from models/__init__.py",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Create Signal with all SignalType enum values, 2) Verify default confidence=1.0, 3) Verify metadata defaults to empty dict, 4) Test risk_reward_ratio calculation, 5) Validate type hints with mypy",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement Order Dataclass with Binance API Compatible Enums",
+            "description": "Create Order dataclass and related enums (OrderType, OrderSide, OrderStatus) in src/models/order.py with values matching Binance USDT-M Futures API specifications.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement order.py with:\n1. OrderType Enum matching Binance API: MARKET='MARKET', LIMIT='LIMIT', STOP_MARKET='STOP_MARKET', TAKE_PROFIT_MARKET='TAKE_PROFIT_MARKET'\n2. OrderSide Enum: BUY='BUY', SELL='SELL'\n3. OrderStatus Enum: NEW='NEW', FILLED='FILLED', PARTIALLY_FILLED='PARTIALLY_FILLED', CANCELED='CANCELED', REJECTED='REJECTED'\n4. Order dataclass fields: symbol (str), side (OrderSide), order_type (OrderType), quantity (float), price (Optional[float]=None), stop_price (Optional[float]=None), order_id (Optional[str]=None), status (OrderStatus, default=NEW), client_order_id (Optional[str]=None), timestamp (Optional[datetime]=None)\n5. Add validation: LIMIT orders require price, STOP_MARKET requires stop_price\n6. Export all classes from models/__init__.py",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Create Order with each OrderType, 2) Verify enum values match Binance API strings exactly, 3) Test LIMIT order requires price field, 4) Test STOP_MARKET requires stop_price, 5) Verify default status is NEW, 6) Cross-reference enum values with Binance API docs",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement Position and Event Dataclasses for Event-Driven Architecture",
+            "description": "Create Position dataclass in src/models/position.py and Event dataclass with EventType enum in src/models/event.py to support the event-driven trading architecture.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement position.py with:\n1. Position dataclass fields: symbol (str), side (str for 'LONG'/'SHORT'), entry_price (float), quantity (float), leverage (int), unrealized_pnl (float, default=0.0), liquidation_price (Optional[float]=None), entry_time (Optional[datetime]=None)\n2. Add computed property for notional_value: quantity * entry_price\n3. Add computed property for margin_used: notional_value / leverage\n\nImplement event.py with:\n1. EventType Enum: CANDLE_UPDATE='candle_update', CANDLE_CLOSED='candle_closed', SIGNAL_GENERATED='signal_generated', ORDER_PLACED='order_placed', ORDER_FILLED='order_filled', POSITION_OPENED='position_opened', POSITION_CLOSED='position_closed'\n2. Event dataclass fields: event_type (EventType), data (Any), timestamp (datetime, default_factory=datetime.utcnow), source (Optional[str]=None)\n3. Export Position, Event, EventType from models/__init__.py\n4. Update models/__init__.py to export all model classes",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Create Position with LONG/SHORT sides, 2) Test notional_value and margin_used calculations, 3) Create Event with each EventType, 4) Verify timestamp auto-generation, 5) Test Event with various data types (Candle, Signal, Order), 6) Validate complete models/__init__.py exports all classes",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 3,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Break down into: 1) Implement Candle dataclass with OHLCV fields and property methods (body_size, is_bullish), 2) Implement Signal dataclass with SignalType enum and trade parameters, 3) Implement Order dataclass with OrderType/OrderSide/OrderStatus enums matching Binance API, 4) Implement Position and Event dataclasses with EventType enum for event-driven architecture"
+      },
+      {
+        "id": "3",
+        "title": "Binance API Connection & WebSocket Data Collector",
+        "description": "Implement the data collection layer using binance-futures-connector for real-time candle data streaming via WebSocket, with support for both testnet and mainnet environments.",
+        "details": "Implement in `src/core/data_collector.py`:\n\n1. **BinanceDataCollector Class**:\n```python\nimport asyncio\nfrom binance.um_futures import UMFutures\nfrom binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient\nfrom typing import Callable, Dict, List\nimport logging\n\nclass BinanceDataCollector:\n    TESTNET_BASE_URL = \"https://testnet.binancefuture.com\"\n    MAINNET_BASE_URL = \"https://fapi.binance.com\"\n    TESTNET_WS_URL = \"wss://stream.binancefuture.com\"\n    MAINNET_WS_URL = \"wss://fstream.binance.com\"\n    \n    def __init__(\n        self,\n        api_key: str,\n        api_secret: str,\n        symbols: List[str],\n        intervals: List[str],\n        is_testnet: bool = True,\n        on_candle_callback: Callable = None\n    ):\n        self.is_testnet = is_testnet\n        self.symbols = [s.upper() for s in symbols]\n        self.intervals = intervals\n        self.on_candle_callback = on_candle_callback\n        self._candle_buffers: Dict[str, List[Candle]] = {}\n        \n        base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL\n        self.rest_client = UMFutures(\n            key=api_key,\n            secret=api_secret,\n            base_url=base_url\n        )\n        self.ws_client = None\n        self.logger = logging.getLogger(__name__)\n    \n    def _handle_kline_message(self, message: dict):\n        \"\"\"Process incoming kline/candlestick WebSocket messages\"\"\"\n        if 'e' in message and message['e'] == 'kline':\n            kline = message['k']\n            candle = Candle(\n                symbol=kline['s'],\n                interval=kline['i'],\n                open_time=datetime.fromtimestamp(kline['t'] / 1000),\n                open=float(kline['o']),\n                high=float(kline['h']),\n                low=float(kline['l']),\n                close=float(kline['c']),\n                volume=float(kline['v']),\n                close_time=datetime.fromtimestamp(kline['T'] / 1000),\n                is_closed=kline['x']\n            )\n            if self.on_candle_callback:\n                self.on_candle_callback(candle)\n    \n    async def start_streaming(self):\n        \"\"\"Start WebSocket streams for all symbols and intervals\"\"\"\n        streams = []\n        for symbol in self.symbols:\n            for interval in self.intervals:\n                stream_name = f\"{symbol.lower()}@kline_{interval}\"\n                streams.append(stream_name)\n        \n        ws_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL\n        self.ws_client = UMFuturesWebsocketClient(\n            stream_url=ws_url,\n            on_message=self._handle_kline_message\n        )\n        \n        # Subscribe to combined stream\n        for stream in streams:\n            self.ws_client.kline(\n                symbol=stream.split('@')[0].upper(),\n                interval=stream.split('_')[1]\n            )\n    \n    def get_historical_candles(\n        self,\n        symbol: str,\n        interval: str,\n        limit: int = 500\n    ) -> List[Candle]:\n        \"\"\"Fetch historical klines via REST API\"\"\"\n        klines = self.rest_client.klines(\n            symbol=symbol.upper(),\n            interval=interval,\n            limit=limit\n        )\n        return [self._parse_rest_kline(k, symbol, interval) for k in klines]\n    \n    def stop(self):\n        if self.ws_client:\n            self.ws_client.stop()\n```\n\n2. **Key Implementation Notes**:\n- Use binance-futures-connector v4.1.0+ for USDT-M Futures\n- Handle WebSocket reconnection automatically (library provides this)\n- Implement heartbeat/ping-pong for connection health\n- Buffer last N candles per symbol/interval for indicator calculations\n- Thread-safe candle storage using asyncio.Queue",
+        "testStrategy": "1. Unit test with mocked WebSocket messages\n2. Integration test against Binance Testnet (requires testnet API keys)\n3. Verify candle parsing accuracy with known historical data\n4. Test reconnection handling by simulating connection drops\n5. Validate symbol/interval subscription management\n6. Performance test: handle 100+ messages per second without lag",
+        "priority": "high",
+        "dependencies": [
+          "1",
+          "2"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Setup BinanceDataCollector class with REST client initialization",
+            "description": "Create the BinanceDataCollector class skeleton with constructor, URL constants, and REST client initialization for both testnet and mainnet environments.",
+            "dependencies": [],
+            "details": "Implement the class structure in `src/core/data_collector.py` with:\n- Define TESTNET_BASE_URL, MAINNET_BASE_URL, TESTNET_WS_URL, MAINNET_WS_URL constants\n- Implement __init__ method accepting api_key, api_secret, symbols, intervals, is_testnet, on_candle_callback parameters\n- Initialize UMFutures REST client with appropriate base_url based on is_testnet flag\n- Setup instance variables for candle buffers (_candle_buffers), logger, and ws_client placeholder\n- Normalize symbols to uppercase and store intervals\n- Add docstrings explaining testnet vs mainnet usage",
+            "status": "pending",
+            "testStrategy": "Unit test class instantiation with both testnet=True and testnet=False. Verify REST client is created with correct base_url. Test with mock API keys. Verify symbols are normalized to uppercase.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement WebSocket connection management with kline stream subscription",
+            "description": "Implement the start_streaming async method to establish WebSocket connections and subscribe to kline streams for all configured symbols and intervals.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement in BinanceDataCollector class:\n- Create start_streaming() async method\n- Generate stream names in format '{symbol_lower}@kline_{interval}' for all symbol/interval combinations\n- Initialize UMFuturesWebsocketClient with appropriate stream_url (testnet or mainnet)\n- Subscribe to kline streams using ws_client.kline() for each symbol/interval pair\n- Set on_message callback to _handle_kline_message (to be implemented in next subtask)\n- Handle WebSocket initialization errors with proper logging\n- Store ws_client instance for later cleanup",
+            "status": "pending",
+            "testStrategy": "Mock UMFuturesWebsocketClient and verify kline() is called for each symbol/interval. Test stream name generation format. Verify correct WebSocket URL is used based on is_testnet flag. Test error handling for connection failures.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement _handle_kline_message for parsing WebSocket messages",
+            "description": "Create the WebSocket message handler that parses incoming kline data into Candle objects and triggers the callback.",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement _handle_kline_message(self, message: dict) method:\n- Check if message contains 'e' key with value 'kline' to validate message type\n- Extract kline data from message['k']\n- Parse kline fields: symbol (s), interval (i), open_time (t), open (o), high (h), low (l), close (c), volume (v), close_time (T), is_closed (x)\n- Convert timestamps from milliseconds to datetime objects using datetime.fromtimestamp()\n- Convert price/volume strings to float\n- Create Candle object with all parsed fields\n- Call self.on_candle_callback(candle) if callback is configured\n- Add error handling for malformed messages with logging",
+            "status": "pending",
+            "testStrategy": "Unit test with mock WebSocket message matching Binance kline format. Verify Candle object is created with correct field values. Test callback is invoked. Test handling of malformed messages. Verify timestamp conversion accuracy.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement get_historical_candles REST API method",
+            "description": "Create the method to fetch historical kline data via Binance REST API for initial candle buffer population.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement get_historical_candles(self, symbol: str, interval: str, limit: int = 500) method:\n- Call self.rest_client.klines() with symbol (uppercase), interval, and limit parameters\n- Implement _parse_rest_kline() helper method to convert REST API kline array to Candle object\n- REST kline format: [open_time, open, high, low, close, volume, close_time, ...]\n- Map array indices to Candle fields with proper type conversions\n- Return List[Candle] sorted by open_time\n- Handle API errors (rate limits, invalid symbol) with appropriate exceptions\n- Add logging for API calls and errors",
+            "status": "pending",
+            "testStrategy": "Integration test against Binance Testnet with real API keys. Verify returned candles match known historical data. Test with various limit values (1, 100, 500, 1000). Test error handling for invalid symbols. Verify candle parsing accuracy.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Implement candle buffer management with thread-safe storage",
+            "description": "Create thread-safe candle buffer storage using asyncio.Queue to maintain recent candles for each symbol/interval pair.",
+            "dependencies": [
+              3,
+              4
+            ],
+            "details": "Implement candle buffer management:\n- Initialize _candle_buffers as Dict[str, asyncio.Queue] in __init__\n- Create buffer key format: '{symbol}_{interval}'\n- Implement add_candle_to_buffer(candle: Candle) method that adds to appropriate queue\n- Set buffer size limit (e.g., 500 candles per symbol/interval)\n- Implement get_candle_buffer(symbol: str, interval: str) -> List[Candle] method\n- Use asyncio.Queue for thread-safe operations\n- Integrate with _handle_kline_message to automatically buffer incoming candles\n- Integrate with get_historical_candles to pre-populate buffers\n- Implement buffer overflow handling (remove oldest candles when full)",
+            "status": "pending",
+            "testStrategy": "Unit test buffer addition and retrieval with multiple symbols/intervals. Test thread safety with concurrent adds. Verify buffer size limits work correctly. Test buffer pre-population from historical data. Verify oldest candles are removed on overflow.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 6,
+            "title": "Add connection health monitoring and graceful shutdown",
+            "description": "Implement connection health checks, automatic reconnection handling, and graceful shutdown mechanisms for the WebSocket client.",
+            "dependencies": [
+              2,
+              3,
+              5
+            ],
+            "details": "Implement connection management features:\n- Add _is_connected property to track WebSocket state\n- Implement ping/heartbeat mechanism (if not provided by library)\n- Add connection error callback to handle disconnections\n- Implement stop() method to gracefully close WebSocket and REST clients\n- Add cleanup logic to flush remaining buffered candles\n- Implement __aenter__ and __aexit__ for async context manager support\n- Log connection state changes (connected, disconnected, reconnecting)\n- Note: binance-futures-connector handles automatic reconnection internally\n- Add shutdown timeout handling (max 5 seconds for cleanup)\n- Ensure all async tasks are properly cancelled on shutdown",
+            "status": "pending",
+            "testStrategy": "Test stop() method closes connections cleanly. Test context manager usage. Simulate connection drop and verify reconnection (may need to mock). Test shutdown with pending messages in buffer. Verify no resource leaks after shutdown.",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 7,
+        "recommendedSubtasks": 6,
+        "expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown"
+      },
+      {
+        "id": "4",
+        "title": "Event-Driven Architecture & Async Queue System",
+        "description": "Implement the event-driven architecture using asyncio with multiple queues (data queue, signal queue, order queue) to prevent event jamming and ensure non-blocking operation.",
+        "details": "Implement in `src/core/event_handler.py`:\n\n1. **EventBus Class**:\n```python\nimport asyncio\nfrom typing import Dict, List, Callable, Any\nfrom collections import defaultdict\nimport logging\n\nclass EventBus:\n    def __init__(self):\n        self._subscribers: Dict[EventType, List[Callable]] = defaultdict(list)\n        self._queues: Dict[str, asyncio.Queue] = {\n            'data': asyncio.Queue(maxsize=1000),\n            'signal': asyncio.Queue(maxsize=100),\n            'order': asyncio.Queue(maxsize=50)\n        }\n        self._running = False\n        self.logger = logging.getLogger(__name__)\n    \n    def subscribe(self, event_type: EventType, handler: Callable):\n        \"\"\"Subscribe a handler to an event type\"\"\"\n        self._subscribers[event_type].append(handler)\n    \n    async def publish(self, event: Event, queue_name: str = 'data'):\n        \"\"\"Publish an event to a specific queue\"\"\"\n        try:\n            await asyncio.wait_for(\n                self._queues[queue_name].put(event),\n                timeout=1.0\n            )\n        except asyncio.TimeoutError:\n            self.logger.warning(f\"Queue {queue_name} is full, dropping event\")\n    \n    async def _process_queue(self, queue_name: str):\n        \"\"\"Process events from a specific queue\"\"\"\n        queue = self._queues[queue_name]\n        while self._running:\n            try:\n                event = await asyncio.wait_for(queue.get(), timeout=0.1)\n                handlers = self._subscribers.get(event.event_type, [])\n                for handler in handlers:\n                    try:\n                        if asyncio.iscoroutinefunction(handler):\n                            await handler(event)\n                        else:\n                            handler(event)\n                    except Exception as e:\n                        self.logger.error(f\"Handler error: {e}\")\n                queue.task_done()\n            except asyncio.TimeoutError:\n                continue\n    \n    async def start(self):\n        \"\"\"Start all queue processors\"\"\"\n        self._running = True\n        tasks = [\n            asyncio.create_task(self._process_queue('data')),\n            asyncio.create_task(self._process_queue('signal')),\n            asyncio.create_task(self._process_queue('order'))\n        ]\n        await asyncio.gather(*tasks)\n    \n    def stop(self):\n        self._running = False\n```\n\n2. **TradingEngine Class** (main orchestrator):\n```python\nclass TradingEngine:\n    def __init__(self, config: Config):\n        self.config = config\n        self.event_bus = EventBus()\n        self.data_collector = None\n        self.strategy = None\n        self.order_manager = None\n        self._setup_handlers()\n    \n    def _setup_handlers(self):\n        self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)\n        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal)\n        self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)\n    \n    async def _on_candle_closed(self, event: Event):\n        candle = event.data\n        signal = await self.strategy.analyze(candle)\n        if signal:\n            await self.event_bus.publish(\n                Event(EventType.SIGNAL_GENERATED, signal),\n                queue_name='signal'\n            )\n    \n    async def run(self):\n        await asyncio.gather(\n            self.event_bus.start(),\n            self.data_collector.start_streaming()\n        )\n```\n\n3. **Queue Priority**:\n- Data Queue: High throughput, can drop old events if full\n- Signal Queue: Medium priority, all signals must be processed\n- Order Queue: Critical, never drop, with retry logic",
+        "testStrategy": "1. Unit test EventBus subscribe/publish mechanism\n2. Test queue overflow behavior and event dropping\n3. Verify async handlers don't block the event loop\n4. Stress test with 1000+ events per second\n5. Test graceful shutdown with pending events\n6. Verify event ordering is maintained within each queue",
+        "priority": "high",
+        "dependencies": [
+          "2",
+          "3"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement EventBus core class with subscriber registry and event routing",
+            "description": "Create the EventBus class with subscription management system that supports EventType-based routing, multiple handlers per event type, and proper thread-safe subscriber storage using defaultdict.",
+            "dependencies": [],
+            "details": "Implement in `src/core/event_handler.py`:\n\n1. Create EventBus class with `__init__` method initializing:\n   - `_subscribers: Dict[EventType, List[Callable]]` using defaultdict(list)\n   - Logger instance for debug/error tracking\n   - `_running` flag (initially False)\n\n2. Implement `subscribe(event_type: EventType, handler: Callable)` method:\n   - Add handler to the subscribers list for the given event type\n   - Support both sync and async handlers\n   - No duplicate handler checking needed (allow multiple subscriptions)\n\n3. Create `_get_handlers(event_type: EventType) -> List[Callable]` helper:\n   - Return list of handlers for given event type\n   - Return empty list if no handlers registered\n\n4. Add logging for subscription events (debug level)\n\nThis establishes the foundation for pub-sub pattern before queue implementation.",
+            "status": "pending",
+            "testStrategy": "1. Unit test subscribe() adds handlers correctly\n2. Test multiple handlers can subscribe to same event type\n3. Test empty handler list for unsubscribed events\n4. Verify both sync and async callables can be registered\n5. Test thread-safety with concurrent subscriptions",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement multi-queue system with priority-based asyncio queues",
+            "description": "Create three separate asyncio.Queue instances (data, signal, order) with different size limits and overflow handling strategies. Implement the publish() method to route events to appropriate queues.",
+            "dependencies": [
+              1
+            ],
+            "details": "Continue in `src/core/event_handler.py` EventBus class:\n\n1. Add `_queues` dict initialization in `__init__`:\n   ```python\n   self._queues: Dict[str, asyncio.Queue] = {\n       'data': asyncio.Queue(maxsize=1000),    # High throughput, can drop\n       'signal': asyncio.Queue(maxsize=100),   # Medium priority, must process\n       'order': asyncio.Queue(maxsize=50)      # Critical, never drop\n   }\n   ```\n\n2. Implement async `publish(event: Event, queue_name: str = 'data')` method:\n   - Validate queue_name exists in _queues\n   - Use `asyncio.wait_for(queue.put(event), timeout=1.0)` for data queue\n   - For signal/order queues, use longer timeout or no timeout\n   - Handle asyncio.TimeoutError: log warning and drop for data queue, raise for critical queues\n   - Add metrics logging (queue size, drop count)\n\n3. Add `get_queue_stats() -> Dict[str, int]` helper:\n   - Return current qsize() for each queue\n   - Useful for monitoring\n\nThis enables non-blocking event publishing with overflow protection.",
+            "status": "pending",
+            "testStrategy": "1. Test each queue accepts events up to maxsize\n2. Verify data queue drops events when full (TimeoutError handling)\n3. Test signal/order queues block when full (no drops)\n4. Verify queue_name validation raises error for invalid queues\n5. Test publish() timeout behavior for each queue type\n6. Measure queue performance with 1000+ events/sec load",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement async queue processors with error recovery and timeout handling",
+            "description": "Create the core event processing loop that continuously polls each queue, dispatches events to registered handlers, and implements robust error handling to prevent processor crashes.",
+            "dependencies": [
+              1,
+              2
+            ],
+            "details": "Continue in `src/core/event_handler.py` EventBus class:\n\n1. Implement async `_process_queue(queue_name: str)` method:\n   ```python\n   async def _process_queue(self, queue_name: str):\n       queue = self._queues[queue_name]\n       while self._running:\n           try:\n               # Non-blocking get with timeout\n               event = await asyncio.wait_for(queue.get(), timeout=0.1)\n               \n               # Get handlers for this event type\n               handlers = self._subscribers.get(event.event_type, [])\n               \n               # Execute each handler\n               for handler in handlers:\n                   try:\n                       if asyncio.iscoroutinefunction(handler):\n                           await handler(event)\n                       else:\n                           handler(event)  # Sync handler\n                   except Exception as e:\n                       self.logger.error(f\"Handler error in {queue_name}: {e}\", exc_info=True)\n                       # Continue processing other handlers\n               \n               queue.task_done()\n           except asyncio.TimeoutError:\n               # No event available, continue loop\n               continue\n           except Exception as e:\n               self.logger.error(f\"Queue processor error: {e}\", exc_info=True)\n   ```\n\n2. Add handler execution timing/metrics logging\n3. Ensure handler errors don't crash the processor\n4. Support both async and sync handler execution",
+            "status": "pending",
+            "testStrategy": "1. Test processor handles async and sync handlers correctly\n2. Verify handler exceptions don't crash the processor\n3. Test processor continues after handler errors\n4. Verify timeout behavior when queue is empty\n5. Test processor stops when _running flag is False\n6. Measure handler execution time doesn't block other events\n7. Test with deliberately failing handlers",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement EventBus start/stop lifecycle with task management",
+            "description": "Create the start() and stop() methods that manage the lifecycle of all queue processors, including proper task creation, cancellation, and graceful shutdown with pending event handling.",
+            "dependencies": [
+              3
+            ],
+            "details": "Continue in `src/core/event_handler.py` EventBus class:\n\n1. Implement async `start()` method:\n   ```python\n   async def start(self):\n       \"\"\"Start all queue processors\"\"\"\n       self._running = True\n       self.logger.info(\"Starting EventBus processors\")\n       \n       # Create processor tasks for each queue\n       tasks = [\n           asyncio.create_task(self._process_queue('data'), name='data_processor'),\n           asyncio.create_task(self._process_queue('signal'), name='signal_processor'),\n           asyncio.create_task(self._process_queue('order'), name='order_processor')\n       ]\n       self._processor_tasks = tasks\n       \n       # Wait for all processors (runs until stop() is called)\n       await asyncio.gather(*tasks, return_exceptions=True)\n   ```\n\n2. Implement `stop()` method:\n   ```python\n   def stop(self):\n       \"\"\"Signal processors to stop\"\"\"\n       self.logger.info(\"Stopping EventBus processors\")\n       self._running = False\n   ```\n\n3. Implement async `shutdown()` method for graceful cleanup:\n   ```python\n   async def shutdown(self, timeout: float = 5.0):\n       \"\"\"Gracefully shutdown with pending event processing\"\"\"\n       self.stop()\n       \n       # Wait for queues to empty\n       for name, queue in self._queues.items():\n           try:\n               await asyncio.wait_for(queue.join(), timeout=timeout)\n           except asyncio.TimeoutError:\n               self.logger.warning(f\"Queue {name} didn't empty in time\")\n       \n       # Cancel processor tasks\n       if hasattr(self, '_processor_tasks'):\n           for task in self._processor_tasks:\n               task.cancel()\n   ```\n\n4. Add proper logging for lifecycle events",
+            "status": "pending",
+            "testStrategy": "1. Test start() creates all three processor tasks\n2. Verify processors run continuously until stop() is called\n3. Test stop() sets _running flag and processors exit\n4. Test shutdown() waits for pending events to process\n5. Verify shutdown() timeout prevents indefinite waiting\n6. Test task cancellation works correctly\n7. Integration test: start → publish events → stop → verify all events processed",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Implement TradingEngine orchestrator with event handler registration",
+            "description": "Create the TradingEngine class that serves as the main application orchestrator, manages component lifecycle, registers event handlers, and coordinates the data → signal → order pipeline.",
+            "dependencies": [
+              4
+            ],
+            "details": "Create `src/core/trading_engine.py`:\n\n1. Implement TradingEngine class:\n   ```python\n   from src.core.event_handler import EventBus\n   from src.models.event import Event, EventType\n   import asyncio\n   import logging\n\n   class TradingEngine:\n       def __init__(self, config: dict):\n           self.config = config\n           self.logger = logging.getLogger(__name__)\n           \n           # Core components\n           self.event_bus = EventBus()\n           self.data_collector = None  # Will be injected\n           self.strategy = None  # Will be injected\n           self.order_manager = None  # Will be injected\n           \n           # Setup event handlers\n           self._setup_handlers()\n       \n       def _setup_handlers(self):\n           \"\"\"Register event handlers for trading pipeline\"\"\"\n           self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)\n           self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal)\n           self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)\n           self.event_bus.subscribe(EventType.ERROR, self._on_error)\n       \n       async def _on_candle_closed(self, event: Event):\n           \"\"\"Handle new candle → generate signal\"\"\"\n           candle = event.data\n           self.logger.debug(f\"Candle closed: {candle.symbol} {candle.close_time}\")\n           \n           if self.strategy:\n               signal = await self.strategy.analyze(candle)\n               if signal:\n                   await self.event_bus.publish(\n                       Event(EventType.SIGNAL_GENERATED, signal),\n                       queue_name='signal'\n                   )\n       \n       async def _on_signal(self, event: Event):\n           \"\"\"Handle signal → create order\"\"\"\n           signal = event.data\n           self.logger.info(f\"Signal generated: {signal.direction} {signal.symbol}\")\n           \n           if self.order_manager:\n               order = await self.order_manager.create_order(signal)\n               if order:\n                   await self.event_bus.publish(\n                       Event(EventType.ORDER_CREATED, order),\n                       queue_name='order'\n                   )\n       \n       async def _on_order_filled(self, event: Event):\n           \"\"\"Handle order filled → update position\"\"\"\n           order = event.data\n           self.logger.info(f\"Order filled: {order.order_id}\")\n           # Position management logic will be added later\n       \n       async def _on_error(self, event: Event):\n           \"\"\"Handle system errors\"\"\"\n           self.logger.error(f\"System error: {event.data}\")\n       \n       async def run(self):\n           \"\"\"Start the trading engine\"\"\"\n           self.logger.info(\"Starting TradingEngine\")\n           \n           try:\n               # Start all components concurrently\n               await asyncio.gather(\n                   self.event_bus.start(),\n                   self.data_collector.start_streaming() if self.data_collector else asyncio.sleep(0),\n                   return_exceptions=True\n               )\n           except KeyboardInterrupt:\n               self.logger.info(\"Shutdown requested\")\n           finally:\n               await self.shutdown()\n       \n       async def shutdown(self):\n           \"\"\"Gracefully shutdown all components\"\"\"\n           self.logger.info(\"Shutting down TradingEngine\")\n           \n           # Stop data collector first\n           if self.data_collector:\n               await self.data_collector.stop()\n           \n           # Shutdown event bus (processes pending events)\n           await self.event_bus.shutdown(timeout=10.0)\n   ```\n\n2. Add component injection methods:\n   - `set_data_collector(collector)`\n   - `set_strategy(strategy)`\n   - `set_order_manager(manager)`\n\n3. Add health check method for monitoring",
+            "status": "pending",
+            "testStrategy": "1. Test _setup_handlers() registers all event types\n2. Mock strategy and verify _on_candle_closed() calls strategy.analyze()\n3. Test signal → order pipeline with mocked components\n4. Verify run() starts both event_bus and data_collector\n5. Test shutdown() stops all components gracefully\n6. Integration test: inject mock components → run() → verify event flow\n7. Test KeyboardInterrupt triggers proper shutdown\n8. Verify handler errors are logged but don't crash engine",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 7,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Break down into: 1) Implement EventBus class with subscriber registry and event type routing, 2) Implement multi-queue system (data/signal/order) with asyncio.Queue and configurable size limits, 3) Implement async queue processors with timeout handling and error recovery, 4) Implement TradingEngine orchestrator class with event handler registration, 5) Implement graceful startup/shutdown with proper task cancellation and cleanup"
+      },
+      {
+        "id": "5",
+        "title": "Mock Strategy & Signal Generation Pipeline",
+        "description": "Implement a simple mock strategy to validate the complete data-to-signal pipeline before implementing actual ICT indicators. This enables end-to-end testing of the system flow.",
+        "details": "Implement in `src/strategies/`:\n\n1. **base.py - Abstract Strategy Interface**:\n```python\nfrom abc import ABC, abstractmethod\nfrom typing import Optional, List\nfrom src.models.candle import Candle\nfrom src.models.signal import Signal\n\nclass BaseStrategy(ABC):\n    def __init__(self, symbol: str, config: dict):\n        self.symbol = symbol\n        self.config = config\n        self.candle_buffer: List[Candle] = []\n        self.buffer_size: int = config.get('buffer_size', 100)\n    \n    def update_buffer(self, candle: Candle):\n        \"\"\"Add candle to buffer, maintain max size\"\"\"\n        self.candle_buffer.append(candle)\n        if len(self.candle_buffer) > self.buffer_size:\n            self.candle_buffer.pop(0)\n    \n    @abstractmethod\n    async def analyze(self, candle: Candle) -> Optional[Signal]:\n        \"\"\"Analyze candle and return signal if conditions met\"\"\"\n        pass\n    \n    @abstractmethod\n    def calculate_take_profit(self, entry_price: float, side: str) -> float:\n        pass\n    \n    @abstractmethod\n    def calculate_stop_loss(self, entry_price: float, side: str) -> float:\n        pass\n```\n\n2. **mock_strategy.py - Simple SMA Crossover for Testing**:\n```python\nimport numpy as np\nfrom typing import Optional\n\nclass MockSMACrossoverStrategy(BaseStrategy):\n    \"\"\"\n    Simple SMA crossover for pipeline validation.\n    NOT for production use - only for testing the signal flow.\n    \"\"\"\n    def __init__(self, symbol: str, config: dict):\n        super().__init__(symbol, config)\n        self.fast_period = config.get('fast_period', 10)\n        self.slow_period = config.get('slow_period', 20)\n        self.risk_reward_ratio = config.get('risk_reward_ratio', 2.0)\n        self.stop_loss_percent = config.get('stop_loss_percent', 0.01)  # 1%\n        self._last_signal_type = None\n    \n    async def analyze(self, candle: Candle) -> Optional[Signal]:\n        if not candle.is_closed:\n            return None\n        \n        self.update_buffer(candle)\n        \n        if len(self.candle_buffer) < self.slow_period:\n            return None\n        \n        closes = np.array([c.close for c in self.candle_buffer])\n        fast_sma = np.mean(closes[-self.fast_period:])\n        slow_sma = np.mean(closes[-self.slow_period:])\n        prev_fast = np.mean(closes[-self.fast_period-1:-1])\n        prev_slow = np.mean(closes[-self.slow_period-1:-1])\n        \n        # Golden cross - bullish\n        if prev_fast <= prev_slow and fast_sma > slow_sma:\n            if self._last_signal_type != SignalType.LONG_ENTRY:\n                self._last_signal_type = SignalType.LONG_ENTRY\n                return self._create_signal(SignalType.LONG_ENTRY, candle.close)\n        \n        # Death cross - bearish\n        if prev_fast >= prev_slow and fast_sma < slow_sma:\n            if self._last_signal_type != SignalType.SHORT_ENTRY:\n                self._last_signal_type = SignalType.SHORT_ENTRY\n                return self._create_signal(SignalType.SHORT_ENTRY, candle.close)\n        \n        return None\n    \n    def _create_signal(self, signal_type: SignalType, price: float) -> Signal:\n        side = 'LONG' if signal_type == SignalType.LONG_ENTRY else 'SHORT'\n        return Signal(\n            signal_type=signal_type,\n            symbol=self.symbol,\n            entry_price=price,\n            take_profit=self.calculate_take_profit(price, side),\n            stop_loss=self.calculate_stop_loss(price, side),\n            strategy_name='MockSMACrossover',\n            timestamp=datetime.utcnow()\n        )\n    \n    def calculate_take_profit(self, entry_price: float, side: str) -> float:\n        risk = entry_price * self.stop_loss_percent\n        reward = risk * self.risk_reward_ratio\n        return entry_price + reward if side == 'LONG' else entry_price - reward\n    \n    def calculate_stop_loss(self, entry_price: float, side: str) -> float:\n        risk = entry_price * self.stop_loss_percent\n        return entry_price - risk if side == 'LONG' else entry_price + risk\n```\n\n3. **Strategy Factory**:\n```python\nclass StrategyFactory:\n    _strategies = {\n        'mock_sma': MockSMACrossoverStrategy,\n        # Future: 'ict_fvg': ICTFVGStrategy,\n    }\n    \n    @classmethod\n    def create(cls, name: str, symbol: str, config: dict) -> BaseStrategy:\n        if name not in cls._strategies:\n            raise ValueError(f\"Unknown strategy: {name}\")\n        return cls._strategies[name](symbol, config)\n```",
+        "testStrategy": "1. Unit test SMA calculation accuracy with known data\n2. Test signal generation on bullish/bearish crossover scenarios\n3. Verify TP/SL calculations are correct for both LONG/SHORT\n4. Test buffer management (overflow, underflow)\n5. Integration test: feed historical candles → verify expected signals\n6. Test strategy factory registration and instantiation",
+        "priority": "high",
+        "dependencies": [
+          "2",
+          "3",
+          "4"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement BaseStrategy abstract class with candle buffer management",
+            "description": "Create the abstract base strategy class in src/strategies/base.py with candle buffer management, abstract method definitions, and configuration handling.",
+            "dependencies": [],
+            "details": "Implement BaseStrategy as an ABC with:\n- Constructor accepting symbol and config dict\n- Candle buffer list with configurable max size (default 100)\n- update_buffer() method that appends candles and maintains buffer size via FIFO\n- Abstract methods: analyze(), calculate_take_profit(), calculate_stop_loss()\n- Import required types from src.models.candle and src.models.signal\n- Add type hints for all methods and properties\n- Include docstrings for the class and all methods",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Test buffer initialization with default and custom sizes, 2) Verify buffer FIFO behavior when exceeding max size, 3) Confirm abstract methods raise NotImplementedError when called directly, 4) Test type hints with mypy",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement MockSMACrossoverStrategy with SMA calculation using numpy",
+            "description": "Create the mock SMA crossover strategy class in src/strategies/mock_strategy.py with fast/slow SMA calculation, crossover detection, and signal generation logic.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement MockSMACrossoverStrategy extending BaseStrategy:\n- Constructor with configurable fast_period (default 10), slow_period (default 20), risk_reward_ratio (default 2.0), stop_loss_percent (default 0.01)\n- analyze() method that: checks candle is_closed, updates buffer, validates buffer has enough data (>= slow_period)\n- Calculate fast and slow SMAs using numpy.mean() on close prices\n- Calculate previous period SMAs for crossover detection\n- Detect golden cross (fast crosses above slow) → LONG_ENTRY signal\n- Detect death cross (fast crosses below slow) → SHORT_ENTRY signal\n- Track _last_signal_type to prevent duplicate consecutive signals\n- Call _create_signal() helper method when conditions met\n- Return None if no signal conditions met or candle not closed",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Test SMA calculation accuracy with known dataset, 2) Verify golden cross generates LONG_ENTRY signal, 3) Verify death cross generates SHORT_ENTRY signal, 4) Confirm no duplicate signals on consecutive crossovers, 5) Test with insufficient buffer data returns None",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement TP/SL calculation logic with configurable risk/reward ratios",
+            "description": "Implement take profit and stop loss calculation methods in MockSMACrossoverStrategy with support for both LONG and SHORT positions using configurable risk/reward parameters.",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement calculation methods:\n- calculate_stop_loss(entry_price, side): Calculate risk as entry_price * stop_loss_percent, return entry_price - risk for LONG, entry_price + risk for SHORT\n- calculate_take_profit(entry_price, side): Calculate risk, then reward = risk * risk_reward_ratio, return entry_price + reward for LONG, entry_price - reward for SHORT\n- _create_signal(signal_type, price): Helper to construct Signal object with symbol, signal_type, entry_price, calculated TP/SL, strategy_name='MockSMACrossover', timestamp=datetime.utcnow()\n- Ensure side is correctly derived from signal_type (LONG_ENTRY → 'LONG', SHORT_ENTRY → 'SHORT')\n- Import datetime and SignalType from appropriate modules",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Verify SL calculation for LONG position (price 100, 1% = 99), 2) Verify SL calculation for SHORT position (price 100, 1% = 101), 3) Verify TP calculation with 2:1 RR for LONG (entry 100, SL 99, TP 102), 4) Verify TP calculation for SHORT positions, 5) Test edge cases with various entry prices and percentages",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement StrategyFactory pattern for strategy instantiation",
+            "description": "Create the StrategyFactory class in src/strategies/__init__.py or factory.py to manage strategy registration and instantiation with a clean interface.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "Implement StrategyFactory:\n- Create class-level _strategies dict mapping strategy names to classes: {'mock_sma': MockSMACrossoverStrategy}\n- Implement create() classmethod accepting name (str), symbol (str), config (dict)\n- Validate strategy name exists in _strategies, raise ValueError with descriptive message if not found\n- Instantiate and return the appropriate strategy class with provided symbol and config\n- Add comment placeholder for future ICT strategies (e.g., 'ict_fvg': ICTFVGStrategy)\n- Import MockSMACrossoverStrategy and BaseStrategy\n- Add type hints: create() returns BaseStrategy",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Test successful creation of 'mock_sma' strategy, 2) Verify ValueError raised for unknown strategy name, 3) Confirm returned instance is correct type, 4) Test config parameters are passed correctly to strategy constructor, 5) Verify factory extensibility by adding a dummy strategy class",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 5,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Break down into: 1) Implement BaseStrategy abstract class with candle buffer management and abstract methods, 2) Implement MockSMACrossoverStrategy with fast/slow SMA calculation using numpy, 3) Implement TP/SL calculation logic with configurable risk/reward ratios, 4) Implement StrategyFactory pattern for strategy instantiation and registration"
+      },
+      {
+        "id": "6",
+        "title": "Order Execution Manager & Binance API Integration",
+        "description": "Implement the order execution module that translates trading signals into actual Binance Futures orders, supporting market orders with TP/SL, and position management.",
+        "details": "Implement in `src/execution/order_manager.py`:\n\n1. **OrderExecutionManager Class**:\n```python\nfrom binance.um_futures import UMFutures\nfrom typing import Dict, List, Optional, Tuple\nimport logging\n\nclass OrderExecutionManager:\n    def __init__(\n        self,\n        api_key: str,\n        api_secret: str,\n        is_testnet: bool = True\n    ):\n        base_url = (\n            \"https://testnet.binancefuture.com\"\n            if is_testnet else \"https://fapi.binance.com\"\n        )\n        self.client = UMFutures(\n            key=api_key,\n            secret=api_secret,\n            base_url=base_url\n        )\n        self.logger = logging.getLogger(__name__)\n        self._open_orders: Dict[str, List[Order]] = {}\n    \n    def set_leverage(self, symbol: str, leverage: int) -> bool:\n        \"\"\"Set leverage for a symbol\"\"\"\n        try:\n            self.client.change_leverage(\n                symbol=symbol,\n                leverage=leverage\n            )\n            self.logger.info(f\"Leverage set to {leverage}x for {symbol}\")\n            return True\n        except Exception as e:\n            self.logger.error(f\"Failed to set leverage: {e}\")\n            return False\n    \n    def set_margin_type(self, symbol: str, margin_type: str = 'ISOLATED'):\n        \"\"\"Set margin type (ISOLATED or CROSSED)\"\"\"\n        try:\n            self.client.change_margin_type(\n                symbol=symbol,\n                marginType=margin_type\n            )\n        except Exception as e:\n            # May fail if already set\n            if 'No need to change margin type' not in str(e):\n                self.logger.error(f\"Failed to set margin type: {e}\")\n    \n    async def execute_signal(self, signal: Signal, quantity: float) -> Tuple[Order, List[Order]]:\n        \"\"\"\n        Execute a trading signal with market entry and TP/SL orders.\n        Returns: (entry_order, [tp_order, sl_order])\n        \"\"\"\n        side = OrderSide.BUY if signal.signal_type == SignalType.LONG_ENTRY else OrderSide.SELL\n        close_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY\n        \n        # 1. Place market entry order\n        entry_response = self.client.new_order(\n            symbol=signal.symbol,\n            side=side.value,\n            type='MARKET',\n            quantity=quantity\n        )\n        entry_order = self._parse_order_response(entry_response)\n        self.logger.info(f\"Entry order placed: {entry_order}\")\n        \n        # 2. Place Take Profit order\n        tp_response = self.client.new_order(\n            symbol=signal.symbol,\n            side=close_side.value,\n            type='TAKE_PROFIT_MARKET',\n            stopPrice=self._format_price(signal.symbol, signal.take_profit),\n            closePosition=True,\n            workingType='MARK_PRICE'\n        )\n        tp_order = self._parse_order_response(tp_response)\n        \n        # 3. Place Stop Loss order\n        sl_response = self.client.new_order(\n            symbol=signal.symbol,\n            side=close_side.value,\n            type='STOP_MARKET',\n            stopPrice=self._format_price(signal.symbol, signal.stop_loss),\n            closePosition=True,\n            workingType='MARK_PRICE'\n        )\n        sl_order = self._parse_order_response(sl_response)\n        \n        return entry_order, [tp_order, sl_order]\n    \n    def cancel_all_orders(self, symbol: str) -> bool:\n        \"\"\"Cancel all open orders for a symbol\"\"\"\n        try:\n            self.client.cancel_open_orders(symbol=symbol)\n            return True\n        except Exception as e:\n            self.logger.error(f\"Failed to cancel orders: {e}\")\n            return False\n    \n    def get_position(self, symbol: str) -> Optional[Position]:\n        \"\"\"Get current position for a symbol\"\"\"\n        positions = self.client.get_position_risk(symbol=symbol)\n        for pos in positions:\n            if float(pos['positionAmt']) != 0:\n                return Position(\n                    symbol=pos['symbol'],\n                    side='LONG' if float(pos['positionAmt']) > 0 else 'SHORT',\n                    entry_price=float(pos['entryPrice']),\n                    quantity=abs(float(pos['positionAmt'])),\n                    leverage=int(pos['leverage']),\n                    unrealized_pnl=float(pos['unRealizedProfit']),\n                    liquidation_price=float(pos['liquidationPrice'])\n                )\n        return None\n    \n    def get_account_balance(self) -> float:\n        \"\"\"Get USDT balance\"\"\"\n        account = self.client.account()\n        for asset in account['assets']:\n            if asset['asset'] == 'USDT':\n                return float(asset['walletBalance'])\n        return 0.0\n    \n    def _format_price(self, symbol: str, price: float) -> str:\n        \"\"\"Format price according to symbol's tick size\"\"\"\n        # TODO: Get tick size from exchange info\n        return f\"{price:.2f}\"\n```\n\n2. **Error Handling**:\n- Wrap all API calls in try/except\n- Implement retry logic with exponential backoff\n- Handle rate limiting (429 errors)\n- Log all order responses for audit trail",
+        "testStrategy": "1. Unit test order creation with mocked Binance client\n2. Integration test on Binance Testnet:\n   - Place market order\n   - Place TP/SL orders\n   - Cancel orders\n   - Query positions\n3. Test error handling for common API errors\n4. Verify price formatting matches symbol specifications\n5. Test leverage and margin type setting",
+        "priority": "high",
+        "dependencies": [
+          "2",
+          "3",
+          "4"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement OrderExecutionManager class with REST client setup and leverage/margin configuration",
+            "description": "Create the base OrderExecutionManager class with Binance UMFutures REST client initialization, supporting both testnet and mainnet environments. Implement set_leverage() and set_margin_type() methods for position configuration.",
+            "dependencies": [],
+            "details": "Initialize UMFutures client with API credentials and base URL selection based on is_testnet flag. Implement set_leverage() method using client.change_leverage() with proper error handling. Implement set_margin_type() method using client.change_margin_type() for ISOLATED/CROSSED margin modes. Handle the common 'No need to change margin type' error gracefully. Set up logging infrastructure and _open_orders state dictionary for tracking active orders.",
+            "status": "pending",
+            "testStrategy": "Unit test with mocked Binance client to verify: 1) Correct base URL selection for testnet/mainnet, 2) Leverage setting with various values (1x-125x), 3) Margin type configuration for both ISOLATED and CROSSED modes, 4) Error handling when margin type is already set, 5) Logging output for successful operations",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement execute_signal method with market entry order placement",
+            "description": "Implement the execute_signal() method to translate Signal objects into Binance market orders, determining correct order side (BUY/SELL) based on signal type and placing the entry order with specified quantity.",
+            "dependencies": [
+              1
+            ],
+            "details": "Parse Signal object to determine order side: BUY for LONG_ENTRY, SELL for SHORT_ENTRY. Calculate close_side as opposite of entry side. Use client.new_order() with type='MARKET' to place entry order. Implement _parse_order_response() helper method to convert Binance API response into Order object. Add comprehensive logging for each order placement. Handle quantity precision according to symbol specifications. Return parsed entry Order object.",
+            "status": "pending",
+            "testStrategy": "Unit test with mocked client.new_order(): 1) Verify correct side selection for LONG/SHORT signals, 2) Test quantity formatting, 3) Validate Order object parsing from API response, 4) Test logging output includes order details. Integration test on Binance Testnet: place actual market orders and verify execution.",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement TP/SL order placement using TAKE_PROFIT_MARKET and STOP_MARKET order types",
+            "description": "Extend execute_signal() to place conditional Take Profit and Stop Loss orders immediately after entry order, using Binance Futures TAKE_PROFIT_MARKET and STOP_MARKET order types with closePosition=True and workingType='MARK_PRICE'.",
+            "dependencies": [
+              2
+            ],
+            "details": "After entry order placement, create TP order using type='TAKE_PROFIT_MARKET' with stopPrice set to signal.take_profit, closePosition=True to automatically close entire position, and workingType='MARK_PRICE' to use mark price for triggering. Create SL order using type='STOP_MARKET' with stopPrice set to signal.stop_loss and same parameters. Use _format_price() helper (to be implemented) for price formatting. Parse both responses into Order objects. Return tuple of (entry_order, [tp_order, sl_order]).",
+            "status": "pending",
+            "testStrategy": "Unit test with mocked API responses: 1) Verify correct order type selection, 2) Test stopPrice formatting for TP/SL levels, 3) Validate closePosition and workingType parameters, 4) Test return tuple structure. Integration test on Testnet: 1) Place TP/SL orders, 2) Verify orders appear in open orders, 3) Test order triggering with price movements",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement position and account balance query methods",
+            "description": "Implement get_position() to retrieve current position information for a symbol and get_account_balance() to query USDT wallet balance, along with cancel_all_orders() for risk management.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement get_position() using client.get_position_risk(symbol) to fetch position data. Parse response to create Position object with fields: symbol, side (LONG/SHORT based on positionAmt sign), entry_price, quantity (absolute value), leverage, unrealized_pnl, and liquidation_price. Return None if position size is zero. Implement get_account_balance() using client.account() to fetch account info, iterate through assets array to find USDT, and return walletBalance as float. Implement cancel_all_orders() using client.cancel_open_orders() with try/except error handling.",
+            "status": "pending",
+            "testStrategy": "Unit test with mocked API responses: 1) Test position parsing for LONG/SHORT positions, 2) Test zero position handling, 3) Test USDT balance extraction from account data, 4) Test order cancellation. Integration test on Testnet: 1) Open test position and verify get_position() accuracy, 2) Query actual account balance, 3) Place and cancel orders",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Implement price formatting according to symbol tick size specifications",
+            "description": "Implement _format_price() method that formats prices according to each symbol's tick size specifications from Binance exchange information, ensuring orders don't get rejected due to invalid price precision.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement _format_price(symbol: str, price: float) -> str method. Use client.exchange_info() to fetch symbol specifications. Cache exchange info to avoid repeated API calls. Extract 'filters' array from symbol data, find 'PRICE_FILTER' type, and get 'tickSize' value. Calculate number of decimal places from tick size (e.g., tickSize=0.01 means 2 decimals). Format price using calculated precision. Handle edge cases: missing symbol info, invalid tick sizes. Add caching mechanism for exchange info with TTL.",
+            "status": "pending",
+            "testStrategy": "Unit test: 1) Mock exchange_info() response with various tick sizes (0.01, 0.1, 1.0), 2) Verify correct decimal precision calculation, 3) Test price rounding (e.g., 12345.678 with tickSize=0.1 becomes '12345.7'), 4) Test caching behavior. Integration test on Testnet: 1) Fetch real tick sizes for BTCUSDT, ETHUSDT, 2) Format prices and verify order acceptance",
+            "parentId": "undefined"
+          },
+          {
+            "id": 6,
+            "title": "Implement error handling with retry logic, rate limiting, and order cancellation",
+            "description": "Implement comprehensive error handling for all API operations including exponential backoff retry logic, rate limit handling (429 errors), network error recovery, and audit logging of all order operations.",
+            "dependencies": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "details": "Create @retry_with_backoff decorator with parameters: max_retries=3, initial_delay=1.0, backoff_factor=2.0. Wrap all client API calls in try/except blocks. Handle specific exceptions: BinanceAPIException for API errors, requests.exceptions.RequestException for network errors. Implement rate limit detection (HTTP 429 or error code -1003) with exponential backoff. Add request_weight tracking to avoid hitting rate limits. Implement audit logging that records: timestamp, operation type, symbol, order details, response status, error messages. Store audit logs in structured format (JSON lines). Add order_audit_log() method called after every order operation.",
+            "status": "pending",
+            "testStrategy": "Unit test: 1) Mock API failures and verify retry behavior with exponential delays, 2) Test rate limit detection and backoff logic, 3) Test max retries exhaustion handling, 4) Verify audit log format and content. Integration test: 1) Simulate network failures and verify recovery, 2) Test rate limit handling by sending burst requests, 3) Verify all operations are logged correctly, 4) Test order cancellation during error recovery",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 8,
+        "recommendedSubtasks": 6,
+        "expansionPrompt": "Break down into: 1) Implement OrderExecutionManager class with REST client setup and leverage/margin configuration, 2) Implement execute_signal method with market entry order placement, 3) Implement TP/SL order placement using TAKE_PROFIT_MARKET and STOP_MARKET order types, 4) Implement position and account balance query methods, 5) Implement price formatting according to symbol tick size specifications, 6) Implement error handling with retry logic, rate limiting, and order cancellation"
+      },
+      {
+        "id": "7",
+        "title": "Risk Management Module",
+        "description": "Implement the risk management module that calculates position sizes based on account balance, risk percentage per trade, and stop loss distance, enforcing capital protection rules.",
+        "details": "Implement in `src/risk/manager.py`:\n\n1. **RiskManager Class**:\n```python\nfrom typing import Optional\nimport logging\n\nclass RiskManager:\n    def __init__(self, config: dict):\n        self.max_risk_per_trade = config.get('max_risk_per_trade', 0.01)  # 1%\n        self.max_leverage = config.get('max_leverage', 20)\n        self.default_leverage = config.get('default_leverage', 10)\n        self.max_position_size_percent = config.get('max_position_size_percent', 0.1)  # 10%\n        self.logger = logging.getLogger(__name__)\n    \n    def calculate_position_size(\n        self,\n        account_balance: float,\n        entry_price: float,\n        stop_loss_price: float,\n        leverage: int,\n        symbol_info: dict = None\n    ) -> float:\n        \"\"\"\n        Calculate position size based on risk management rules.\n        \n        Formula:\n        Risk Amount = Account Balance * Max Risk Per Trade\n        SL Distance % = |Entry - SL| / Entry\n        Position Value = Risk Amount / SL Distance %\n        Quantity = Position Value / Entry Price\n        \n        With leverage consideration:\n        Required Margin = Position Value / Leverage\n        \"\"\"\n        # Calculate stop loss distance as percentage\n        sl_distance_percent = abs(entry_price - stop_loss_price) / entry_price\n        \n        if sl_distance_percent == 0:\n            self.logger.warning(\"SL distance is zero, using minimum\")\n            sl_distance_percent = 0.001  # 0.1% minimum\n        \n        # Maximum risk amount in USDT\n        risk_amount = account_balance * self.max_risk_per_trade\n        \n        # Position value that would result in this risk at the SL\n        position_value = risk_amount / sl_distance_percent\n        \n        # Calculate quantity (number of contracts)\n        quantity = position_value / entry_price\n        \n        # Apply maximum position size limit\n        max_position_value = account_balance * self.max_position_size_percent * leverage\n        max_quantity = max_position_value / entry_price\n        \n        if quantity > max_quantity:\n            self.logger.warning(\n                f\"Position size limited from {quantity:.4f} to {max_quantity:.4f}\"\n            )\n            quantity = max_quantity\n        \n        # Round to symbol's lot size (if provided)\n        if symbol_info:\n            quantity = self._round_to_lot_size(quantity, symbol_info)\n        else:\n            quantity = round(quantity, 3)  # Default precision\n        \n        self.logger.info(\n            f\"Position size calculated: {quantity} \"\n            f\"(risk={risk_amount:.2f} USDT, SL dist={sl_distance_percent:.2%})\"\n        )\n        \n        return quantity\n    \n    def validate_signal(\n        self,\n        signal: 'Signal',\n        current_position: Optional['Position'] = None\n    ) -> bool:\n        \"\"\"\n        Validate if a signal should be executed based on risk rules.\n        \"\"\"\n        # Don't enter if already in a position (initial simple rule)\n        if current_position is not None:\n            self.logger.info(\"Signal rejected: existing position\")\n            return False\n        \n        # Validate TP/SL makes sense\n        if signal.signal_type == SignalType.LONG_ENTRY:\n            if signal.take_profit <= signal.entry_price:\n                self.logger.warning(\"Invalid LONG: TP <= entry\")\n                return False\n            if signal.stop_loss >= signal.entry_price:\n                self.logger.warning(\"Invalid LONG: SL >= entry\")\n                return False\n        else:  # SHORT\n            if signal.take_profit >= signal.entry_price:\n                self.logger.warning(\"Invalid SHORT: TP >= entry\")\n                return False\n            if signal.stop_loss <= signal.entry_price:\n                self.logger.warning(\"Invalid SHORT: SL <= entry\")\n                return False\n        \n        return True\n    \n    def calculate_risk_reward_ratio(self, signal: 'Signal') -> float:\n        \"\"\"Calculate R:R ratio for a signal\"\"\"\n        risk = abs(signal.entry_price - signal.stop_loss)\n        reward = abs(signal.take_profit - signal.entry_price)\n        return reward / risk if risk > 0 else 0\n    \n    def _round_to_lot_size(self, quantity: float, symbol_info: dict) -> float:\n        \"\"\"Round quantity to symbol's allowed lot size\"\"\"\n        lot_size = symbol_info.get('lot_size', 0.001)\n        precision = symbol_info.get('quantity_precision', 3)\n        return round(quantity - (quantity % lot_size), precision)\n```\n\n2. **Configuration Example** (trading_config.ini):\n```ini\n[risk]\nmax_risk_per_trade = 0.01\nmax_leverage = 20\ndefault_leverage = 10\nmax_position_size_percent = 0.1\n```",
+        "testStrategy": "1. Unit test position size calculation with various scenarios:\n   - Normal case: 1% risk with 2% SL distance\n   - Edge case: Very tight SL (0.1%)\n   - Edge case: Very wide SL (10%)\n2. Test max position size limiting\n3. Test signal validation for LONG/SHORT\n4. Test invalid TP/SL rejection\n5. Test R:R ratio calculation\n6. Verify lot size rounding matches Binance requirements",
+        "priority": "high",
+        "dependencies": [
+          "2",
+          "6"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement position size calculation with percentage-based risk and stop loss distance",
+            "description": "Create the core position sizing algorithm that calculates quantity based on account balance, risk percentage, and stop loss distance. Implement the mathematical formula: Risk Amount = Account Balance * Max Risk Per Trade, SL Distance % = |Entry - SL| / Entry, Position Value = Risk Amount / SL Distance %, Quantity = Position Value / Entry Price.",
+            "dependencies": [],
+            "details": "Implement the `calculate_position_size()` method in RiskManager class:\n\n1. Calculate stop loss distance as percentage: `sl_distance_percent = abs(entry_price - stop_loss_price) / entry_price`\n2. Handle edge case: if SL distance is zero, use minimum 0.1% to prevent division by zero\n3. Calculate maximum risk amount: `risk_amount = account_balance * self.max_risk_per_trade`\n4. Calculate position value: `position_value = risk_amount / sl_distance_percent`\n5. Calculate quantity: `quantity = position_value / entry_price`\n6. Add detailed logging for risk amount and SL distance percentage\n7. Return calculated quantity before applying limits\n\nTest with scenarios:\n- Normal: 10000 USDT balance, 1% risk, entry=50000, SL=49000 (2% distance)\n- Tight SL: entry=50000, SL=49950 (0.1% distance)\n- Wide SL: entry=50000, SL=45000 (10% distance)\n- Zero SL edge case",
+            "status": "pending",
+            "testStrategy": "Unit tests: (1) Normal case with 1% risk and 2% SL distance should return correct quantity, (2) Edge case with 0.1% SL distance uses minimum threshold, (3) Edge case with 10% wide SL calculates correctly, (4) Zero SL distance defaults to 0.001 minimum, (5) Verify logging outputs risk_amount and sl_distance_percent correctly",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement signal validation for TP/SL logic correctness and position conflicts",
+            "description": "Create the signal validation logic that checks if signals are valid based on risk rules, including take profit and stop loss placement validation for LONG/SHORT positions, and preventing multiple concurrent positions.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement the `validate_signal()` method in RiskManager class:\n\n1. Check for existing position conflict: if `current_position` is not None, reject signal and log \"Signal rejected: existing position\"\n2. For LONG_ENTRY signals:\n   - Validate TP > entry_price (reject if TP <= entry)\n   - Validate SL < entry_price (reject if SL >= entry)\n   - Log specific warning messages for each validation failure\n3. For SHORT_ENTRY signals:\n   - Validate TP < entry_price (reject if TP >= entry)\n   - Validate SL > entry_price (reject if SL <= entry)\n   - Log specific warning messages for each validation failure\n4. Return True if all validations pass, False otherwise\n5. Ensure clear, actionable log messages for each rejection reason\n\nDepends on Signal and Position data models from Task 6.",
+            "status": "pending",
+            "testStrategy": "Unit tests: (1) Valid LONG signal with correct TP/SL passes validation, (2) Valid SHORT signal with correct TP/SL passes validation, (3) LONG signal with invalid TP (TP <= entry) is rejected, (4) LONG signal with invalid SL (SL >= entry) is rejected, (5) SHORT signal with invalid TP/SL is rejected, (6) Signal rejected when position already exists, (7) Verify warning logs contain specific rejection reasons",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement risk/reward ratio calculation and maximum position size limiting",
+            "description": "Create the risk/reward ratio calculator and implement maximum position size enforcement based on account balance percentage and leverage constraints.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement two methods in RiskManager class:\n\n1. **`calculate_risk_reward_ratio()` method**:\n   - Calculate risk: `risk = abs(signal.entry_price - signal.stop_loss)`\n   - Calculate reward: `reward = abs(signal.take_profit - signal.entry_price)`\n   - Return R:R ratio: `reward / risk` (handle division by zero)\n   - Used for signal quality assessment\n\n2. **Maximum position size limiting** in `calculate_position_size()`:\n   - Calculate max position value: `max_position_value = account_balance * self.max_position_size_percent * leverage`\n   - Calculate max quantity: `max_quantity = max_position_value / entry_price`\n   - Compare calculated quantity against max_quantity\n   - If quantity > max_quantity, limit to max_quantity and log warning with both values\n   - Apply this limit AFTER initial position size calculation but BEFORE lot size rounding\n\nEnsure this integrates with subtask 1's position size calculation.",
+            "status": "pending",
+            "testStrategy": "Unit tests: (1) R:R ratio calculation for 1:2 risk/reward, (2) R:R ratio with zero risk returns 0, (3) Position size limited when exceeding max_position_size_percent (10% default), (4) Warning logged when position size is capped, (5) Max position calculation respects leverage parameter, (6) Integration test: full position size calculation with limiting applied correctly",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement lot size rounding according to Binance symbol specifications",
+            "description": "Create the lot size rounding logic that ensures calculated position quantities comply with Binance Futures symbol specifications for minimum lot size and quantity precision.",
+            "dependencies": [
+              1,
+              3
+            ],
+            "details": "Implement the `_round_to_lot_size()` private method in RiskManager class:\n\n1. Accept parameters: `quantity` (float), `symbol_info` (dict)\n2. Extract from symbol_info:\n   - `lot_size`: minimum quantity increment (default 0.001)\n   - `quantity_precision`: decimal places for rounding (default 3)\n3. Rounding logic: `round(quantity - (quantity % lot_size), quantity_precision)`\n   - This floors the quantity to the nearest valid lot size\n   - Then rounds to the required precision\n4. Handle missing symbol_info gracefully (use defaults)\n\n5. **Integration in `calculate_position_size()`**:\n   - After max position size limiting (subtask 3)\n   - If symbol_info provided, call `_round_to_lot_size()`\n   - Else, use default rounding: `round(quantity, 3)`\n   - Return the final rounded quantity\n\n6. Add example symbol_info structure in docstring:\n   ```python\n   symbol_info = {\n       'lot_size': 0.001,  # BTCUSDT\n       'quantity_precision': 3\n   }\n   ```",
+            "status": "pending",
+            "testStrategy": "Unit tests: (1) Round 1.2345 BTC with lot_size=0.001 and precision=3 to 1.234, (2) Round 0.0567 with lot_size=0.01 to 0.05, (3) Handle missing symbol_info by using defaults, (4) Integration test: full calculate_position_size() flow produces Binance-compliant quantity, (5) Verify quantity never exceeds required precision, (6) Test with real Binance symbol specs (BTCUSDT, ETHUSDT)",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 5,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Break down into: 1) Implement position size calculation with percentage-based risk and stop loss distance, 2) Implement signal validation for TP/SL logic correctness and position conflicts, 3) Implement risk/reward ratio calculation and maximum position size limiting, 4) Implement lot size rounding according to Binance symbol specifications"
+      },
+      {
+        "id": "8",
+        "title": "Logging & Monitoring System",
+        "description": "Implement comprehensive logging infrastructure with console output, rotating file logs, and structured logging for system monitoring and debugging.",
+        "details": "Implement in `src/utils/logger.py`:\n\n1. **Logger Configuration**:\n```python\nimport logging\nimport sys\nfrom logging.handlers import RotatingFileHandler, TimedRotatingFileHandler\nfrom pathlib import Path\nfrom datetime import datetime\nimport json\n\nclass TradingLogger:\n    def __init__(self, config: dict):\n        self.log_level = config.get('log_level', 'INFO')\n        self.log_dir = Path(config.get('log_dir', 'logs'))\n        self.log_dir.mkdir(exist_ok=True)\n        self._setup_logging()\n    \n    def _setup_logging(self):\n        \"\"\"Configure root logger with multiple handlers\"\"\"\n        root_logger = logging.getLogger()\n        root_logger.setLevel(getattr(logging, self.log_level))\n        \n        # Clear existing handlers\n        root_logger.handlers.clear()\n        \n        # Console Handler - INFO and above\n        console_handler = logging.StreamHandler(sys.stdout)\n        console_handler.setLevel(logging.INFO)\n        console_format = logging.Formatter(\n            '%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s',\n            datefmt='%Y-%m-%d %H:%M:%S'\n        )\n        console_handler.setFormatter(console_format)\n        root_logger.addHandler(console_handler)\n        \n        # File Handler - All levels, rotating\n        file_handler = RotatingFileHandler(\n            self.log_dir / 'trading.log',\n            maxBytes=10*1024*1024,  # 10MB\n            backupCount=5\n        )\n        file_handler.setLevel(logging.DEBUG)\n        file_format = logging.Formatter(\n            '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'\n        )\n        file_handler.setFormatter(file_format)\n        root_logger.addHandler(file_handler)\n        \n        # Trade Log - Separate file for trades only\n        trade_handler = TimedRotatingFileHandler(\n            self.log_dir / 'trades.log',\n            when='midnight',\n            backupCount=30\n        )\n        trade_handler.setLevel(logging.INFO)\n        trade_handler.addFilter(TradeLogFilter())\n        root_logger.addHandler(trade_handler)\n    \n    @staticmethod\n    def log_trade(action: str, data: dict):\n        \"\"\"Log trade events in structured format\"\"\"\n        logger = logging.getLogger('trades')\n        log_entry = {\n            'timestamp': datetime.utcnow().isoformat(),\n            'action': action,\n            **data\n        }\n        logger.info(json.dumps(log_entry))\n\nclass TradeLogFilter(logging.Filter):\n    def filter(self, record):\n        return record.name == 'trades'\n```\n\n2. **Log Categories**:\n- `trading.log`: All system logs (debug to error)\n- `trades.log`: Trade-specific events (entries, exits, signals)\n- Console: Real-time INFO level output\n\n3. **Structured Trade Logging Example**:\n```python\n# Usage:\nTradingLogger.log_trade('SIGNAL_GENERATED', {\n    'symbol': 'BTCUSDT',\n    'type': 'LONG_ENTRY',\n    'entry': 50000.0,\n    'tp': 51000.0,\n    'sl': 49500.0,\n    'strategy': 'MockSMA'\n})\n\nTradingLogger.log_trade('ORDER_FILLED', {\n    'symbol': 'BTCUSDT',\n    'order_id': '12345',\n    'side': 'BUY',\n    'quantity': 0.1,\n    'price': 50010.0\n})\n```\n\n4. **Performance Logging**:\n```python\nfrom contextlib import contextmanager\nimport time\n\n@contextmanager\ndef log_execution_time(operation: str):\n    start = time.perf_counter()\n    yield\n    elapsed = time.perf_counter() - start\n    logging.debug(f\"{operation} completed in {elapsed:.3f}s\")\n```",
+        "testStrategy": "1. Verify log files are created in correct directory\n2. Test log rotation triggers at size/time limits\n3. Verify console output format is readable\n4. Test structured trade logging JSON format\n5. Verify log levels filter correctly\n6. Test performance logging decorator accuracy",
+        "priority": "medium",
+        "dependencies": [
+          "1"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement TradingLogger class with console and file handlers",
+            "description": "Create the TradingLogger class with initialization, configuration management, and setup of console and rotating file handlers for system-wide logging.",
+            "dependencies": [],
+            "details": "Implement the TradingLogger class in `src/utils/logger.py` with:\n- `__init__` method accepting config dict with log_level and log_dir\n- Create log directory using Path.mkdir(exist_ok=True)\n- `_setup_logging` method that:\n  - Configures root logger with specified log level\n  - Clears existing handlers\n  - Creates StreamHandler for console output (INFO level, simple format with timestamp, level, name, message)\n  - Creates RotatingFileHandler for trading.log (DEBUG level, detailed format with line numbers, 10MB max size, 5 backup files)\n  - Sets appropriate formatters for each handler\n  - Adds handlers to root logger",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Verify log directory creation, 2) Verify handlers are configured with correct levels and formatters, 3) Test log messages appear in both console and file, 4) Verify file rotation occurs at 10MB threshold, 5) Check backup file creation and count limit",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement trade-specific logging with TimedRotatingFileHandler",
+            "description": "Add separate trade log handler with time-based rotation and custom filter to isolate trade events from general system logs.",
+            "dependencies": [
+              1
+            ],
+            "details": "Extend TradingLogger._setup_logging in `src/utils/logger.py` to:\n- Create TimedRotatingFileHandler for trades.log (rotates at midnight, keeps 30 days of backups)\n- Set handler level to INFO\n- Implement TradeLogFilter class that:\n  - Inherits from logging.Filter\n  - Implements filter() method to return True only for records with name='trades'\n- Apply TradeLogFilter to trade handler\n- Add trade handler to root logger\nThis ensures trade events are logged separately from general system logs for easier analysis and auditing.",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Verify trades.log file is created, 2) Test TradeLogFilter only passes 'trades' logger records, 3) Verify time-based rotation triggers at midnight, 4) Check 30-day backup retention, 5) Ensure trade logs don't appear in trading.log when filtered correctly",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement structured JSON trade logging with log_trade method",
+            "description": "Create static method for logging trade events in structured JSON format with timestamp, action type, and trade data for easy parsing and analysis.",
+            "dependencies": [
+              2
+            ],
+            "details": "Add to TradingLogger class in `src/utils/logger.py`:\n- Implement `log_trade` static method with parameters:\n  - action: str (e.g., 'SIGNAL_GENERATED', 'ORDER_FILLED', 'POSITION_CLOSED')\n  - data: dict (trade-specific data like symbol, price, quantity, order_id)\n- Method logic:\n  - Get logger instance with name='trades'\n  - Create structured log entry dict with:\n    - timestamp: datetime.utcnow().isoformat()\n    - action: action parameter\n    - **data: unpacked trade data dictionary\n  - Serialize dict to JSON string using json.dumps()\n  - Log using logger.info()\nThis provides structured, parseable trade logs for post-trade analysis, monitoring dashboards, and audit trails.",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Verify JSON structure includes timestamp and action fields, 2) Test various trade data dictionaries are properly serialized, 3) Verify logs appear only in trades.log, 4) Test JSON parsing of logged entries, 5) Validate ISO timestamp format, 6) Test with different action types (SIGNAL_GENERATED, ORDER_FILLED, etc.)",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement performance logging with execution time measurement",
+            "description": "Create context manager decorator for logging execution time of operations to help identify performance bottlenecks in the trading system.",
+            "dependencies": [
+              1
+            ],
+            "details": "Add to `src/utils/logger.py`:\n- Import contextlib and time modules\n- Implement `log_execution_time` context manager function:\n  - Parameter: operation (str) - name of operation being timed\n  - Use @contextmanager decorator\n  - Record start time using time.perf_counter()\n  - Yield control to wrapped code block\n  - Calculate elapsed time after block completes\n  - Log at DEBUG level: f\"{operation} completed in {elapsed:.3f}s\"\n\nUsage example:\n```python\nwith log_execution_time('indicator_calculation'):\n    # expensive operation\n    result = calculate_indicators()\n```\nThis helps identify slow operations in data processing, indicator calculations, and order execution.",
+            "status": "pending",
+            "testStrategy": "Unit tests: 1) Verify context manager wraps code block correctly, 2) Test elapsed time calculation accuracy (±10ms tolerance), 3) Verify log message format includes operation name and time, 4) Test with various operation durations, 5) Verify logs appear at DEBUG level in trading.log, 6) Test exception handling doesn't break timing",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 4,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Break down into: 1) Implement TradingLogger class with console and file handlers using RotatingFileHandler, 2) Implement trade-specific logging with TimedRotatingFileHandler and TradeLogFilter, 3) Implement structured JSON trade logging with log_trade static method, 4) Implement performance logging decorator with execution time measurement"
+      },
+      {
+        "id": "9",
+        "title": "Configuration Management & INI Parser",
+        "description": "Implement the configuration management system using INI files for API keys and trading settings, with environment variable override support and validation.",
+        "details": "Implement in `src/utils/config.py`:\n\n1. **ConfigManager Class**:\n```python\nimport configparser\nimport os\nfrom pathlib import Path\nfrom typing import Any, Dict, Optional\nfrom dataclasses import dataclass\nimport logging\n\n@dataclass\nclass APIConfig:\n    api_key: str\n    api_secret: str\n    is_testnet: bool = True\n\n@dataclass\nclass TradingConfig:\n    symbol: str\n    intervals: list\n    strategy: str\n    leverage: int\n    max_risk_per_trade: float\n    take_profit_ratio: float\n    stop_loss_percent: float\n\nclass ConfigManager:\n    def __init__(self, config_dir: str = 'configs'):\n        self.config_dir = Path(config_dir)\n        self.logger = logging.getLogger(__name__)\n        self._api_config: Optional[APIConfig] = None\n        self._trading_config: Optional[TradingConfig] = None\n    \n    def load_api_config(self) -> APIConfig:\n        \"\"\"Load API configuration with env var override support\"\"\"\n        config = configparser.ConfigParser()\n        config_file = self.config_dir / 'api_keys.ini'\n        \n        if config_file.exists():\n            config.read(config_file)\n        \n        # Environment variables override file values\n        api_key = os.getenv('BINANCE_API_KEY') or config.get(\n            'binance', 'api_key', fallback=''\n        )\n        api_secret = os.getenv('BINANCE_API_SECRET') or config.get(\n            'binance', 'api_secret', fallback=''\n        )\n        is_testnet = os.getenv('BINANCE_TESTNET', 'true').lower() == 'true'\n        if config.has_option('binance', 'testnet'):\n            is_testnet = config.getboolean('binance', 'testnet')\n        \n        if not api_key or not api_secret:\n            raise ValueError(\"Binance API credentials not configured\")\n        \n        self._api_config = APIConfig(\n            api_key=api_key,\n            api_secret=api_secret,\n            is_testnet=is_testnet\n        )\n        return self._api_config\n    \n    def load_trading_config(self) -> TradingConfig:\n        \"\"\"Load trading configuration\"\"\"\n        config = configparser.ConfigParser()\n        config_file = self.config_dir / 'trading_config.ini'\n        \n        if not config_file.exists():\n            raise FileNotFoundError(f\"Trading config not found: {config_file}\")\n        \n        config.read(config_file)\n        \n        self._trading_config = TradingConfig(\n            symbol=config.get('trading', 'symbol', fallback='BTCUSDT'),\n            intervals=config.get('trading', 'intervals', fallback='1h').split(','),\n            strategy=config.get('trading', 'strategy', fallback='mock_sma'),\n            leverage=config.getint('trading', 'leverage', fallback=10),\n            max_risk_per_trade=config.getfloat('risk', 'max_risk_per_trade', fallback=0.01),\n            take_profit_ratio=config.getfloat('risk', 'take_profit_ratio', fallback=2.0),\n            stop_loss_percent=config.getfloat('risk', 'stop_loss_percent', fallback=0.01)\n        )\n        return self._trading_config\n    \n    def validate_config(self) -> bool:\n        \"\"\"Validate all configurations\"\"\"\n        errors = []\n        \n        if self._trading_config:\n            tc = self._trading_config\n            if tc.leverage < 1 or tc.leverage > 125:\n                errors.append(f\"Invalid leverage: {tc.leverage}\")\n            if tc.max_risk_per_trade <= 0 or tc.max_risk_per_trade > 0.1:\n                errors.append(f\"Risk per trade out of range: {tc.max_risk_per_trade}\")\n        \n        for error in errors:\n            self.logger.error(error)\n        \n        return len(errors) == 0\n```\n\n2. **Example Config Files**:\n\n**configs/api_keys.ini.example**:\n```ini\n[binance]\napi_key = your_api_key_here\napi_secret = your_api_secret_here\ntestnet = true\n```\n\n**configs/trading_config.ini.example**:\n```ini\n[trading]\nsymbol = BTCUSDT\nintervals = 1h,4h\nstrategy = mock_sma\nleverage = 10\n\n[risk]\nmax_risk_per_trade = 0.01\ntake_profit_ratio = 2.0\nstop_loss_percent = 0.01\n\n[strategy.mock_sma]\nfast_period = 10\nslow_period = 20\nbuffer_size = 100\n```\n\n3. **Validation Rules**:\n- API keys must be non-empty\n- Leverage: 1-125\n- Risk per trade: 0-10%\n- Symbol must be valid format (e.g., BTCUSDT)",
+        "testStrategy": "1. Test loading valid config files\n2. Test environment variable override behavior\n3. Test missing file handling with clear error messages\n4. Test validation catches invalid values\n5. Test fallback to defaults for optional values\n6. Verify sensitive data (API keys) are masked in logs",
+        "priority": "medium",
+        "dependencies": [
+          "1"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement APIConfig and TradingConfig dataclasses",
+            "description": "Create strongly-typed dataclass structures for API configuration (api_key, api_secret, is_testnet) and trading configuration (symbol, intervals, strategy, leverage, risk parameters) to provide type safety and clear configuration contracts.",
+            "dependencies": [],
+            "details": "In `src/utils/config.py`, implement the two dataclasses:\n\n1. **APIConfig dataclass**:\n   - Fields: api_key (str), api_secret (str), is_testnet (bool with default=True)\n   - Use @dataclass decorator for automatic __init__ and __repr__\n   - Add docstring explaining each field's purpose\n\n2. **TradingConfig dataclass**:\n   - Fields: symbol (str), intervals (list), strategy (str), leverage (int), max_risk_per_trade (float), take_profit_ratio (float), stop_loss_percent (float)\n   - Use @dataclass decorator\n   - Add validation in __post_init__ for basic type checking\n   - Document expected value ranges in docstrings\n\n3. Add imports: `from dataclasses import dataclass` and `from typing import List`\n\n4. Ensure both dataclasses are immutable where appropriate using frozen=True if needed for sensitive data",
+            "status": "pending",
+            "testStrategy": "1. Unit test dataclass instantiation with valid values\n2. Test default value behavior for APIConfig.is_testnet\n3. Verify dataclass string representation (__repr__) masks sensitive fields\n4. Test type hints are correct using mypy or similar\n5. Validate dataclass equality comparison works correctly",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement load_api_config with environment variable override",
+            "description": "Create the load_api_config method that reads API credentials from INI file with environment variable precedence, ensuring BINANCE_API_KEY, BINANCE_API_SECRET, and BINANCE_TESTNET environment variables override file values.",
+            "dependencies": [
+              1
+            ],
+            "details": "In ConfigManager class:\n\n1. **load_api_config() method**:\n   - Initialize configparser.ConfigParser()\n   - Check if `self.config_dir / 'api_keys.ini'` exists\n   - If exists, read the file: `config.read(config_file)`\n   \n2. **Environment variable override logic**:\n   - api_key: `os.getenv('BINANCE_API_KEY') or config.get('binance', 'api_key', fallback='')`\n   - api_secret: `os.getenv('BINANCE_API_SECRET') or config.get('binance', 'api_secret', fallback='')`\n   - is_testnet: Parse from `os.getenv('BINANCE_TESTNET', 'true')` with `.lower() == 'true'` conversion, then check config file as fallback\n\n3. **Validation**:\n   - Raise ValueError if api_key or api_secret are empty: \"Binance API credentials not configured\"\n   - Log warning if using testnet mode\n   \n4. **Store and return**:\n   - Create APIConfig instance\n   - Store in self._api_config\n   - Return the config object\n\n5. **Create example file**: `configs/api_keys.ini.example` with placeholder values",
+            "status": "pending",
+            "testStrategy": "1. Test loading from file only (no env vars)\n2. Test env var override when file exists\n3. Test env var only (no file)\n4. Test missing credentials raises ValueError\n5. Test testnet flag parsing from both env and file\n6. Verify sensitive data is not logged in plain text",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement load_trading_config with strategy-specific parsing",
+            "description": "Create the load_trading_config method that parses trading parameters from INI file, including symbol, intervals, leverage, risk settings, and strategy-specific configurations from dedicated sections.",
+            "dependencies": [
+              1
+            ],
+            "details": "In ConfigManager class:\n\n1. **load_trading_config() method**:\n   - Initialize configparser.ConfigParser()\n   - Check if `self.config_dir / 'trading_config.ini'` exists\n   - Raise FileNotFoundError with clear path if not found\n   - Read the config file\n\n2. **Parse trading section**:\n   - symbol: `config.get('trading', 'symbol', fallback='BTCUSDT')`\n   - intervals: Split comma-separated string: `config.get('trading', 'intervals', fallback='1h').split(',')`\n   - strategy: `config.get('trading', 'strategy', fallback='mock_sma')`\n   - leverage: `config.getint('trading', 'leverage', fallback=10)`\n\n3. **Parse risk section**:\n   - max_risk_per_trade: `config.getfloat('risk', 'max_risk_per_trade', fallback=0.01)`\n   - take_profit_ratio: `config.getfloat('risk', 'take_profit_ratio', fallback=2.0)`\n   - stop_loss_percent: `config.getfloat('risk', 'stop_loss_percent', fallback=0.01)`\n\n4. **Strategy-specific sections**:\n   - Support reading `[strategy.{strategy_name}]` sections for strategy parameters\n   - Store strategy params in TradingConfig or separate dict\n\n5. **Create example file**: `configs/trading_config.ini.example` with all sections documented\n\n6. **Store and return**: Create TradingConfig instance, store in self._trading_config, return it",
+            "status": "pending",
+            "testStrategy": "1. Test loading complete valid config\n2. Test fallback values when sections missing\n3. Test intervals parsing from comma-separated string\n4. Test strategy-specific section reading\n5. Test FileNotFoundError when config missing\n6. Verify float/int parsing handles invalid formats gracefully",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement configuration validation with error messages",
+            "description": "Create the validate_config method that checks all configuration values against defined rules (leverage 1-125, risk 0-10%, valid symbol format), accumulates errors, logs them clearly, and returns validation status.",
+            "dependencies": [
+              1,
+              2,
+              3
+            ],
+            "details": "In ConfigManager class:\n\n1. **validate_config() method**:\n   - Initialize empty errors list\n   - Add logging setup: `self.logger = logging.getLogger(__name__)`\n\n2. **API config validation** (if self._api_config exists):\n   - Check api_key is non-empty\n   - Check api_secret is non-empty\n   - Append errors if validation fails\n\n3. **Trading config validation** (if self._trading_config exists):\n   - Leverage range: `1 <= tc.leverage <= 125`, error: \"Invalid leverage: {value} (must be 1-125)\"\n   - Risk per trade: `0 < tc.max_risk_per_trade <= 0.1`, error: \"Risk per trade out of range: {value} (must be 0-10%)\"\n   - Take profit ratio: `tc.take_profit_ratio > 0`, error: \"Take profit ratio must be positive\"\n   - Stop loss percent: `0 < tc.stop_loss_percent <= 0.5`, error: \"Stop loss percent out of range: {value}\"\n   - Symbol format: Basic validation for uppercase alphanumeric ending in USDT\n   - Intervals: Check each interval is valid format (e.g., 1m, 5m, 1h, 4h, 1d)\n\n4. **Error handling**:\n   - Log each error with `self.logger.error(error)`\n   - Return True if len(errors) == 0, False otherwise\n\n5. **Add validate() helper** that calls both load methods and validate_config in sequence\n\n6. **Documentation**: Add clear docstrings explaining validation rules",
+            "status": "pending",
+            "testStrategy": "1. Test valid configuration passes all checks\n2. Test leverage out of range (0, 126, -5) triggers errors\n3. Test risk percentage edge cases (0, 0.11, -0.01)\n4. Test invalid symbol format detection\n5. Test invalid interval format (e.g., '1x', 'invalid')\n6. Verify all errors are logged with clear messages\n7. Test validate() method orchestrates full validation flow",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 4,
+        "recommendedSubtasks": 4,
+        "expansionPrompt": "Break down into: 1) Implement APIConfig and TradingConfig dataclasses for typed configuration, 2) Implement load_api_config with environment variable override support, 3) Implement load_trading_config with strategy-specific section parsing, 4) Implement configuration validation with clear error messages and example file creation"
+      },
+      {
+        "id": "10",
+        "title": "Main Application Entry Point & Integration",
+        "description": "Implement the main.py entry point that initializes all components, handles graceful startup/shutdown, and orchestrates the complete trading system flow.",
+        "details": "Implement `src/main.py`:\n\n```python\nimport asyncio\nimport signal\nimport sys\nfrom pathlib import Path\nimport logging\n\nfrom src.utils.config import ConfigManager\nfrom src.utils.logger import TradingLogger\nfrom src.core.data_collector import BinanceDataCollector\nfrom src.core.event_handler import EventBus, TradingEngine\nfrom src.strategies.factory import StrategyFactory\nfrom src.execution.order_manager import OrderExecutionManager\nfrom src.risk.manager import RiskManager\nfrom src.models.event import Event, EventType\nfrom src.models.candle import Candle\n\nclass TradingBot:\n    def __init__(self):\n        self.config_manager = ConfigManager()\n        self.event_bus = EventBus()\n        self.data_collector = None\n        self.order_manager = None\n        self.risk_manager = None\n        self.strategy = None\n        self.logger = None\n        self._running = False\n    \n    def initialize(self):\n        \"\"\"Initialize all components\"\"\"\n        # 1. Load configurations\n        api_config = self.config_manager.load_api_config()\n        trading_config = self.config_manager.load_trading_config()\n        \n        if not self.config_manager.validate_config():\n            raise ValueError(\"Invalid configuration\")\n        \n        # 2. Setup logging\n        TradingLogger({'log_level': 'INFO', 'log_dir': 'logs'})\n        self.logger = logging.getLogger(__name__)\n        self.logger.info(\"=\" * 50)\n        self.logger.info(\"ICT Trading Bot Starting...\")\n        self.logger.info(f\"Environment: {'TESTNET' if api_config.is_testnet else 'MAINNET'}\")\n        self.logger.info(f\"Symbol: {trading_config.symbol}\")\n        self.logger.info(f\"Strategy: {trading_config.strategy}\")\n        self.logger.info(\"=\" * 50)\n        \n        # 3. Initialize components\n        self.data_collector = BinanceDataCollector(\n            api_key=api_config.api_key,\n            api_secret=api_config.api_secret,\n            symbols=[trading_config.symbol],\n            intervals=trading_config.intervals,\n            is_testnet=api_config.is_testnet,\n            on_candle_callback=self._on_candle_received\n        )\n        \n        self.order_manager = OrderExecutionManager(\n            api_key=api_config.api_key,\n            api_secret=api_config.api_secret,\n            is_testnet=api_config.is_testnet\n        )\n        \n        self.risk_manager = RiskManager({\n            'max_risk_per_trade': trading_config.max_risk_per_trade,\n            'default_leverage': trading_config.leverage\n        })\n        \n        self.strategy = StrategyFactory.create(\n            name=trading_config.strategy,\n            symbol=trading_config.symbol,\n            config={\n                'buffer_size': 100,\n                'risk_reward_ratio': trading_config.take_profit_ratio,\n                'stop_loss_percent': trading_config.stop_loss_percent\n            }\n        )\n        \n        # 4. Setup event handlers\n        self._setup_event_handlers()\n        \n        # 5. Set leverage\n        self.order_manager.set_leverage(\n            trading_config.symbol,\n            trading_config.leverage\n        )\n    \n    def _setup_event_handlers(self):\n        self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)\n        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal_generated)\n        self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)\n    \n    def _on_candle_received(self, candle: Candle):\n        \"\"\"Callback from WebSocket data collector\"\"\"\n        event = Event(EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE, candle)\n        asyncio.create_task(self.event_bus.publish(event, queue_name='data'))\n    \n    async def _on_candle_closed(self, event: Event):\n        \"\"\"Handle closed candle - run strategy analysis\"\"\"\n        candle = event.data\n        self.logger.debug(f\"Candle closed: {candle.symbol} {candle.close}\")\n        \n        signal = await self.strategy.analyze(candle)\n        if signal:\n            await self.event_bus.publish(\n                Event(EventType.SIGNAL_GENERATED, signal),\n                queue_name='signal'\n            )\n    \n    async def _on_signal_generated(self, event: Event):\n        \"\"\"Handle generated signal - validate and execute\"\"\"\n        signal = event.data\n        self.logger.info(f\"Signal: {signal.signal_type.value} at {signal.entry_price}\")\n        \n        # Validate with risk manager\n        current_position = self.order_manager.get_position(signal.symbol)\n        if not self.risk_manager.validate_signal(signal, current_position):\n            return\n        \n        # Calculate position size\n        balance = self.order_manager.get_account_balance()\n        quantity = self.risk_manager.calculate_position_size(\n            account_balance=balance,\n            entry_price=signal.entry_price,\n            stop_loss_price=signal.stop_loss,\n            leverage=self.config_manager._trading_config.leverage\n        )\n        \n        # Execute order\n        try:\n            entry_order, tp_sl_orders = await self.order_manager.execute_signal(signal, quantity)\n            TradingLogger.log_trade('ORDER_EXECUTED', {\n                'signal': signal.signal_type.value,\n                'entry_order_id': entry_order.order_id,\n                'quantity': quantity\n            })\n        except Exception as e:\n            self.logger.error(f\"Order execution failed: {e}\")\n    \n    async def _on_order_filled(self, event: Event):\n        \"\"\"Handle order fill notification\"\"\"\n        order = event.data\n        self.logger.info(f\"Order filled: {order.order_id}\")\n    \n    async def run(self):\n        \"\"\"Main run loop\"\"\"\n        self._running = True\n        try:\n            await asyncio.gather(\n                self.event_bus.start(),\n                self.data_collector.start_streaming()\n            )\n        except asyncio.CancelledError:\n            self.logger.info(\"Shutdown requested...\")\n        finally:\n            await self.shutdown()\n    \n    async def shutdown(self):\n        \"\"\"Graceful shutdown\"\"\"\n        self._running = False\n        self.logger.info(\"Shutting down...\")\n        self.data_collector.stop()\n        self.event_bus.stop()\n        self.logger.info(\"Shutdown complete\")\n\ndef main():\n    bot = TradingBot()\n    \n    # Handle signals for graceful shutdown\n    loop = asyncio.new_event_loop()\n    asyncio.set_event_loop(loop)\n    \n    for sig in (signal.SIGINT, signal.SIGTERM):\n        loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.shutdown()))\n    \n    try:\n        bot.initialize()\n        loop.run_until_complete(bot.run())\n    except KeyboardInterrupt:\n        pass\n    except Exception as e:\n        logging.error(f\"Fatal error: {e}\")\n        sys.exit(1)\n    finally:\n        loop.close()\n\nif __name__ == '__main__':\n    main()\n```\n\n**Key Features**:\n1. Clean initialization sequence\n2. Signal handlers for SIGINT/SIGTERM\n3. Graceful shutdown with resource cleanup\n4. Comprehensive startup logging\n5. Error handling at top level",
+        "testStrategy": "1. Test initialization with valid config files\n2. Test initialization fails gracefully with missing configs\n3. Test graceful shutdown on SIGINT\n4. Integration test: Run full system against Binance Testnet\n5. Test event flow: candle → signal → order\n6. Verify logs are created and contain expected information\n7. Test recovery from WebSocket disconnection",
+        "priority": "high",
+        "dependencies": [
+          "3",
+          "4",
+          "5",
+          "6",
+          "7",
+          "8",
+          "9"
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Implement TradingBot class with component initialization sequence",
+            "description": "Create the TradingBot class with __init__ and initialize() methods that load configurations, setup logging, and instantiate all system components (BinanceDataCollector, OrderExecutionManager, RiskManager, StrategyFactory) in the correct order.",
+            "dependencies": [],
+            "details": "Implement the TradingBot class structure with proper initialization flow:\n1. ConfigManager loads API and trading configurations\n2. Validate configuration before proceeding\n3. Setup TradingLogger with log level and directory\n4. Initialize BinanceDataCollector with API credentials and candle callback\n5. Initialize OrderExecutionManager with API credentials\n6. Initialize RiskManager with risk parameters from config\n7. Create strategy instance using StrategyFactory\n8. Set leverage on OrderExecutionManager\n9. Include comprehensive startup logging showing environment, symbol, and strategy\n10. Handle initialization errors gracefully with proper exception raising",
+            "status": "pending",
+            "testStrategy": "Unit test initialize() with mocked components, verify correct initialization order, test with invalid config (should raise ValueError), verify all components are properly instantiated, check logging output contains expected startup information",
+            "parentId": "undefined"
+          },
+          {
+            "id": 2,
+            "title": "Implement event handler setup connecting all modules via EventBus",
+            "description": "Create _setup_event_handlers() method and _on_candle_received() callback to wire up event subscriptions between data collection, strategy analysis, and order execution components through the EventBus system.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement event wiring logic:\n1. Subscribe CANDLE_CLOSED events to _on_candle_closed handler\n2. Subscribe SIGNAL_GENERATED events to _on_signal_generated handler\n3. Subscribe ORDER_FILLED events to _on_order_filled handler\n4. Implement _on_candle_received callback that creates Event from Candle and publishes to 'data' queue\n5. Use asyncio.create_task for non-blocking event publishing\n6. Ensure proper event type differentiation (CANDLE_CLOSED vs CANDLE_UPDATE based on is_closed flag)\n7. Add debug logging for event flow tracing",
+            "status": "pending",
+            "testStrategy": "Test event subscription registration, mock candle callback and verify Event is published to correct queue, verify async task creation doesn't block, test with both closed and unclosed candles",
+            "parentId": "undefined"
+          },
+          {
+            "id": 3,
+            "title": "Implement signal processing flow from candle to order execution",
+            "description": "Implement _on_candle_closed(), _on_signal_generated(), and _on_order_filled() async handlers that process the complete trading flow: candle analysis → signal generation → risk validation → position sizing → order execution.",
+            "dependencies": [
+              2
+            ],
+            "details": "Implement the three critical event handlers:\n\n_on_candle_closed:\n1. Extract candle from event data\n2. Call strategy.analyze(candle) to generate signal\n3. Publish SIGNAL_GENERATED event if signal exists\n4. Add debug logging for candle processing\n\n_on_signal_generated:\n1. Extract signal from event data\n2. Get current position from OrderManager\n3. Validate signal with RiskManager\n4. Get account balance and calculate position size using RiskManager\n5. Execute signal via OrderManager (entry + TP/SL orders)\n6. Log trade execution with TradingLogger\n7. Catch and log execution errors without crashing\n\n_on_order_filled:\n1. Extract order from event data\n2. Log order fill confirmation\n3. Update internal position tracking if needed",
+            "status": "pending",
+            "testStrategy": "Mock strategy.analyze() to return test signals, verify risk validation is called, test position size calculation with known values, mock order execution and verify correct parameters, test error handling when execution fails, verify trade logging occurs",
+            "parentId": "undefined"
+          },
+          {
+            "id": 4,
+            "title": "Implement graceful shutdown with signal handlers and resource cleanup",
+            "description": "Implement shutdown() method and signal handler registration for SIGINT/SIGTERM that ensures all components (WebSocket connections, EventBus, async tasks) are properly cleaned up without leaving hanging resources.",
+            "dependencies": [
+              1
+            ],
+            "details": "Implement graceful shutdown mechanism:\n1. Add _running flag to track bot state\n2. Implement async shutdown() method that:\n   - Sets _running to False\n   - Logs shutdown initiation\n   - Stops data_collector (closes WebSocket)\n   - Stops event_bus (drains queues and stops workers)\n   - Logs shutdown completion\n3. Handle asyncio.CancelledError in run() method\n4. Ensure shutdown is idempotent (safe to call multiple times)\n5. Add timeout handling for cleanup operations\n6. Register signal handlers in main() for clean termination",
+            "status": "pending",
+            "testStrategy": "Test shutdown() method stops all components, verify _running flag is set correctly, test with SIGINT signal (Ctrl+C simulation), verify no resource leaks or hanging tasks, test shutdown during active trading, verify logs show clean shutdown sequence",
+            "parentId": "undefined"
+          },
+          {
+            "id": 5,
+            "title": "Implement main() entry point with asyncio event loop management and error handling",
+            "description": "Create the main() function and run() method that manages the asyncio event loop, coordinates component startup, handles keyboard interrupts, and provides top-level error catching with proper exit codes.",
+            "dependencies": [
+              2,
+              3,
+              4
+            ],
+            "details": "Implement main entry point:\n1. Create main() function as entry point\n2. Instantiate TradingBot\n3. Create and configure asyncio event loop\n4. Register SIGINT and SIGTERM signal handlers that trigger shutdown()\n5. Implement run() method that:\n   - Sets _running to True\n   - Uses asyncio.gather to run EventBus and DataCollector concurrently\n   - Catches CancelledError for graceful shutdown\n   - Ensures shutdown() is called in finally block\n6. Call bot.initialize() in try block\n7. Run event loop with loop.run_until_complete(bot.run())\n8. Handle KeyboardInterrupt gracefully (no stack trace)\n9. Catch all other exceptions, log with logging.error, exit with code 1\n10. Close event loop in finally block\n11. Add __name__ == '__main__' guard",
+            "status": "pending",
+            "testStrategy": "Test main() executes without errors, verify signal handlers are registered, test KeyboardInterrupt handling (no traceback), test fatal error handling and exit code 1, verify event loop is properly closed, integration test: run full bot against testnet for 1 minute then Ctrl+C",
+            "parentId": "undefined"
+          }
+        ],
+        "complexity": 6,
+        "recommendedSubtasks": 5,
+        "expansionPrompt": "Break down into: 1) Implement TradingBot class with component initialization sequence, 2) Implement event handler setup connecting all modules via EventBus, 3) Implement signal processing flow from candle to order execution, 4) Implement graceful shutdown with signal handlers (SIGINT/SIGTERM) and resource cleanup, 5) Implement main() entry point with asyncio event loop management and error handling"
+      }
+    ],
+    "metadata": {
+      "version": "1.0.0",
+      "lastModified": "2025-12-05T12:37:11.446Z",
+      "taskCount": 10,
+      "completedCount": 1,
+      "tags": [
+        "master"
+      ]
+    }
+  }
+}
