@@ -92,7 +92,7 @@
         "dependencies": [
           "1"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -100,9 +100,10 @@
             "description": "Create the Candle dataclass in src/models/candle.py with all OHLCV (Open, High, Low, Close, Volume) fields, timestamp fields, and computed property methods for technical analysis.",
             "dependencies": [],
             "details": "Implement candle.py with:\n1. Import statements: dataclass, field from dataclasses; datetime from datetime; Optional from typing\n2. Candle dataclass fields: symbol (str), interval (str for '1m','5m','15m','1h','4h','1d'), open_time (datetime), open (float), high (float), low (float), close (float), volume (float), close_time (datetime), is_closed (bool, default=False)\n3. Property method body_size: returns abs(self.close - self.open) for candle body calculation\n4. Property method is_bullish: returns self.close > self.open to identify bullish candles\n5. Add __post_init__ validation to ensure high >= max(open, close) and low <= min(open, close)\n6. Create src/models/__init__.py with Candle export",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Instantiate Candle with valid OHLCV data, 2) Test body_size calculation for bullish/bearish candles, 3) Test is_bullish returns True for close > open and False otherwise, 4) Test with various interval strings, 5) Run mypy for type validation",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T16:18:38.151Z"
           },
           {
             "id": 2,
@@ -112,9 +113,10 @@
               1
             ],
             "details": "Implement signal.py with:\n1. Import statements: dataclass, field from dataclasses; datetime from datetime; Enum from enum\n2. SignalType Enum with values: LONG_ENTRY='long_entry', SHORT_ENTRY='short_entry', CLOSE_LONG='close_long', CLOSE_SHORT='close_short'\n3. Signal dataclass fields: signal_type (SignalType), symbol (str), entry_price (float), take_profit (float), stop_loss (float), strategy_name (str), timestamp (datetime), confidence (float, default=1.0), metadata (dict, default_factory=dict)\n4. Add computed property for risk_reward_ratio: abs(take_profit - entry_price) / abs(entry_price - stop_loss)\n5. Export Signal and SignalType from models/__init__.py",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Create Signal with all SignalType enum values, 2) Verify default confidence=1.0, 3) Verify metadata defaults to empty dict, 4) Test risk_reward_ratio calculation, 5) Validate type hints with mypy",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T16:18:39.658Z"
           },
           {
             "id": 3,
@@ -124,9 +126,10 @@
               1
             ],
             "details": "Implement order.py with:\n1. OrderType Enum matching Binance API: MARKET='MARKET', LIMIT='LIMIT', STOP_MARKET='STOP_MARKET', TAKE_PROFIT_MARKET='TAKE_PROFIT_MARKET'\n2. OrderSide Enum: BUY='BUY', SELL='SELL'\n3. OrderStatus Enum: NEW='NEW', FILLED='FILLED', PARTIALLY_FILLED='PARTIALLY_FILLED', CANCELED='CANCELED', REJECTED='REJECTED'\n4. Order dataclass fields: symbol (str), side (OrderSide), order_type (OrderType), quantity (float), price (Optional[float]=None), stop_price (Optional[float]=None), order_id (Optional[str]=None), status (OrderStatus, default=NEW), client_order_id (Optional[str]=None), timestamp (Optional[datetime]=None)\n5. Add validation: LIMIT orders require price, STOP_MARKET requires stop_price\n6. Export all classes from models/__init__.py",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Create Order with each OrderType, 2) Verify enum values match Binance API strings exactly, 3) Test LIMIT order requires price field, 4) Test STOP_MARKET requires stop_price, 5) Verify default status is NEW, 6) Cross-reference enum values with Binance API docs",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T16:18:41.262Z"
           },
           {
             "id": 4,
@@ -136,14 +139,16 @@
               1
             ],
             "details": "Implement position.py with:\n1. Position dataclass fields: symbol (str), side (str for 'LONG'/'SHORT'), entry_price (float), quantity (float), leverage (int), unrealized_pnl (float, default=0.0), liquidation_price (Optional[float]=None), entry_time (Optional[datetime]=None)\n2. Add computed property for notional_value: quantity * entry_price\n3. Add computed property for margin_used: notional_value / leverage\n\nImplement event.py with:\n1. EventType Enum: CANDLE_UPDATE='candle_update', CANDLE_CLOSED='candle_closed', SIGNAL_GENERATED='signal_generated', ORDER_PLACED='order_placed', ORDER_FILLED='order_filled', POSITION_OPENED='position_opened', POSITION_CLOSED='position_closed'\n2. Event dataclass fields: event_type (EventType), data (Any), timestamp (datetime, default_factory=datetime.utcnow), source (Optional[str]=None)\n3. Export Position, Event, EventType from models/__init__.py\n4. Update models/__init__.py to export all model classes",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Create Position with LONG/SHORT sides, 2) Test notional_value and margin_used calculations, 3) Create Event with each EventType, 4) Verify timestamp auto-generation, 5) Test Event with various data types (Candle, Signal, Order), 6) Validate complete models/__init__.py exports all classes",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-05T16:18:42.799Z"
           }
         ],
         "complexity": 3,
         "recommendedSubtasks": 4,
-        "expansionPrompt": "Break down into: 1) Implement Candle dataclass with OHLCV fields and property methods (body_size, is_bullish), 2) Implement Signal dataclass with SignalType enum and trade parameters, 3) Implement Order dataclass with OrderType/OrderSide/OrderStatus enums matching Binance API, 4) Implement Position and Event dataclasses with EventType enum for event-driven architecture"
+        "expansionPrompt": "Break down into: 1) Implement Candle dataclass with OHLCV fields and property methods (body_size, is_bullish), 2) Implement Signal dataclass with SignalType enum and trade parameters, 3) Implement Order dataclass with OrderType/OrderSide/OrderStatus enums matching Binance API, 4) Implement Position and Event dataclasses with EventType enum for event-driven architecture",
+        "updatedAt": "2025-12-05T16:18:42.799Z"
       },
       {
         "id": "3",
@@ -752,9 +757,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-05T12:37:11.446Z",
+      "lastModified": "2025-12-05T16:18:42.799Z",
       "taskCount": 10,
-      "completedCount": 1,
+      "completedCount": 2,
       "tags": [
         "master"
       ]

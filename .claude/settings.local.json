@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(task-master list:*)",
+      "Bash(task-master show:*)",
+      "Bash(task-master expand:*)",
+      "Bash(python:*)",
+      "Bash(python3:*)",
+      "Bash(cat:*)",
+      "Bash(task-master set-status:*)",
+      "Bash(chmod:*)",
+      "Bash(git add:*)",
+      "mcp__task-master-ai__get_task",
+      "mcp__serena__write_memory",
+      "mcp__serena__get_symbols_overview",
+      "mcp__serena__find_symbol",
+      "mcp__serena__replace_symbol_body",
+      "Bash(mv:*)",
+      "Bash(rmdir:*)",
+      "Bash(tree:*)",
+      "mcp__serena__edit_memory"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "task-master-ai"
+  ]
+}
