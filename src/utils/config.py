@@ -66,31 +66,70 @@ class ConfigManager:
     def _load_api_config(self) -> APIConfig:
         """
         Load API configuration with environment variable overrides
+        Automatically selects testnet or mainnet credentials based on use_testnet flag
 
-        Priority: ENV > INI file
+        Priority: ENV > INI file (environment-specific)
         """
-        api_key = os.getenv("BINANCE_API_KEY")
-        api_secret = os.getenv("BINANCE_API_SECRET")
-        is_testnet = os.getenv("BINANCE_TESTNET", "true").lower() == "true"
+        # Check if testnet mode is set via environment (highest priority)
+        is_testnet_env = os.getenv("BINANCE_USE_TESTNET")
 
-        # If not in env, try loading from INI (not recommended for production)
-        if not api_key or not api_secret:
-            config_file = self.config_dir / "api_keys.ini"
-            if not config_file.exists():
-                raise ConfigurationError(
-                    f"API configuration not found. Set BINANCE_API_KEY and BINANCE_API_SECRET "
-                    f"environment variables, or create {config_file}"
-                )
+        # Environment variables for direct credential override
+        api_key_env = os.getenv("BINANCE_API_KEY")
+        api_secret_env = os.getenv("BINANCE_API_SECRET")
 
-            config = ConfigParser()
-            config.read(config_file)
+        # If environment variables provide complete configuration, use them
+        if api_key_env and api_secret_env:
+            is_testnet = is_testnet_env.lower() == "true" if is_testnet_env else True
+            return APIConfig(
+                api_key=api_key_env,
+                api_secret=api_secret_env,
+                is_testnet=is_testnet
+            )
 
-            if "binance" not in config:
-                raise ConfigurationError("Invalid api_keys.ini: [binance] section not found")
+        # Load from INI file with environment-specific sections
+        config_file = self.config_dir / "api_keys.ini"
+        if not config_file.exists():
+            raise ConfigurationError(
+                f"API configuration not found. Either:\n"
+                f"1. Set BINANCE_API_KEY, BINANCE_API_SECRET environment variables, or\n"
+                f"2. Create {config_file} from api_keys.ini.example"
+            )
 
-            api_key = config["binance"].get("api_key")
-            api_secret = config["binance"].get("api_secret")
-            is_testnet = config["binance"].getboolean("testnet", True)
+        config = ConfigParser()
+        config.read(config_file)
+
+        if "binance" not in config:
+            raise ConfigurationError("Invalid api_keys.ini: [binance] section not found")
+
+        # Determine which environment to use
+        is_testnet = config["binance"].getboolean("use_testnet", True)
+
+        # Override from environment variable if set
+        if is_testnet_env is not None:
+            is_testnet = is_testnet_env.lower() == "true"
+
+        # Select appropriate credentials section
+        env_section = "binance.testnet" if is_testnet else "binance.mainnet"
+
+        if env_section not in config:
+            raise ConfigurationError(
+                f"Invalid api_keys.ini: [{env_section}] section not found. "
+                f"Please update your config file using api_keys.ini.example as reference."
+            )
+
+        api_key = config[env_section].get("api_key")
+        api_secret = config[env_section].get("api_secret")
+
+        # Validate credentials are not placeholder values
+        if not api_key or api_key.startswith("your_"):
+            raise ConfigurationError(
+                f"Invalid API key in [{env_section}]. Please set your actual credentials."
+            )
+
+        if not api_secret or api_secret.startswith("your_"):
+            raise ConfigurationError(
+                f"Invalid API secret in [{env_section}]. Please set your actual credentials."
+            )
 
         return APIConfig(
             api_key=api_key,

@@ -3,11 +3,19 @@
 # SECURITY: api_keys.ini is in .gitignore - NEVER commit it!
 
 [binance]
-# Get your API keys from https://testnet.binancefuture.com/ (testnet)
-# or https://www.binance.com/en/my/settings/api-management (production)
-api_key = your_binance_api_key_here
-api_secret = your_binance_api_secret_here
+# Active environment: true = testnet, false = mainnet
+# IMPORTANT: Double-check this setting before running!
+use_testnet = true
 
-# Use testnet for development and testing
-# Set to false ONLY when ready for production trading with real funds
-testnet = true
+[binance.testnet]
+# Testnet API credentials (safe for testing)
+# Get your testnet keys from: https://testnet.binancefuture.com/
+api_key = your_testnet_api_key_here
+api_secret = your_testnet_api_secret_here
+
+[binance.mainnet]
+# ⚠️ PRODUCTION API credentials - REAL MONEY! ⚠️
+# Get your mainnet keys from: https://www.binance.com/en/my/settings/api-management
+# ONLY use these when you are ready for live trading
+api_key = your_mainnet_api_key_here
+api_secret = your_mainnet_api_secret_here
