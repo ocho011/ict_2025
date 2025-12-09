@@ -18,7 +18,8 @@
       "Bash(mv:*)",
       "Bash(rmdir:*)",
       "Bash(tree:*)",
-      "mcp__serena__edit_memory"
+      "mcp__serena__edit_memory",
+      "mcp__smithery-ai-server-sequential-thinking__sequentialthinking"
     ]
   },
   "enableAllProjectMcpServers": true,

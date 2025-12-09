@@ -222,8 +222,8 @@ ls -1 configs/
 
 ## 📌 다음 단계
 
-Task #2: Binance REST/WebSocket API Integration
-- BinanceClient 클래스 구현
-- REST API 연결 및 인증
-- WebSocket 실시간 데이터 스트림
-- 에러 핸들링 및 재연결 로직
+Task #2: Data Models & Core Types Definition
+- Candle, Signal, Order, Position, Event 모델 구현
+- Dataclass 기반 타입 안전성 확보
+- `__post_init__` 검증 로직 구현
+- Binance API 호환성 검증
