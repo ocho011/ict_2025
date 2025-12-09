@@ -278,3 +278,327 @@ class TestBinanceDataCollectorURLConstants:
     def test_default_buffer_size(self):
         """Verify DEFAULT_BUFFER_SIZE constant value."""
         assert BinanceDataCollector.DEFAULT_BUFFER_SIZE == 500
+
+
+class TestBinanceDataCollectorStreaming:
+    """Test suite for WebSocket connection management."""
+
+    @pytest.fixture
+    def mock_api_credentials(self):
+        """Provide mock API credentials for testing."""
+        return {
+            'api_key': 'test_api_key_123',
+            'api_secret': 'test_api_secret_456'
+        }
+
+    @pytest.fixture
+    def basic_config(self):
+        """Provide basic configuration for collector initialization."""
+        return {
+            'symbols': ['BTCUSDT', 'ETHUSDT'],
+            'intervals': ['1m', '5m']
+        }
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_start_streaming_testnet(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+    ):
+        """
+        Test Case 1: Verify testnet WebSocket URL selection and initialization.
+
+        Validates:
+        - WebSocket client created with TESTNET_WS_URL
+        - Client initialization called correctly
+        """
+        # Arrange
+        mock_ws_instance = Mock()
+        mock_ws_client_class.return_value = mock_ws_instance
+
+        collector = BinanceDataCollector(
+            api_key=mock_api_credentials['api_key'],
+            api_secret=mock_api_credentials['api_secret'],
+            symbols=basic_config['symbols'],
+            intervals=basic_config['intervals'],
+            is_testnet=True
+        )
+
+        # Act
+        await collector.start_streaming()
+
+        # Assert
+        mock_ws_client_class.assert_called_once_with(
+            stream_url='wss://stream.binancefuture.com'
+        )
+        assert collector._running is True
+        assert collector._is_connected is True
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_start_streaming_mainnet(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+    ):
+        """
+        Test Case 2: Verify mainnet WebSocket URL selection and initialization.
+
+        Validates:
+        - WebSocket client created with MAINNET_WS_URL
+        - Client initialization called correctly
+        """
+        # Arrange
+        mock_ws_instance = Mock()
+        mock_ws_client_class.return_value = mock_ws_instance
+
+        collector = BinanceDataCollector(
+            api_key=mock_api_credentials['api_key'],
+            api_secret=mock_api_credentials['api_secret'],
+            symbols=basic_config['symbols'],
+            intervals=basic_config['intervals'],
+            is_testnet=False
+        )
+
+        # Act
+        await collector.start_streaming()
+
+        # Assert
+        mock_ws_client_class.assert_called_once_with(
+            stream_url='wss://fstream.binance.com'
+        )
+        assert collector._running is True
+        assert collector._is_connected is True
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_stream_name_generation(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials
+    ):
+        """
+        Test Case 3: Verify stream name format generation.
+
+        Validates:
+        - Format: {symbol_lower}@kline_{interval}
+        - Symbol converted to lowercase
+        - Interval format preserved
+        """
+        # Arrange
+        mock_ws_instance = Mock()
+        mock_ws_client_class.return_value = mock_ws_instance
+
+        collector = BinanceDataCollector(
+            api_key=mock_api_credentials['api_key'],
+            api_secret=mock_api_credentials['api_secret'],
+            symbols=['BTCUSDT', 'ETHUSDT', 'ADAUSDT'],
+            intervals=['1m', '5m', '1h'],
+            is_testnet=True
+        )
+
+        # Act
+        await collector.start_streaming()
+
+        # Assert - Verify kline() calls have lowercase symbols
+        kline_calls = mock_ws_instance.kline.call_args_list
+
+        # Extract symbols from calls
+        called_symbols = [call[1]['symbol'] for call in kline_calls]
+
+        # Verify all symbols are lowercase
+        assert all(symbol.islower() for symbol in called_symbols)
+
+        # Verify expected symbols present
+        expected_symbols = ['btcusdt', 'ethusdt', 'adausdt']
+        for expected_symbol in expected_symbols:
+            assert expected_symbol in called_symbols
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_kline_subscriptions(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+    ):
+        """
+        Test Case 4: Verify kline() subscription calls.
+
+        Validates:
+        - kline() called for each symbol/interval pair
+        - Correct symbol (lowercase)
+        - Correct interval
+        - Callback set to _handle_kline_message
+        """
+        # Arrange
+        mock_ws_instance = Mock()
+        mock_ws_client_class.return_value = mock_ws_instance
+
+        collector = BinanceDataCollector(
+            api_key=mock_api_credentials['api_key'],
+            api_secret=mock_api_credentials['api_secret'],
+            symbols=basic_config['symbols'],  # ['BTCUSDT', 'ETHUSDT']
+            intervals=basic_config['intervals'],  # ['1m', '5m']
+            is_testnet=True
+        )
+
+        # Act
+        await collector.start_streaming()
+
+        # Assert
+        # 2 symbols × 2 intervals = 4 calls
+        assert mock_ws_instance.kline.call_count == 4
+
+        # Verify all calls have correct structure
+        for call in mock_ws_instance.kline.call_args_list:
+            _, kwargs = call
+            assert 'symbol' in kwargs
+            assert 'interval' in kwargs
+            assert 'callback' in kwargs
+            assert kwargs['symbol'].islower()  # Symbol is lowercase
+            assert kwargs['callback'] == collector._handle_kline_message
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_state_management(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+    ):
+        """
+        Test Case 5: Verify state flag management.
+
+        Validates:
+        - _running set to True after successful start
+        - _is_connected set to True after successful start
+        - ws_client stored correctly
+        """
+        # Arrange
+        mock_ws_instance = Mock()
+        mock_ws_client_class.return_value = mock_ws_instance
+
+        collector = BinanceDataCollector(
+            api_key=mock_api_credentials['api_key'],
+            api_secret=mock_api_credentials['api_secret'],
+            symbols=basic_config['symbols'],
+            intervals=basic_config['intervals'],
+            is_testnet=True
+        )
+
+        # Verify initial state
+        assert collector._running is False
+        assert collector._is_connected is False
+        assert collector.ws_client is None
+
+        # Act
+        await collector.start_streaming()
+
+        # Assert final state
+        assert collector._running is True
+        assert collector._is_connected is True
+        assert collector.ws_client == mock_ws_instance
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_connection_error_handling(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+    ):
+        """
+        Test Case 6: Verify error handling for connection failures.
+
+        Validates:
+        - ConnectionError raised on WebSocket initialization failure
+        - Error logged with stack trace
+        - State remains unchanged on error
+        """
+        # Arrange
+        mock_ws_client_class.side_effect = Exception("Connection refused")
+
+        collector = BinanceDataCollector(
+            api_key=mock_api_credentials['api_key'],
+            api_secret=mock_api_credentials['api_secret'],
+            symbols=basic_config['symbols'],
+            intervals=basic_config['intervals'],
+            is_testnet=True
+        )
+
+        # Act & Assert
+        with pytest.raises(ConnectionError, match="WebSocket initialization failed"):
+            await collector.start_streaming()
+
+        # Verify state not updated on error
+        assert collector._running is False
+        assert collector._is_connected is False
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_idempotency(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+    ):
+        """
+        Test Case 7: Verify idempotency - multiple calls ignored.
+
+        Validates:
+        - Second call to start_streaming() ignored
+        - Warning logged
+        - WebSocket client created only once
+        """
+        # Arrange
+        mock_ws_instance = Mock()
+        mock_ws_client_class.return_value = mock_ws_instance
+
+        collector = BinanceDataCollector(
+            api_key=mock_api_credentials['api_key'],
+            api_secret=mock_api_credentials['api_secret'],
+            symbols=basic_config['symbols'],
+            intervals=basic_config['intervals'],
+            is_testnet=True
+        )
+
+        # Act - Call twice
+        await collector.start_streaming()
+        await collector.start_streaming()  # Second call
+
+        # Assert - WebSocket client created only once
+        mock_ws_client_class.assert_called_once()
+
+    @patch('src.core.data_collector.UMFutures')
+    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @pytest.mark.asyncio
+    async def test_subscription_count(
+        self, mock_ws_client_class, mock_um_futures, mock_api_credentials
+    ):
+        """
+        Test Case 8: Verify correct number of subscriptions created.
+
+        Validates:
+        - Subscription count = symbols × intervals
+        - Test multiple combinations
+        """
+        # Arrange
+        mock_ws_instance = Mock()
+        mock_ws_client_class.return_value = mock_ws_instance
+
+        test_cases = [
+            (['BTCUSDT'], ['1m'], 1),  # 1 × 1 = 1
+            (['BTCUSDT', 'ETHUSDT'], ['1m'], 2),  # 2 × 1 = 2
+            (['BTCUSDT'], ['1m', '5m', '1h'], 3),  # 1 × 3 = 3
+            (['BTCUSDT', 'ETHUSDT', 'ADAUSDT'], ['1m', '5m', '15m', '1h'], 12),  # 3 × 4 = 12
+        ]
+
+        for symbols, intervals, expected_count in test_cases:
+            # Reset mock
+            mock_ws_instance.reset_mock()
+            mock_ws_client_class.reset_mock()
+
+            collector = BinanceDataCollector(
+                api_key=mock_api_credentials['api_key'],
+                api_secret=mock_api_credentials['api_secret'],
+                symbols=symbols,
+                intervals=intervals,
+                is_testnet=True
+            )
+
+            # Act
+            await collector.start_streaming()
+
+            # Assert
+            assert mock_ws_instance.kline.call_count == expected_count

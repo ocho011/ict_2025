@@ -139,3 +139,85 @@ class BinanceDataCollector:
             f"is_testnet={self.is_testnet}, "
             f"running={self._running})"
         )
+
+
+    def _handle_kline_message(self, message: Dict) -> None:
+        """
+        Handle incoming kline WebSocket messages.
+
+        Args:
+            message: Raw WebSocket message dictionary from Binance
+
+        Note:
+            Full implementation in Subtask 3.3 - Message Parsing.
+            This stub allows Subtask 3.2 (WebSocket connection) to be
+            implemented and tested independently.
+        """
+        pass  # Implementation in Subtask 3.3
+
+
+    async def start_streaming(self) -> None:
+        """
+        Start WebSocket streaming for all configured symbol/interval pairs.
+
+        Establishes WebSocket connection and subscribes to kline streams for each
+        combination of symbols and intervals configured in the constructor.
+
+        Raises:
+            ConnectionError: If WebSocket connection fails
+
+        Example:
+            >>> collector = BinanceDataCollector(...)
+            >>> await collector.start_streaming()
+            >>> # Now receiving real-time kline updates
+
+        Note:
+            - Method is idempotent - multiple calls are ignored
+            - Connection is automatic via binance-futures-connector library
+            - Messages routed to _handle_kline_message() callback
+        """
+        # Idempotency check
+        if self._running:
+            self.logger.warning("Streaming already active, ignoring start request")
+            return
+
+        try:
+            # Select WebSocket URL based on environment
+            stream_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL
+
+            self.logger.info(
+                f"Initializing WebSocket connection to {stream_url}"
+            )
+
+            # Initialize WebSocket client
+            self.ws_client = UMFuturesWebsocketClient(stream_url=stream_url)
+
+            # Subscribe to kline streams for all symbol/interval combinations
+            stream_count = 0
+            for symbol in self.symbols:
+                for interval in self.intervals:
+                    stream_name = f"{symbol.lower()}@kline_{interval}"
+                    self.logger.debug(f"Subscribing to stream: {stream_name}")
+
+                    self.ws_client.kline(
+                        symbol=symbol.lower(),
+                        interval=interval,
+                        callback=self._handle_kline_message
+                    )
+                    stream_count += 1
+
+            # Update state flags
+            self._running = True
+            self._is_connected = True
+
+            self.logger.info(
+                f"Successfully started streaming {stream_count} streams "
+                f"({len(self.symbols)} symbols × {len(self.intervals)} intervals)"
+            )
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to start WebSocket streaming: {e}",
+                exc_info=True
+            )
+            raise ConnectionError(f"WebSocket initialization failed: {e}")
