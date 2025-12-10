@@ -979,10 +979,11 @@ class TestBinanceDataCollectorMessageParsing:
         with patch.object(collector.logger, 'debug') as mock_debug:
             collector._handle_kline_message(valid_kline_message)
 
-            mock_debug.assert_called_once()
-            log_message = str(mock_debug.call_args)
-            assert 'BTCUSDT' in log_message
-            assert '1m' in log_message
+            # With buffer management, debug is called multiple times
+            assert mock_debug.call_count >= 1
+            # Verify at least one call contains candle parsing info
+            log_messages = [str(call) for call in mock_debug.call_args_list]
+            assert any('BTCUSDT' in msg and '1m' in msg for msg in log_messages)
 
     def test_multiple_messages_sequential_parsing(self, collector):
         """Test parsing multiple messages in sequence."""
