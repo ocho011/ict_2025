@@ -161,7 +161,7 @@
           "1",
           "2"
         ],
-        "status": "review",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -246,7 +246,7 @@
         "complexity": 7,
         "recommendedSubtasks": 6,
         "expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown",
-        "updatedAt": "2025-12-10T10:58:50.875Z"
+        "updatedAt": "2025-12-10T11:08:26.675Z"
       },
       {
         "id": "4",
@@ -764,9 +764,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-10T10:58:50.876Z",
+      "lastModified": "2025-12-10T11:08:26.676Z",
       "taskCount": 10,
-      "completedCount": 2,
+      "completedCount": 3,
       "tags": [
         "master"
       ]

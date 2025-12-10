@@ -331,7 +331,8 @@ class TestBinanceDataCollectorStreaming:
 
         # Assert
         mock_ws_client_class.assert_called_once_with(
-            stream_url='wss://stream.binancefuture.com'
+            stream_url='wss://stream.binancefuture.com',
+            on_message=collector._handle_kline_message
         )
         assert collector._running is True
         assert collector._is_connected is True
@@ -366,7 +367,8 @@ class TestBinanceDataCollectorStreaming:
 
         # Assert
         mock_ws_client_class.assert_called_once_with(
-            stream_url='wss://fstream.binance.com'
+            stream_url='wss://fstream.binance.com',
+            on_message=collector._handle_kline_message
         )
         assert collector._running is True
         assert collector._is_connected is True
@@ -453,9 +455,9 @@ class TestBinanceDataCollectorStreaming:
             _, kwargs = call
             assert 'symbol' in kwargs
             assert 'interval' in kwargs
-            assert 'callback' in kwargs
+            # Note: 'callback' not passed to kline() anymore;
+            # on_message is set during WebSocket client initialization
             assert kwargs['symbol'].islower()  # Symbol is lowercase
-            assert kwargs['callback'] == collector._handle_kline_message
 
     @patch('src.core.data_collector.UMFutures')
     @patch('src.core.data_collector.UMFuturesWebsocketClient')
@@ -674,7 +676,7 @@ class TestBinanceDataCollectorMessageParsing:
         collector.on_candle_callback = capture_callback
 
         # Act
-        collector._handle_kline_message(valid_kline_message)
+        collector._handle_kline_message(None, valid_kline_message)
 
         # Assert - Verify all fields
         assert captured_candle is not None
@@ -728,7 +730,7 @@ class TestBinanceDataCollectorMessageParsing:
                 captured_candle = candle
 
             collector.on_candle_callback = capture
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             assert captured_candle.open_time == expected_dt
 
@@ -775,7 +777,7 @@ class TestBinanceDataCollectorMessageParsing:
                 captured_candle = candle
 
             collector.on_candle_callback = capture
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             expected_float = float(price_str)
             assert captured_candle.open == expected_float
@@ -786,7 +788,7 @@ class TestBinanceDataCollectorMessageParsing:
         mock_callback = Mock()
         collector.on_candle_callback = mock_callback
 
-        collector._handle_kline_message(valid_kline_message)
+        collector._handle_kline_message(None, valid_kline_message)
 
         # Assert callback called once with Candle
         mock_callback.assert_called_once()
@@ -799,14 +801,14 @@ class TestBinanceDataCollectorMessageParsing:
         collector.on_candle_callback = None
 
         # Should not raise exception
-        collector._handle_kline_message(valid_kline_message)
+        collector._handle_kline_message(None, valid_kline_message)
 
     def test_non_kline_message_ignored_with_warning(self, collector):
         """Test non-kline messages are ignored with warning log."""
         message = {'e': '24hrTicker', 's': 'BTCUSDT'}
 
         with patch.object(collector.logger, 'warning') as mock_warning:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             # Verify warning logged
             mock_warning.assert_called_once()
@@ -817,7 +819,7 @@ class TestBinanceDataCollectorMessageParsing:
         message = {'k': {'s': 'BTCUSDT'}}
 
         with patch.object(collector.logger, 'warning') as mock_warning:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_warning.assert_called_once()
 
@@ -826,7 +828,7 @@ class TestBinanceDataCollectorMessageParsing:
         message = {'e': 'kline'}
 
         with patch.object(collector.logger, 'error') as mock_error:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_error.assert_called_once()
             assert "missing 'k'" in str(mock_error.call_args).lower()
@@ -849,7 +851,7 @@ class TestBinanceDataCollectorMessageParsing:
         }
 
         with patch.object(collector.logger, 'error') as mock_error:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_error.assert_called()
             assert 'Missing required field' in str(mock_error.call_args)
@@ -873,7 +875,7 @@ class TestBinanceDataCollectorMessageParsing:
         }
 
         with patch.object(collector.logger, 'error') as mock_error:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_error.assert_called()
             assert 'Invalid data type' in str(mock_error.call_args)
@@ -897,7 +899,7 @@ class TestBinanceDataCollectorMessageParsing:
         }
 
         with patch.object(collector.logger, 'error') as mock_error:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_error.assert_called()
 
@@ -920,7 +922,7 @@ class TestBinanceDataCollectorMessageParsing:
         }
 
         with patch.object(collector.logger, 'error') as mock_error:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_error.assert_called()
             # Should catch ValueError from Candle __post_init__ in ValueError/TypeError handler
@@ -947,7 +949,7 @@ class TestBinanceDataCollectorMessageParsing:
         }
 
         with patch.object(collector.logger, 'error') as mock_error:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_error.assert_called()
 
@@ -970,14 +972,14 @@ class TestBinanceDataCollectorMessageParsing:
         }
 
         with patch.object(collector.logger, 'error') as mock_error:
-            collector._handle_kline_message(message)
+            collector._handle_kline_message(None, message)
 
             mock_error.assert_called()
 
     def test_debug_logging_on_success(self, collector, valid_kline_message):
         """Test debug logging on successful parse."""
         with patch.object(collector.logger, 'debug') as mock_debug:
-            collector._handle_kline_message(valid_kline_message)
+            collector._handle_kline_message(None, valid_kline_message)
 
             # With buffer management, debug is called multiple times
             assert mock_debug.call_count >= 1
@@ -1014,7 +1016,7 @@ class TestBinanceDataCollectorMessageParsing:
         collector.on_candle_callback = capture
 
         for msg in messages:
-            collector._handle_kline_message(msg)
+            collector._handle_kline_message(None, msg)
 
         assert len(captured_candles) == 5
         assert captured_candles[0].close == 57050.0
@@ -1594,8 +1596,8 @@ class TestBinanceDataCollectorBufferManagement:
     def test_get_candle_buffer_empty_buffer_returns_empty(self, data_collector):
         """Verify empty list returned for empty buffer"""
         # Create empty buffer manually
-        import asyncio
-        data_collector._candle_buffers["BTCUSDT_1m"] = asyncio.Queue(maxsize=500)
+        from collections import deque
+        data_collector._candle_buffers["BTCUSDT_1m"] = deque(maxlen=500)
 
         buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
         assert buffer == []
@@ -1703,7 +1705,7 @@ class TestBinanceDataCollectorBufferManagement:
         }
 
         # Handle message (should auto-buffer)
-        data_collector._handle_kline_message(message)
+        data_collector._handle_kline_message(None, message)
 
         # Verify candle was buffered
         buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
@@ -1777,7 +1779,7 @@ class TestBinanceDataCollectorBufferManagement:
                 'c': '50100.00', 'v': '11.0', 'x': True
             }
         }
-        data_collector._handle_kline_message(message)
+        data_collector._handle_kline_message(None, message)
 
         # 3. Verify combined buffer
         buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")

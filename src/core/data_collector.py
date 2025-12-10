@@ -8,6 +8,7 @@ historical data retrieval.
 
 from binance.um_futures import UMFutures
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
+from collections import deque
 from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 import asyncio
@@ -112,8 +113,8 @@ class BinanceDataCollector:
         self.buffer_size = buffer_size
 
         # Initialize candle buffers (lazy initialization per symbol/interval)
-        # Key format: '{SYMBOL}_{INTERVAL}' -> asyncio.Queue
-        self._candle_buffers: Dict[str, asyncio.Queue] = {}
+        # Key format: '{SYMBOL}_{INTERVAL}' -> deque
+        self._candle_buffers: Dict[str, deque] = {}
 
         # Initialize REST client for historical data and account queries
         base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL
@@ -163,7 +164,7 @@ class BinanceDataCollector:
         return self._is_connected and self.ws_client is not None
 
 
-    def _handle_kline_message(self, message: Dict) -> None:
+    def _handle_kline_message(self, _, message) -> None:
         """
         Handle incoming kline WebSocket messages.
 
@@ -171,10 +172,12 @@ class BinanceDataCollector:
         Invokes callback if configured and logs parsing errors gracefully.
 
         Args:
-            message: Raw WebSocket message dictionary from Binance
+            _: Unused first parameter (WebSocket client passes it)
+            message: Raw WebSocket message (str or dict) from Binance
                     Expected format: {'e': 'kline', 'k': {...}}
 
         Processing Steps:
+            0. Parse JSON string if message is str (library sends JSON strings)
             1. Validate message type (must be 'kline')
             2. Extract kline data from message['k']
             3. Convert timestamps (ms → datetime)
@@ -185,6 +188,7 @@ class BinanceDataCollector:
             8. Log debug info on success
 
         Error Handling:
+            - JSONDecodeError: Invalid JSON string
             - KeyError: Missing required field in message
             - ValueError: Invalid data type conversion (e.g., non-numeric string)
             - TypeError: Unexpected data type in message
@@ -194,6 +198,11 @@ class BinanceDataCollector:
         to prevent WebSocket disconnection on malformed messages.
         """
         try:
+            # Step 0: Parse JSON string if needed
+            if isinstance(message, str):
+                import json
+                message = json.loads(message)
+
             # Step 1: Validate message type
             event_type = message.get('e')
             if event_type != 'kline':
@@ -291,8 +300,12 @@ class BinanceDataCollector:
                 f"Initializing WebSocket connection to {stream_url}"
             )
 
-            # Initialize WebSocket client
-            self.ws_client = UMFuturesWebsocketClient(stream_url=stream_url)
+            # Initialize WebSocket client with message handler
+            # IMPORTANT: on_message must be set during client initialization
+            self.ws_client = UMFuturesWebsocketClient(
+                stream_url=stream_url,
+                on_message=self._handle_kline_message
+            )
 
             # Subscribe to kline streams for all symbol/interval combinations
             stream_count = 0
@@ -301,10 +314,10 @@ class BinanceDataCollector:
                     stream_name = f"{symbol.lower()}@kline_{interval}"
                     self.logger.debug(f"Subscribing to stream: {stream_name}")
 
+                    # Subscribe without callback parameter (handled by on_message)
                     self.ws_client.kline(
                         symbol=symbol.lower(),
-                        interval=interval,
-                        callback=self._handle_kline_message
+                        interval=interval
                     )
                     stream_count += 1
 
@@ -489,8 +502,8 @@ class BinanceDataCollector:
             5. Log buffer operation for debugging
 
         Thread Safety:
-            - asyncio.Queue handles concurrent access safely
-            - No explicit locking required
+            - deque handles concurrent access safely for basic operations
+            - Thread-safe for append/popleft from different threads
 
         Error Handling:
             - Logs errors but does not raise exceptions
@@ -507,35 +520,26 @@ class BinanceDataCollector:
 
             # Create buffer if it doesn't exist
             if key not in self._candle_buffers:
-                self._candle_buffers[key] = asyncio.Queue(maxsize=self.buffer_size)
+                self._candle_buffers[key] = deque(maxlen=self.buffer_size)
                 self.logger.debug(f"Created new buffer for {key} (max size: {self.buffer_size})")
 
-            queue = self._candle_buffers[key]
+            buffer = self._candle_buffers[key]
 
-            # Handle overflow: remove oldest if full
-            if queue.full():
-                try:
-                    removed_candle = queue.get_nowait()
-                    self.logger.debug(
-                        f"Buffer {key} full, removed oldest candle "
-                        f"@ {removed_candle.open_time.isoformat()}"
-                    )
-                except asyncio.QueueEmpty:
-                    # Shouldn't happen, but handle safely
-                    self.logger.warning(f"Buffer {key} reported full but was empty")
-
-            # Add new candle
-            try:
-                queue.put_nowait(candle)
+            # deque with maxlen automatically removes oldest when full
+            # Log if we're about to overflow
+            if len(buffer) >= self.buffer_size:
+                oldest = buffer[0]  # Will be auto-removed
                 self.logger.debug(
-                    f"Buffered candle: {key} @ {candle.open_time.isoformat()} "
-                    f"(buffer size: {queue.qsize()}/{self.buffer_size})"
+                    f"Buffer {key} full, will auto-remove oldest candle "
+                    f"@ {oldest.open_time.isoformat()}"
                 )
-            except asyncio.QueueFull:
-                # Shouldn't happen after overflow handling, but be defensive
-                self.logger.error(
-                    f"Failed to add candle to buffer {key}: queue still full after overflow handling"
-                )
+
+            # Add new candle (deque auto-handles overflow with maxlen)
+            buffer.append(candle)
+            self.logger.debug(
+                f"Buffered candle: {key} @ {candle.open_time.isoformat()} "
+                f"(buffer size: {len(buffer)}/{self.buffer_size})"
+            )
 
         except Exception as e:
             # Catch any unexpected errors to prevent WebSocket disruption
@@ -566,12 +570,12 @@ class BinanceDataCollector:
             6. Return as List[Candle]
 
         Non-Destructive Read:
-            - Candles remain in queue after retrieval
-            - Uses temporary list to preserve queue contents
+            - Candles remain in buffer after retrieval
+            - Direct list conversion preserves buffer contents
 
         Thread Safety:
             - Safe for concurrent reads/writes
-            - Queue state remains consistent
+            - Buffer state remains consistent
 
         Example:
             >>> candles = collector.get_candle_buffer("BTCUSDT", "1m")
@@ -585,36 +589,15 @@ class BinanceDataCollector:
             self.logger.debug(f"Buffer {key} does not exist, returning empty list")
             return []
 
-        queue = self._candle_buffers[key]
+        buffer = self._candle_buffers[key]
 
-        # Return empty if queue is empty
-        if queue.empty():
+        # Return empty if buffer is empty
+        if len(buffer) == 0:
             self.logger.debug(f"Buffer {key} is empty, returning empty list")
             return []
 
-        # Extract all candles without removing (non-destructive read)
-        candles = []
-        temp_storage = []
-
-        try:
-            # Drain queue into temporary storage
-            while not queue.empty():
-                candle = queue.get_nowait()
-                candles.append(candle)
-                temp_storage.append(candle)
-        except asyncio.QueueEmpty:
-            # Race condition: queue emptied between check and get
-            self.logger.debug(f"Queue {key} emptied during drain (race condition)")
-
-        try:
-            # Restore queue contents
-            for candle in temp_storage:
-                queue.put_nowait(candle)
-        except asyncio.QueueFull:
-            # Shouldn't happen, but log if it does
-            self.logger.warning(
-                f"Queue {key} full during restore, some candles may be lost"
-            )
+        # Convert deque to list (non-destructive, preserves buffer contents)
+        candles = list(buffer)
 
         # Sort by open_time and return
         sorted_candles = sorted(candles, key=lambda c: c.open_time)
@@ -688,8 +671,8 @@ class BinanceDataCollector:
 
             # Step 5: Log buffer states (non-destructive)
             buffer_summary = []
-            for key, queue in self._candle_buffers.items():
-                buffer_summary.append(f"{key}: {queue.qsize()} candles")
+            for key, buffer in self._candle_buffers.items():
+                buffer_summary.append(f"{key}: {len(buffer)} candles")
 
             if buffer_summary:
                 self.logger.info(
