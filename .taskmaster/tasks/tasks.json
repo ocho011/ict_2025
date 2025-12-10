@@ -161,7 +161,7 @@
           "1",
           "2"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -169,9 +169,10 @@
             "description": "Create the BinanceDataCollector class skeleton with constructor, URL constants, and REST client initialization for both testnet and mainnet environments.",
             "dependencies": [],
             "details": "Implement the class structure in `src/core/data_collector.py` with:\n- Define TESTNET_BASE_URL, MAINNET_BASE_URL, TESTNET_WS_URL, MAINNET_WS_URL constants\n- Implement __init__ method accepting api_key, api_secret, symbols, intervals, is_testnet, on_candle_callback parameters\n- Initialize UMFutures REST client with appropriate base_url based on is_testnet flag\n- Setup instance variables for candle buffers (_candle_buffers), logger, and ws_client placeholder\n- Normalize symbols to uppercase and store intervals\n- Add docstrings explaining testnet vs mainnet usage",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test class instantiation with both testnet=True and testnet=False. Verify REST client is created with correct base_url. Test with mock API keys. Verify symbols are normalized to uppercase.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-09T14:35:27.044Z"
           },
           {
             "id": 2,
@@ -181,9 +182,10 @@
               1
             ],
             "details": "Implement in BinanceDataCollector class:\n- Create start_streaming() async method\n- Generate stream names in format '{symbol_lower}@kline_{interval}' for all symbol/interval combinations\n- Initialize UMFuturesWebsocketClient with appropriate stream_url (testnet or mainnet)\n- Subscribe to kline streams using ws_client.kline() for each symbol/interval pair\n- Set on_message callback to _handle_kline_message (to be implemented in next subtask)\n- Handle WebSocket initialization errors with proper logging\n- Store ws_client instance for later cleanup",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Mock UMFuturesWebsocketClient and verify kline() is called for each symbol/interval. Test stream name generation format. Verify correct WebSocket URL is used based on is_testnet flag. Test error handling for connection failures.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-09T14:52:22.642Z"
           },
           {
             "id": 3,
@@ -193,9 +195,10 @@
               2
             ],
             "details": "Implement _handle_kline_message(self, message: dict) method:\n- Check if message contains 'e' key with value 'kline' to validate message type\n- Extract kline data from message['k']\n- Parse kline fields: symbol (s), interval (i), open_time (t), open (o), high (h), low (l), close (c), volume (v), close_time (T), is_closed (x)\n- Convert timestamps from milliseconds to datetime objects using datetime.fromtimestamp()\n- Convert price/volume strings to float\n- Create Candle object with all parsed fields\n- Call self.on_candle_callback(candle) if callback is configured\n- Add error handling for malformed messages with logging",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test with mock WebSocket message matching Binance kline format. Verify Candle object is created with correct field values. Test callback is invoked. Test handling of malformed messages. Verify timestamp conversion accuracy.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-10T10:27:49.747Z"
           },
           {
             "id": 4,
@@ -205,9 +208,10 @@
               1
             ],
             "details": "Implement get_historical_candles(self, symbol: str, interval: str, limit: int = 500) method:\n- Call self.rest_client.klines() with symbol (uppercase), interval, and limit parameters\n- Implement _parse_rest_kline() helper method to convert REST API kline array to Candle object\n- REST kline format: [open_time, open, high, low, close, volume, close_time, ...]\n- Map array indices to Candle fields with proper type conversions\n- Return List[Candle] sorted by open_time\n- Handle API errors (rate limits, invalid symbol) with appropriate exceptions\n- Add logging for API calls and errors",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration test against Binance Testnet with real API keys. Verify returned candles match known historical data. Test with various limit values (1, 100, 500, 1000). Test error handling for invalid symbols. Verify candle parsing accuracy.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-10T10:21:44.389Z"
           },
           {
             "id": 5,
@@ -218,9 +222,10 @@
               4
             ],
             "details": "Implement candle buffer management:\n- Initialize _candle_buffers as Dict[str, asyncio.Queue] in __init__\n- Create buffer key format: '{symbol}_{interval}'\n- Implement add_candle_to_buffer(candle: Candle) method that adds to appropriate queue\n- Set buffer size limit (e.g., 500 candles per symbol/interval)\n- Implement get_candle_buffer(symbol: str, interval: str) -> List[Candle] method\n- Use asyncio.Queue for thread-safe operations\n- Integrate with _handle_kline_message to automatically buffer incoming candles\n- Integrate with get_historical_candles to pre-populate buffers\n- Implement buffer overflow handling (remove oldest candles when full)",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test buffer addition and retrieval with multiple symbols/intervals. Test thread safety with concurrent adds. Verify buffer size limits work correctly. Test buffer pre-population from historical data. Verify oldest candles are removed on overflow.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-10T10:43:55.028Z"
           },
           {
             "id": 6,
@@ -232,14 +237,16 @@
               5
             ],
             "details": "Implement connection management features:\n- Add _is_connected property to track WebSocket state\n- Implement ping/heartbeat mechanism (if not provided by library)\n- Add connection error callback to handle disconnections\n- Implement stop() method to gracefully close WebSocket and REST clients\n- Add cleanup logic to flush remaining buffered candles\n- Implement __aenter__ and __aexit__ for async context manager support\n- Log connection state changes (connected, disconnected, reconnecting)\n- Note: binance-futures-connector handles automatic reconnection internally\n- Add shutdown timeout handling (max 5 seconds for cleanup)\n- Ensure all async tasks are properly cancelled on shutdown",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test stop() method closes connections cleanly. Test context manager usage. Simulate connection drop and verify reconnection (may need to mock). Test shutdown with pending messages in buffer. Verify no resource leaks after shutdown.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-10T10:58:38.664Z"
           }
         ],
         "complexity": 7,
         "recommendedSubtasks": 6,
-        "expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown"
+        "expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown",
+        "updatedAt": "2025-12-10T11:08:26.675Z"
       },
       {
         "id": "4",
@@ -757,9 +764,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-05T16:18:42.799Z",
+      "lastModified": "2025-12-10T11:08:26.676Z",
       "taskCount": 10,
-      "completedCount": 2,
+      "completedCount": 3,
       "tags": [
         "master"
       ]
