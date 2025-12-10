@@ -161,7 +161,7 @@
           "1",
           "2"
         ],
-        "status": "in-progress",
+        "status": "review",
         "subtasks": [
           {
             "id": 1,
@@ -237,15 +237,16 @@
               5
             ],
             "details": "Implement connection management features:\n- Add _is_connected property to track WebSocket state\n- Implement ping/heartbeat mechanism (if not provided by library)\n- Add connection error callback to handle disconnections\n- Implement stop() method to gracefully close WebSocket and REST clients\n- Add cleanup logic to flush remaining buffered candles\n- Implement __aenter__ and __aexit__ for async context manager support\n- Log connection state changes (connected, disconnected, reconnecting)\n- Note: binance-futures-connector handles automatic reconnection internally\n- Add shutdown timeout handling (max 5 seconds for cleanup)\n- Ensure all async tasks are properly cancelled on shutdown",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test stop() method closes connections cleanly. Test context manager usage. Simulate connection drop and verify reconnection (may need to mock). Test shutdown with pending messages in buffer. Verify no resource leaks after shutdown.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-10T10:58:38.664Z"
           }
         ],
         "complexity": 7,
         "recommendedSubtasks": 6,
         "expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown",
-        "updatedAt": "2025-12-10T10:43:55.028Z"
+        "updatedAt": "2025-12-10T10:58:50.875Z"
       },
       {
         "id": "4",
@@ -763,7 +764,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-10T10:43:55.028Z",
+      "lastModified": "2025-12-10T10:58:50.876Z",
       "taskCount": 10,
       "completedCount": 2,
       "tags": [

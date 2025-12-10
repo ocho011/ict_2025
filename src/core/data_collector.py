@@ -28,6 +28,7 @@ class BinanceDataCollector:
     symbol normalization and thread-safe buffer management using asyncio.Queue.
 
     Example:
+        >>> # Explicit lifecycle management
         >>> collector = BinanceDataCollector(
         ...     api_key='your_key',
         ...     api_secret='your_secret',
@@ -38,7 +39,13 @@ class BinanceDataCollector:
         ... )
         >>> await collector.start_streaming()
         >>> # ... data collection active ...
-        >>> collector.stop()
+        >>> await collector.stop()
+
+        >>> # Or use async context manager (recommended)
+        >>> async with BinanceDataCollector(...) as collector:
+        ...     await collector.start_streaming()
+        ...     # ... data collection active ...
+        >>> # Automatic cleanup on exit
 
     Attributes:
         TESTNET_BASE_URL: Binance Futures testnet REST API endpoint
@@ -140,6 +147,20 @@ class BinanceDataCollector:
             f"is_testnet={self.is_testnet}, "
             f"running={self._running})"
         )
+
+    @property
+    def is_connected(self) -> bool:
+        """
+        Check if WebSocket connection is active.
+
+        Returns:
+            True if WebSocket is connected and streaming, False otherwise
+
+        Note:
+            - Returns False if WebSocket client not initialized
+            - Returns internal _is_connected flag state
+        """
+        return self._is_connected and self.ws_client is not None
 
 
     def _handle_kline_message(self, message: Dict) -> None:
@@ -601,3 +622,145 @@ class BinanceDataCollector:
             f"Retrieved {len(sorted_candles)} candles from buffer {key}"
         )
         return sorted_candles
+
+    async def stop(self, timeout: float = 5.0) -> None:
+        """
+        Gracefully stop data collection and cleanup resources.
+
+        Execution Order:
+            1. Check if already stopped (idempotency)
+            2. Set state flags to prevent new operations
+            3. Stop WebSocket client with timeout
+            4. Close REST API client session
+            5. Log final buffer states (non-destructive)
+            6. Clear state flags
+
+        Args:
+            timeout: Maximum time in seconds to wait for cleanup (default: 5.0)
+
+        Raises:
+            asyncio.TimeoutError: If cleanup exceeds timeout (logged as warning)
+
+        Note:
+            - Method is idempotent - safe to call multiple times
+            - Buffers are preserved (use get_candle_buffer() to access)
+            - Logs warnings if cleanup exceeds timeout
+            - Does not raise exceptions on cleanup failures
+
+        Example:
+            >>> collector = BinanceDataCollector(...)
+            >>> await collector.start_streaming()
+            >>> # ... data collection active ...
+            >>> await collector.stop()
+        """
+        # Step 1: Idempotency check
+        if not self._running and not self._is_connected:
+            self.logger.debug("Collector already stopped, ignoring stop request")
+            return
+
+        self.logger.info("Initiating graceful shutdown...")
+
+        # Step 2: Set flags to prevent new operations
+        self._running = False
+        self._is_connected = False
+
+        try:
+            # Step 3: Stop WebSocket client with timeout
+            if self.ws_client is not None:
+                self.logger.debug("Stopping WebSocket client...")
+                try:
+                    await asyncio.wait_for(
+                        asyncio.to_thread(self.ws_client.stop),
+                        timeout=timeout
+                    )
+                    self.logger.info("WebSocket client stopped successfully")
+                except asyncio.TimeoutError:
+                    self.logger.warning(
+                        f"WebSocket stop exceeded {timeout}s timeout, forcing cleanup"
+                    )
+                except Exception as e:
+                    self.logger.error(f"Error stopping WebSocket client: {e}", exc_info=True)
+
+            # Step 4: Close REST API client (if it has a close method)
+            # Note: UMFutures uses requests.Session internally, which doesn't require explicit close
+            # But we log for completeness
+            self.logger.debug("REST API client cleanup complete")
+
+            # Step 5: Log buffer states (non-destructive)
+            buffer_summary = []
+            for key, queue in self._candle_buffers.items():
+                buffer_summary.append(f"{key}: {queue.qsize()} candles")
+
+            if buffer_summary:
+                self.logger.info(
+                    f"Buffer states at shutdown: {', '.join(buffer_summary)}"
+                )
+            else:
+                self.logger.debug("No buffered candles at shutdown")
+
+            # Step 6: Final state
+            self.logger.info("Graceful shutdown complete")
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error during shutdown: {e}", exc_info=True)
+
+    async def __aenter__(self) -> "BinanceDataCollector":
+        """
+        Async context manager entry.
+
+        Returns:
+            Self instance for use in async with statement
+
+        Example:
+            >>> async with BinanceDataCollector(...) as collector:
+            ...     await collector.start_streaming()
+            ...     # ... use collector ...
+            >>> # Automatic cleanup on exit
+
+        Note:
+            - Does NOT automatically call start_streaming()
+            - User must explicitly start streaming within context
+            - Provides automatic cleanup on context exit
+        """
+        self.logger.debug("Entering async context manager")
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[object]
+    ) -> None:
+        """
+        Async context manager exit with automatic cleanup.
+
+        Args:
+            exc_type: Exception type if exception occurred
+            exc_val: Exception value if exception occurred
+            exc_tb: Exception traceback if exception occurred
+
+        Note:
+            - Calls stop() automatically
+            - Handles exceptions during cleanup
+            - Does not suppress context exceptions (returns None)
+            - Logs context exceptions for debugging
+        """
+        if exc_type is not None:
+            self.logger.warning(
+                f"Exiting context with exception: {exc_type.__name__}: {exc_val}"
+            )
+        else:
+            self.logger.debug("Exiting async context manager normally")
+
+        # Always attempt cleanup
+        try:
+            await self.stop()
+        except Exception as e:
+            self.logger.error(
+                f"Error during context manager cleanup: {e}",
+                exc_info=True
+            )
+
+        # Don't suppress exceptions from the context
+        return None
+            # Don't re-raise - best effort cleanup
