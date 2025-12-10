@@ -207,10 +207,10 @@
               1
             ],
             "details": "Implement get_historical_candles(self, symbol: str, interval: str, limit: int = 500) method:\n- Call self.rest_client.klines() with symbol (uppercase), interval, and limit parameters\n- Implement _parse_rest_kline() helper method to convert REST API kline array to Candle object\n- REST kline format: [open_time, open, high, low, close, volume, close_time, ...]\n- Map array indices to Candle fields with proper type conversions\n- Return List[Candle] sorted by open_time\n- Handle API errors (rate limits, invalid symbol) with appropriate exceptions\n- Add logging for API calls and errors",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Integration test against Binance Testnet with real API keys. Verify returned candles match known historical data. Test with various limit values (1, 100, 500, 1000). Test error handling for invalid symbols. Verify candle parsing accuracy.",
             "parentId": "undefined",
-            "updatedAt": "2025-12-09T19:01:51.743Z"
+            "updatedAt": "2025-12-10T10:21:44.389Z"
           },
           {
             "id": 5,
@@ -243,7 +243,7 @@
         "complexity": 7,
         "recommendedSubtasks": 6,
         "expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown",
-        "updatedAt": "2025-12-09T19:01:51.743Z"
+        "updatedAt": "2025-12-10T10:21:44.389Z"
       },
       {
         "id": "4",
@@ -761,7 +761,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-09T19:01:51.744Z",
+      "lastModified": "2025-12-10T10:21:44.391Z",
       "taskCount": 10,
       "completedCount": 2,
       "tags": [
