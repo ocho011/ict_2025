@@ -222,9 +222,10 @@
               4
             ],
             "details": "Implement candle buffer management:\n- Initialize _candle_buffers as Dict[str, asyncio.Queue] in __init__\n- Create buffer key format: '{symbol}_{interval}'\n- Implement add_candle_to_buffer(candle: Candle) method that adds to appropriate queue\n- Set buffer size limit (e.g., 500 candles per symbol/interval)\n- Implement get_candle_buffer(symbol: str, interval: str) -> List[Candle] method\n- Use asyncio.Queue for thread-safe operations\n- Integrate with _handle_kline_message to automatically buffer incoming candles\n- Integrate with get_historical_candles to pre-populate buffers\n- Implement buffer overflow handling (remove oldest candles when full)",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test buffer addition and retrieval with multiple symbols/intervals. Test thread safety with concurrent adds. Verify buffer size limits work correctly. Test buffer pre-population from historical data. Verify oldest candles are removed on overflow.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-10T10:43:55.028Z"
           },
           {
             "id": 6,
@@ -244,7 +245,7 @@
         "complexity": 7,
         "recommendedSubtasks": 6,
         "expansionPrompt": "Break down into: 1) Setup BinanceDataCollector class with REST client initialization and testnet/mainnet URL configuration, 2) Implement WebSocket connection management with kline stream subscription, 3) Implement _handle_kline_message for parsing WebSocket messages into Candle objects, 4) Implement get_historical_candles REST API method for initial data loading, 5) Implement candle buffer management with thread-safe storage, 6) Add connection health monitoring, reconnection handling, and graceful shutdown",
-        "updatedAt": "2025-12-10T10:27:49.747Z"
+        "updatedAt": "2025-12-10T10:43:55.028Z"
       },
       {
         "id": "4",
@@ -762,7 +763,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-10T10:27:49.748Z",
+      "lastModified": "2025-12-10T10:43:55.028Z",
       "taskCount": 10,
       "completedCount": 2,
       "tags": [

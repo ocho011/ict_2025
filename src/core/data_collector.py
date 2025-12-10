@@ -159,8 +159,9 @@ class BinanceDataCollector:
             3. Convert timestamps (ms → datetime)
             4. Convert prices/volume (str → float)
             5. Create Candle object (validates in __post_init__)
-            6. Invoke user callback if configured
-            7. Log debug info on success
+            6. Add candle to buffer for historical access
+            7. Invoke user callback if configured
+            8. Log debug info on success
 
         Error Handling:
             - KeyError: Missing required field in message
@@ -202,11 +203,14 @@ class BinanceDataCollector:
                 is_closed=kline['x']
             )
 
-            # Step 5: Invoke user callback if configured
+            # Step 5: Add candle to buffer
+            self.add_candle_to_buffer(candle)
+
+            # Step 6: Invoke user callback if configured
             if self.on_candle_callback:
                 self.on_candle_callback(candle)
 
-            # Step 6: Log debug info
+            # Step 7: Log debug info
             self.logger.debug(
                 f"Parsed candle: {candle.symbol} {candle.interval} "
                 f"@ {candle.close_time.isoformat()} "
@@ -402,6 +406,9 @@ class BinanceDataCollector:
                 candle.interval = interval
                 candles.append(candle)
 
+                # Pre-populate buffer with historical data
+                self.add_candle_to_buffer(candle)
+
             # Log success with time range if candles exist
             if candles:
                 self.logger.info(
@@ -421,3 +428,176 @@ class BinanceDataCollector:
                 exc_info=True
             )
             raise ConnectionError(f"REST API request failed: {e}")
+
+    def _get_buffer_key(self, symbol: str, interval: str) -> str:
+        """
+        Generate standardized buffer key for symbol/interval pair.
+
+        Args:
+            symbol: Trading pair (e.g., "BTCUSDT", "btcusdt")
+            interval: Timeframe (e.g., "1m", "5m", "1h")
+
+        Returns:
+            Standardized key: "{SYMBOL}_{INTERVAL}" (e.g., "BTCUSDT_1m")
+
+        Note:
+            - Symbol is automatically normalized to uppercase
+            - Interval is used as-is (already validated by Binance API)
+
+        Example:
+            >>> collector._get_buffer_key("btcusdt", "1m")
+            "BTCUSDT_1m"
+        """
+        return f"{symbol.upper()}_{interval}"
+
+    def add_candle_to_buffer(self, candle: Candle) -> None:
+        """
+        Add candle to appropriate buffer with automatic overflow handling.
+
+        Args:
+            candle: Candle object to buffer
+
+        Behavior:
+            1. Generate buffer key from candle.symbol and candle.interval
+            2. Create new queue if buffer doesn't exist for this pair
+            3. If buffer is full (size >= self.buffer_size):
+               - Remove oldest candle (FIFO)
+               - Add new candle
+            4. If buffer has space:
+               - Add new candle directly
+            5. Log buffer operation for debugging
+
+        Thread Safety:
+            - asyncio.Queue handles concurrent access safely
+            - No explicit locking required
+
+        Error Handling:
+            - Logs errors but does not raise exceptions
+            - Prevents buffer operation failures from stopping WebSocket
+
+        Example:
+            >>> candle = Candle(symbol="BTCUSDT", interval="1m", ...)
+            >>> collector.add_candle_to_buffer(candle)
+            # Candle added to _candle_buffers["BTCUSDT_1m"]
+        """
+        try:
+            # Generate buffer key
+            key = self._get_buffer_key(candle.symbol, candle.interval)
+
+            # Create buffer if it doesn't exist
+            if key not in self._candle_buffers:
+                self._candle_buffers[key] = asyncio.Queue(maxsize=self.buffer_size)
+                self.logger.debug(f"Created new buffer for {key} (max size: {self.buffer_size})")
+
+            queue = self._candle_buffers[key]
+
+            # Handle overflow: remove oldest if full
+            if queue.full():
+                try:
+                    removed_candle = queue.get_nowait()
+                    self.logger.debug(
+                        f"Buffer {key} full, removed oldest candle "
+                        f"@ {removed_candle.open_time.isoformat()}"
+                    )
+                except asyncio.QueueEmpty:
+                    # Shouldn't happen, but handle safely
+                    self.logger.warning(f"Buffer {key} reported full but was empty")
+
+            # Add new candle
+            try:
+                queue.put_nowait(candle)
+                self.logger.debug(
+                    f"Buffered candle: {key} @ {candle.open_time.isoformat()} "
+                    f"(buffer size: {queue.qsize()}/{self.buffer_size})"
+                )
+            except asyncio.QueueFull:
+                # Shouldn't happen after overflow handling, but be defensive
+                self.logger.error(
+                    f"Failed to add candle to buffer {key}: queue still full after overflow handling"
+                )
+
+        except Exception as e:
+            # Catch any unexpected errors to prevent WebSocket disruption
+            self.logger.error(
+                f"Unexpected error adding candle to buffer: {e} | "
+                f"Candle: {candle.symbol} {candle.interval} @ {candle.open_time.isoformat()}",
+                exc_info=True
+            )
+
+    def get_candle_buffer(self, symbol: str, interval: str) -> List[Candle]:
+        """
+        Retrieve all candles from buffer without removing them.
+
+        Args:
+            symbol: Trading pair (e.g., "BTCUSDT")
+            interval: Timeframe (e.g., "1m", "5m")
+
+        Returns:
+            List of candles sorted by open_time (oldest to newest)
+            Empty list if buffer doesn't exist or is empty
+
+        Behavior:
+            1. Generate buffer key
+            2. If buffer doesn't exist → return []
+            3. If buffer exists but empty → return []
+            4. Extract all candles (non-destructive)
+            5. Sort by open_time ascending
+            6. Return as List[Candle]
+
+        Non-Destructive Read:
+            - Candles remain in queue after retrieval
+            - Uses temporary list to preserve queue contents
+
+        Thread Safety:
+            - Safe for concurrent reads/writes
+            - Queue state remains consistent
+
+        Example:
+            >>> candles = collector.get_candle_buffer("BTCUSDT", "1m")
+            >>> print(f"Retrieved {len(candles)} candles")
+            Retrieved 350 candles
+        """
+        key = self._get_buffer_key(symbol, interval)
+
+        # Return empty if buffer doesn't exist
+        if key not in self._candle_buffers:
+            self.logger.debug(f"Buffer {key} does not exist, returning empty list")
+            return []
+
+        queue = self._candle_buffers[key]
+
+        # Return empty if queue is empty
+        if queue.empty():
+            self.logger.debug(f"Buffer {key} is empty, returning empty list")
+            return []
+
+        # Extract all candles without removing (non-destructive read)
+        candles = []
+        temp_storage = []
+
+        try:
+            # Drain queue into temporary storage
+            while not queue.empty():
+                candle = queue.get_nowait()
+                candles.append(candle)
+                temp_storage.append(candle)
+        except asyncio.QueueEmpty:
+            # Race condition: queue emptied between check and get
+            self.logger.debug(f"Queue {key} emptied during drain (race condition)")
+
+        try:
+            # Restore queue contents
+            for candle in temp_storage:
+                queue.put_nowait(candle)
+        except asyncio.QueueFull:
+            # Shouldn't happen, but log if it does
+            self.logger.warning(
+                f"Queue {key} full during restore, some candles may be lost"
+            )
+
+        # Sort by open_time and return
+        sorted_candles = sorted(candles, key=lambda c: c.open_time)
+        self.logger.debug(
+            f"Retrieved {len(sorted_candles)} candles from buffer {key}"
+        )
+        return sorted_candles
