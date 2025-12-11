@@ -5,6 +5,7 @@ Tests the subscriber registry and event routing foundation
 of the EventBus class before queue implementation.
 """
 
+import asyncio
 import threading
 import pytest
 
@@ -377,3 +378,193 @@ class TestEventBusQueues:
         assert final_stats['data']['size'] == 10
         assert final_stats['signal']['size'] == 5
         assert final_stats['order']['size'] == 2
+
+
+class TestEventBusProcessors:
+    """Test suite for Subtask 4.3: Async queue processors with error recovery."""
+
+    @pytest.mark.asyncio
+    async def test_processor_executes_async_handler(self):
+        """Verify processor correctly awaits async handlers."""
+        bus = EventBus()
+        bus._running = True
+
+        executed = []
+
+        async def async_handler(event):
+            await asyncio.sleep(0.01)  # Simulating async work
+            executed.append(event.data)
+
+        # Subscribe handler
+        bus.subscribe(EventType.CANDLE_CLOSED, async_handler)
+
+        # Publish event to data queue
+        event = Event(EventType.CANDLE_CLOSED, {'test': 'data'}, source='test')
+        await bus.publish(event, queue_name='data')
+
+        # Start processor (will process 1 event then we stop it)
+        processor_task = asyncio.create_task(bus._process_queue('data'))
+        await asyncio.sleep(0.05)  # Let it process
+        bus._running = False
+        await processor_task
+
+        # Verify handler was executed
+        assert len(executed) == 1
+        assert executed[0] == {'test': 'data'}
+
+    @pytest.mark.asyncio
+    async def test_processor_executes_sync_handler(self):
+        """Verify processor correctly calls sync handlers."""
+        bus = EventBus()
+        bus._running = True
+
+        executed = []
+
+        def sync_handler(event):
+            executed.append(event.data)
+
+        bus.subscribe(EventType.CANDLE_CLOSED, sync_handler)
+
+        event = Event(EventType.CANDLE_CLOSED, {'test': 'sync'}, source='test')
+        await bus.publish(event, queue_name='data')
+
+        processor_task = asyncio.create_task(bus._process_queue('data'))
+        await asyncio.sleep(0.05)
+        bus._running = False
+        await processor_task
+
+        assert len(executed) == 1
+        assert executed[0] == {'test': 'sync'}
+
+    @pytest.mark.asyncio
+    async def test_processor_isolates_handler_errors(self):
+        """Verify one handler error doesn't affect others."""
+        bus = EventBus()
+        bus._running = True
+
+        executed = []
+
+        def handler_1(event):
+            executed.append('handler_1')
+
+        def handler_2_fails(event):
+            executed.append('handler_2_called')
+            raise ValueError("Handler 2 intentional failure")
+
+        def handler_3(event):
+            executed.append('handler_3')
+
+        # Subscribe all three handlers
+        bus.subscribe(EventType.CANDLE_CLOSED, handler_1)
+        bus.subscribe(EventType.CANDLE_CLOSED, handler_2_fails)
+        bus.subscribe(EventType.CANDLE_CLOSED, handler_3)
+
+        event = Event(EventType.CANDLE_CLOSED, {}, source='test')
+        await bus.publish(event, queue_name='data')
+
+        processor_task = asyncio.create_task(bus._process_queue('data'))
+        await asyncio.sleep(0.05)
+        bus._running = False
+        await processor_task
+
+        # Verify all handlers executed (2 succeeded, 1 failed but logged)
+        assert 'handler_1' in executed
+        assert 'handler_2_called' in executed
+        assert 'handler_3' in executed
+
+    @pytest.mark.asyncio
+    async def test_processor_continues_after_handler_error(self):
+        """Verify processor processes multiple events despite errors."""
+        bus = EventBus()
+        bus._running = True
+
+        executed_count = [0]
+
+        def failing_handler(event):
+            executed_count[0] += 1
+            raise RuntimeError("Always fails")
+
+        bus.subscribe(EventType.CANDLE_CLOSED, failing_handler)
+
+        # Publish 3 events
+        for i in range(3):
+            event = Event(EventType.CANDLE_CLOSED, {'id': i}, source='test')
+            await bus.publish(event, queue_name='data')
+
+        processor_task = asyncio.create_task(bus._process_queue('data'))
+        await asyncio.sleep(0.1)  # Let it process all 3
+        bus._running = False
+        await processor_task
+
+        # Verify all 3 events were attempted (all failed but processor continued)
+        assert executed_count[0] == 3
+
+    @pytest.mark.asyncio
+    async def test_processor_handles_empty_queue_timeout(self):
+        """Verify processor continues when queue is empty (TimeoutError)."""
+        bus = EventBus()
+        bus._running = True
+
+        # Start processor on empty queue
+        processor_task = asyncio.create_task(bus._process_queue('data'))
+
+        # Let it run for a bit (will hit TimeoutError multiple times)
+        await asyncio.sleep(0.3)  # 3x the 0.1s timeout
+
+        # Should still be running, not crashed
+        assert not processor_task.done()
+
+        # Stop gracefully
+        bus._running = False
+        await processor_task
+
+    @pytest.mark.asyncio
+    async def test_processor_stops_when_running_false(self):
+        """Verify processor exits loop when _running flag set to False."""
+        bus = EventBus()
+        bus._running = True
+
+        processor_task = asyncio.create_task(bus._process_queue('data'))
+        await asyncio.sleep(0.05)  # Let it start
+
+        # Stop processor
+        bus._running = False
+
+        # Should exit within ~0.1s (timeout period)
+        await asyncio.wait_for(processor_task, timeout=0.5)
+
+        # Verify task completed (not cancelled or error)
+        assert processor_task.done()
+        assert not processor_task.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_handlers_execute_sequentially(self):
+        """Verify handlers execute in order, not parallel."""
+        bus = EventBus()
+        bus._running = True
+
+        execution_order = []
+
+        async def handler_1(event):
+            execution_order.append('start_1')
+            await asyncio.sleep(0.01)
+            execution_order.append('end_1')
+
+        async def handler_2(event):
+            execution_order.append('start_2')
+            await asyncio.sleep(0.01)
+            execution_order.append('end_2')
+
+        bus.subscribe(EventType.CANDLE_CLOSED, handler_1)
+        bus.subscribe(EventType.CANDLE_CLOSED, handler_2)
+
+        event = Event(EventType.CANDLE_CLOSED, {}, source='test')
+        await bus.publish(event, queue_name='data')
+
+        processor_task = asyncio.create_task(bus._process_queue('data'))
+        await asyncio.sleep(0.05)
+        bus._running = False
+        await processor_task
+
+        # Verify sequential execution (1 completes before 2 starts)
+        assert execution_order == ['start_1', 'end_1', 'start_2', 'end_2']

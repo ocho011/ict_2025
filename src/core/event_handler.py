@@ -248,6 +248,119 @@ class EventBus:
                 )
                 raise
 
+    async def _process_queue(self, queue_name: str) -> None:
+        """
+        Continuously process events from the specified queue.
+
+        This is the core event processing loop. It runs continuously while
+        _running=True, polling the queue for events and dispatching them to
+        registered handlers with comprehensive error isolation.
+
+        Args:
+            queue_name: Name of queue to process ('data', 'signal', or 'order')
+
+        Process Flow:
+            1. Poll queue with 0.1s timeout (non-blocking)
+            2. Get handlers registered for event type
+            3. Execute each handler sequentially (sync or async)
+            4. Isolate handler errors (one fails → others continue)
+            5. Mark queue task as done
+            6. Repeat until _running=False
+
+        Error Handling:
+            - Handler exceptions: Logged with exc_info=True, continue processing
+            - Queue TimeoutError: Expected when empty, continue loop
+            - Other exceptions: Logged as critical, continue loop
+
+        Performance:
+            - Handler execution is sequential (guarantees ordering)
+            - Empty queue polling: 10 iterations/sec (0.1s timeout)
+            - Handlers should be fast (<10ms); heavy work → spawn tasks
+
+        Example:
+            ```python
+            # In Subtask 4.4, start() will spawn processor tasks:
+            async def start(self):
+                self._running = True
+                tasks = [
+                    asyncio.create_task(self._process_queue('data')),
+                    asyncio.create_task(self._process_queue('signal')),
+                    asyncio.create_task(self._process_queue('order'))
+                ]
+                await asyncio.gather(*tasks, return_exceptions=True)
+            ```
+
+        Notes:
+            - Sequential handler execution prevents race conditions
+            - Handler isolation prevents cascade failures
+            - 0.1s timeout allows responsive shutdown (checks _running flag)
+            - Method is private (internal to EventBus lifecycle)
+        """
+        queue = self._queues[queue_name]
+
+        self.logger.info(f"Starting {queue_name} queue processor")
+
+        while self._running:
+            try:
+                # 1. Poll queue with timeout (non-blocking)
+                event = await asyncio.wait_for(
+                    queue.get(),
+                    timeout=0.1  # Check _running flag 10x per second
+                )
+
+                # 2. Get handlers for this event type
+                handlers = self._get_handlers(event.event_type)
+
+                if not handlers:
+                    self.logger.debug(
+                        f"No handlers for {event.event_type.value} in {queue_name} queue"
+                    )
+
+                # 3. Execute each handler sequentially with error isolation
+                for handler in handlers:
+                    handler_name = getattr(handler, '__name__', repr(handler))
+
+                    try:
+                        # Detect async vs sync handler
+                        if asyncio.iscoroutinefunction(handler):
+                            self.logger.debug(
+                                f"Executing async handler '{handler_name}' "
+                                f"for {event.event_type.value}"
+                            )
+                            await handler(event)
+                        else:
+                            self.logger.debug(
+                                f"Executing sync handler '{handler_name}' "
+                                f"for {event.event_type.value}"
+                            )
+                            handler(event)  # Direct call for sync handlers
+
+                    except Exception as e:
+                        # Handler error: log but continue processing other handlers
+                        self.logger.error(
+                            f"Handler '{handler_name}' failed for "
+                            f"{event.event_type.value} in {queue_name} queue: {e}",
+                            exc_info=True  # Include full traceback
+                        )
+                        # Don't raise - continue to next handler
+
+                # 4. Mark task as done (for queue.join() in shutdown)
+                queue.task_done()
+
+            except asyncio.TimeoutError:
+                # No event available - not an error, continue loop
+                continue
+
+            except Exception as e:
+                # Unexpected processor error (shouldn't happen, but be defensive)
+                self.logger.critical(
+                    f"Processor error in {queue_name} queue: {e}",
+                    exc_info=True
+                )
+                # Don't crash processor - continue loop
+
+        self.logger.info(f"Stopped {queue_name} queue processor")
+
     def get_queue_stats(self) -> Dict[str, Dict[str, int]]:
         """
         Get current queue statistics for monitoring.
