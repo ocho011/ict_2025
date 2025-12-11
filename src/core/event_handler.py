@@ -33,16 +33,25 @@ class EventBus:
 
     def __init__(self):
         """
-        Initialize EventBus with empty subscriber registry.
+        Initialize EventBus with subscriber registry and multi-queue system.
 
         Attributes:
             _subscribers: Maps EventType to list of handler functions
+            _queues: Three priority queues (data, signal, order)
             logger: Logger instance for debug/error tracking
             _running: Lifecycle flag (used in Subtask 4.4)
+            _drop_count: Counter for dropped events per queue (monitoring)
         """
         # Subscriber registry: EventType → List[Callable]
         # defaultdict automatically creates empty list for new EventTypes
         self._subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
+
+        # Three priority queues with different capacities
+        self._queues: Dict[str, asyncio.Queue] = {
+            'data': asyncio.Queue(maxsize=1000),    # High throughput, can drop
+            'signal': asyncio.Queue(maxsize=100),   # Medium priority, must process
+            'order': asyncio.Queue(maxsize=50)      # Critical, never drop
+        }
 
         # Logger for debugging subscription events
         self.logger = logging.getLogger(__name__)
@@ -50,7 +59,17 @@ class EventBus:
         # Lifecycle flag (will be used in Subtask 4.4)
         self._running: bool = False
 
-        self.logger.debug("EventBus initialized")
+        # Monitoring: track dropped events per queue
+        self._drop_count: Dict[str, int] = {
+            'data': 0,
+            'signal': 0,
+            'order': 0
+        }
+
+        self.logger.debug(
+            "EventBus initialized with queues: "
+            f"data(1000), signal(100), order(50)"
+        )
 
     def subscribe(self, event_type: EventType, handler: Callable) -> None:
         """
@@ -120,3 +139,150 @@ class EventBus:
             ```
         """
         return self._subscribers[event_type]
+
+    async def publish(
+        self,
+        event: Event,
+        queue_name: str = 'data'
+    ) -> None:
+        """
+        Publish event to specified queue with overflow handling.
+
+        This method implements the "publish" side of the pub-sub pattern.
+        Events are routed to one of three priority queues based on criticality.
+
+        Args:
+            event: Event to publish (from src.models.event.Event)
+            queue_name: Target queue ('data', 'signal', 'order'). Defaults to 'data'.
+
+        Raises:
+            ValueError: If queue_name is not in ['data', 'signal', 'order']
+            asyncio.TimeoutError: For signal/order queues if timeout exceeded
+
+        Overflow Handling:
+            - data queue: Drop event on timeout, log warning, increment drop_count
+            - signal queue: Block for up to 5s, raise TimeoutError if full
+            - order queue: Block indefinitely (no timeout), never drop
+
+        Example:
+            ```python
+            bus = EventBus()
+
+            # High-frequency data (may drop under load)
+            await bus.publish(
+                Event(EventType.CANDLE_UPDATE, candle),
+                queue_name='data'
+            )
+
+            # Trading signal (must process, creates backpressure)
+            await bus.publish(
+                Event(EventType.SIGNAL_GENERATED, signal),
+                queue_name='signal'
+            )
+
+            # Critical order (never drops, blocks indefinitely)
+            await bus.publish(
+                Event(EventType.ORDER_PLACED, order),
+                queue_name='order'
+            )
+            ```
+
+        Notes:
+            - Data queue drops are expected under high load (design feature)
+            - Signal/order timeouts indicate system overload (needs investigation)
+            - Monitor drop_count via get_queue_stats() for operational alerts
+        """
+        # 1. Validate queue name
+        if queue_name not in self._queues:
+            raise ValueError(
+                f"Invalid queue_name '{queue_name}'. "
+                f"Must be one of: {list(self._queues.keys())}"
+            )
+
+        queue = self._queues[queue_name]
+
+        # 2. Define timeout strategy per queue type
+        timeout_map = {
+            'data': 1.0,    # Drop quickly for high-frequency data
+            'signal': 5.0,  # Wait longer for important signals
+            'order': None   # Never timeout for critical orders
+        }
+        timeout = timeout_map[queue_name]
+
+        # 3. Attempt to publish with timeout
+        try:
+            if timeout is None:
+                # Order queue: block indefinitely, never drop
+                await queue.put(event)
+                self.logger.debug(
+                    f"Published {event.event_type.value} to {queue_name} queue "
+                    f"(qsize={queue.qsize()})"
+                )
+            else:
+                # Data/Signal queues: timeout-based overflow handling
+                await asyncio.wait_for(
+                    queue.put(event),
+                    timeout=timeout
+                )
+                self.logger.debug(
+                    f"Published {event.event_type.value} to {queue_name} queue "
+                    f"(qsize={queue.qsize()})"
+                )
+
+        except asyncio.TimeoutError:
+            # 4. Handle timeout based on queue criticality
+            if queue_name == 'data':
+                # Data queue: drop is acceptable, log and continue
+                self._drop_count[queue_name] += 1
+                self.logger.warning(
+                    f"Dropped {event.event_type.value} from {queue_name} queue "
+                    f"(full, timeout={timeout}s). "
+                    f"Total drops: {self._drop_count[queue_name]}"
+                )
+            else:
+                # Signal/Order queues: timeout is serious, re-raise
+                self.logger.error(
+                    f"Failed to publish {event.event_type.value} to "
+                    f"{queue_name} queue (timeout={timeout}s, "
+                    f"qsize={queue.qsize()}). System overload!"
+                )
+                raise
+
+    def get_queue_stats(self) -> Dict[str, Dict[str, int]]:
+        """
+        Get current queue statistics for monitoring.
+
+        Returns dict with queue sizes, capacities, and drop counts:
+        {
+            'data': {'size': 42, 'maxsize': 1000, 'drops': 5},
+            'signal': {'size': 3, 'maxsize': 100, 'drops': 0},
+            'order': {'size': 0, 'maxsize': 50, 'drops': 0}
+        }
+
+        Useful for:
+        - Operational monitoring and alerting
+        - Performance tuning (queue sizing)
+        - Capacity planning
+        - Debugging event flow bottlenecks
+
+        Example:
+            ```python
+            stats = bus.get_queue_stats()
+
+            # Alert if data queue is consistently full
+            if stats['data']['size'] > 900:
+                logger.warning("Data queue near capacity!")
+
+            # Alert on any signal drops (should never happen)
+            if stats['signal']['drops'] > 0:
+                logger.critical("Signal queue dropped events!")
+            ```
+        """
+        return {
+            queue_name: {
+                'size': queue.qsize(),
+                'maxsize': queue.maxsize,
+                'drops': self._drop_count[queue_name]
+            }
+            for queue_name, queue in self._queues.items()
+        }
