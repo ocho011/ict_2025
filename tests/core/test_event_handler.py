@@ -568,3 +568,187 @@ class TestEventBusProcessors:
 
         # Verify sequential execution (1 completes before 2 starts)
         assert execution_order == ['start_1', 'end_1', 'start_2', 'end_2']
+
+
+class TestEventBusLifecycle:
+    """Test suite for Subtask 4.4: Lifecycle management with start/stop/shutdown."""
+
+    @pytest.mark.asyncio
+    async def test_start_creates_processor_tasks(self):
+        """Verify start() spawns 3 processor tasks with names."""
+        bus = EventBus()
+
+        # Start in background
+        start_task = asyncio.create_task(bus.start())
+        await asyncio.sleep(0.1)  # Let processors start
+
+        # Verify 3 tasks created
+        assert len(bus._processor_tasks) == 3
+
+        # Verify task names
+        task_names = {task.get_name() for task in bus._processor_tasks}
+        assert task_names == {'data_processor', 'signal_processor', 'order_processor'}
+
+        # Verify tasks running
+        for task in bus._processor_tasks:
+            assert not task.done()
+
+        # Cleanup
+        bus.stop()
+        await start_task
+
+    @pytest.mark.asyncio
+    async def test_processors_run_until_stopped(self):
+        """Verify processors run continuously until stop() called."""
+        bus = EventBus()
+
+        start_task = asyncio.create_task(bus.start())
+        await asyncio.sleep(0.3)  # Let run for 3x timeout period
+
+        # Processors should still be running
+        for task in bus._processor_tasks:
+            assert not task.done()
+
+        # Stop and verify exit
+        bus.stop()
+        await asyncio.wait_for(start_task, timeout=1.0)
+
+        # All tasks should be done
+        for task in bus._processor_tasks:
+            assert task.done()
+
+    @pytest.mark.asyncio
+    async def test_stop_sets_running_flag(self):
+        """Verify stop() sets _running=False immediately."""
+        bus = EventBus()
+
+        start_task = asyncio.create_task(bus.start())
+        await asyncio.sleep(0.1)
+
+        # Verify _running is True
+        assert bus._running is True
+
+        # Stop and verify flag
+        bus.stop()
+        assert bus._running is False
+
+        await start_task
+
+    @pytest.mark.asyncio
+    async def test_processors_exit_after_stop(self):
+        """Verify processors exit within 0.5s after stop()."""
+        bus = EventBus()
+
+        start_task = asyncio.create_task(bus.start())
+        await asyncio.sleep(0.1)
+
+        # Stop and measure exit time
+        import time
+        start_time = time.time()
+        bus.stop()
+        await asyncio.wait_for(start_task, timeout=1.0)
+        elapsed = time.time() - start_time
+
+        # Should exit within 0.5s (0.1s timeout * 5 iterations max)
+        assert elapsed < 0.5
+
+    @pytest.mark.asyncio
+    async def test_shutdown_waits_for_pending_events(self):
+        """Verify shutdown() waits for queue.join()."""
+        bus = EventBus()
+
+        executed = []
+
+        def handler(event):
+            executed.append(event.data)
+
+        bus.subscribe(EventType.CANDLE_CLOSED, handler)
+
+        # Start processors
+        start_task = asyncio.create_task(bus.start())
+        await asyncio.sleep(0.1)
+
+        # Publish events
+        for i in range(3):
+            event = Event(EventType.CANDLE_CLOSED, {'id': i}, source='test')
+            await bus.publish(event, queue_name='data')
+
+        # Shutdown gracefully
+        await bus.shutdown(timeout=2.0)
+        await start_task
+
+        # Verify all events processed
+        assert len(executed) == 3
+        assert executed == [{'id': 0}, {'id': 1}, {'id': 2}]
+
+    @pytest.mark.asyncio
+    async def test_shutdown_timeout_prevents_hanging(self, caplog):
+        """Verify shutdown() times out gracefully with warning."""
+        import logging
+        bus = EventBus()
+
+        # Handler that blocks indefinitely
+        async def blocking_handler(event):
+            await asyncio.sleep(100)  # Simulates slow processing
+
+        bus.subscribe(EventType.CANDLE_CLOSED, blocking_handler)
+
+        start_task = asyncio.create_task(bus.start())
+        await asyncio.sleep(0.1)
+
+        # Publish event
+        event = Event(EventType.CANDLE_CLOSED, {}, source='test')
+        await bus.publish(event, queue_name='data')
+
+        # Shutdown with short timeout
+        with caplog.at_level(logging.WARNING):
+            await bus.shutdown(timeout=0.5)
+
+        await asyncio.wait_for(start_task, timeout=1.0)
+
+        # Verify warning logged
+        assert "didn't drain" in caplog.text
+        assert "data" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_integration_start_publish_stop(self):
+        """Full lifecycle: start → publish → stop → verify."""
+        bus = EventBus()
+
+        executed = []
+
+        async def async_handler(event):
+            await asyncio.sleep(0.01)
+            executed.append(event.data)
+
+        bus.subscribe(EventType.CANDLE_CLOSED, async_handler)
+        bus.subscribe(EventType.SIGNAL_GENERATED, async_handler)
+
+        # Start processors
+        start_task = asyncio.create_task(bus.start())
+        await asyncio.sleep(0.1)
+
+        # Publish to multiple queues
+        for i in range(5):
+            await bus.publish(
+                Event(EventType.CANDLE_CLOSED, {'candle': i}, source='test'),
+                queue_name='data'
+            )
+
+        for i in range(3):
+            await bus.publish(
+                Event(EventType.SIGNAL_GENERATED, {'signal': i}, source='test'),
+                queue_name='signal'
+            )
+
+        # Graceful shutdown
+        await bus.shutdown(timeout=2.0)
+        await start_task
+
+        # Verify all events processed
+        assert len(executed) == 8
+
+        # Verify queue stats
+        stats = bus.get_queue_stats()
+        assert stats['data']['size'] == 0
+        assert stats['signal']['size'] == 0

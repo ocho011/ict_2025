@@ -39,8 +39,9 @@ class EventBus:
             _subscribers: Maps EventType to list of handler functions
             _queues: Three priority queues (data, signal, order)
             logger: Logger instance for debug/error tracking
-            _running: Lifecycle flag (used in Subtask 4.4)
+            _running: Lifecycle flag for processor control
             _drop_count: Counter for dropped events per queue (monitoring)
+            _processor_tasks: List of processor task references for cancellation
         """
         # Subscriber registry: EventType → List[Callable]
         # defaultdict automatically creates empty list for new EventTypes
@@ -56,8 +57,11 @@ class EventBus:
         # Logger for debugging subscription events
         self.logger = logging.getLogger(__name__)
 
-        # Lifecycle flag (will be used in Subtask 4.4)
+        # Lifecycle flag for processor control
         self._running: bool = False
+
+        # Processor task references for cancellation during shutdown
+        self._processor_tasks: List[asyncio.Task] = []
 
         # Monitoring: track dropped events per queue
         self._drop_count: Dict[str, int] = {
@@ -399,3 +403,187 @@ class EventBus:
             }
             for queue_name, queue in self._queues.items()
         }
+
+    async def start(self) -> None:
+        """
+        Start all queue processors and run until stop() is called.
+
+        Creates three processor tasks (data, signal, order) and runs them
+        concurrently using asyncio.gather with return_exceptions=True to
+        prevent single task failure from crashing the entire EventBus.
+
+        Process Flow:
+            1. Set _running flag to True
+            2. Create 3 processor tasks with descriptive names
+            3. Store task references in _processor_tasks
+            4. Wait for all tasks with gather (blocks until stop())
+
+        Error Handling:
+            - return_exceptions=True logs task errors without propagating
+            - Individual processor errors don't crash EventBus
+            - Task names enable debugging (data_processor, signal_processor, order_processor)
+
+        Lifecycle:
+            - Blocks until stop() sets _running=False
+            - Processors exit their loops on _running=False
+            - gather completes when all processors exit
+
+        Example:
+            ```python
+            bus = EventBus()
+            # Register handlers first
+            bus.subscribe(EventType.CANDLE_CLOSED, handler)
+
+            # Start processors (blocks until stop())
+            asyncio.create_task(bus.start())
+
+            # Later, to stop:
+            bus.stop()  # Processors exit within 0.5s
+            ```
+
+        Notes:
+            - Must call stop() to exit (or KeyboardInterrupt)
+            - Use shutdown() for graceful cleanup with pending events
+            - Task names aid debugging in asyncio task list
+        """
+        self._running = True
+        self.logger.info("Starting EventBus processors")
+
+        # Create processor tasks with descriptive names
+        self._processor_tasks = [
+            asyncio.create_task(
+                self._process_queue('data'),
+                name='data_processor'
+            ),
+            asyncio.create_task(
+                self._process_queue('signal'),
+                name='signal_processor'
+            ),
+            asyncio.create_task(
+                self._process_queue('order'),
+                name='order_processor'
+            )
+        ]
+
+        # Wait for all processors (runs until stop() called)
+        # return_exceptions=True prevents single task error from crashing EventBus
+        await asyncio.gather(*self._processor_tasks, return_exceptions=True)
+
+        self.logger.info("EventBus processors stopped")
+
+    def stop(self) -> None:
+        """
+        Signal all processors to stop by setting _running flag.
+
+        This is a non-blocking operation that signals processors to exit
+        their loops. Processors will finish their current event and exit
+        within approximately 0.1s (the queue polling timeout).
+
+        Process Flow:
+            1. Log stop request
+            2. Set _running=False
+            3. Return immediately
+
+        Timing:
+            - Non-blocking call (returns immediately)
+            - Processors check _running every 0.1s (timeout period)
+            - Expect processors to exit within 0.5s
+
+        Usage:
+            ```python
+            # In main application or signal handler
+            event_bus.stop()  # Signal shutdown
+
+            # Optionally wait for graceful cleanup
+            await event_bus.shutdown(timeout=10.0)
+            ```
+
+        Notes:
+            - Does NOT wait for processors to exit
+            - Does NOT cancel tasks (use shutdown() for that)
+            - Safe to call multiple times (idempotent)
+            - Typically followed by shutdown() for cleanup
+        """
+        self.logger.info("Stopping EventBus processors")
+        self._running = False
+
+    async def shutdown(self, timeout: float = 5.0) -> None:
+        """
+        Gracefully shutdown EventBus with pending event processing.
+
+        Performs graceful shutdown sequence:
+        1. Wait for queues to drain (all events processed)
+        2. Stop processors (set _running=False)
+        3. Cancel processor tasks if needed
+
+        Args:
+            timeout: Max seconds to wait per queue for pending events (default: 5.0)
+
+        Process Flow:
+            1. For each queue, wait for queue.join() with timeout
+            2. If timeout: log warning, continue to next queue
+            3. Call stop() to signal processors
+            4. Wait briefly for processors to exit gracefully
+            5. Cancel processor tasks if still running
+
+        Error Handling:
+            - TimeoutError per queue: logged as warning, continues
+            - Task cancellation: always attempted (defensive)
+            - Pending events logged if timeout exceeded
+
+        Example:
+            ```python
+            try:
+                await event_bus.start()
+            except KeyboardInterrupt:
+                await event_bus.shutdown(timeout=10.0)
+                # All pending events processed or timeout logged
+            ```
+
+        Critical for Trading:
+            - Order queue events MUST be processed or logged
+            - Timeout prevents indefinite hanging
+            - Cancellation as last resort
+
+        Notes:
+            - Drains queues BEFORE stopping processors
+            - Timeout applies PER QUEUE (total time = 3 * timeout)
+            - Defensive hasattr check for _processor_tasks
+            - 0.5s grace period for processor exit
+        """
+        self.logger.info("Shutting down EventBus gracefully")
+
+        # Wait for queues to drain (all events processed)
+        for queue_name, queue in self._queues.items():
+            try:
+                self.logger.debug(
+                    f"Waiting for {queue_name} queue to drain "
+                    f"(pending: {queue.qsize()})"
+                )
+                await asyncio.wait_for(queue.join(), timeout=timeout)
+                self.logger.debug(f"Queue {queue_name} drained successfully")
+
+            except asyncio.TimeoutError:
+                pending = queue.qsize()
+                self.logger.warning(
+                    f"Queue {queue_name} didn't drain in {timeout}s "
+                    f"({pending} events remaining). Proceeding with shutdown."
+                )
+                # Continue to next queue (don't block shutdown)
+
+        # Signal processors to stop AFTER queues drained
+        self.stop()
+
+        # Wait briefly for processors to exit gracefully
+        await asyncio.sleep(0.5)
+
+        # Cancel processor tasks if still running (defensive check)
+        if hasattr(self, '_processor_tasks') and self._processor_tasks:
+            self.logger.debug(
+                f"Cancelling {len(self._processor_tasks)} processor tasks"
+            )
+            for task in self._processor_tasks:
+                if not task.done():
+                    task.cancel()
+
+        self.logger.info("EventBus shutdown complete")

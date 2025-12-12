@@ -307,9 +307,10 @@
               3
             ],
             "details": "Continue in `src/core/event_handler.py` EventBus class:\n\n1. Implement async `start()` method:\n   ```python\n   async def start(self):\n       \"\"\"Start all queue processors\"\"\"\n       self._running = True\n       self.logger.info(\"Starting EventBus processors\")\n       \n       # Create processor tasks for each queue\n       tasks = [\n           asyncio.create_task(self._process_queue('data'), name='data_processor'),\n           asyncio.create_task(self._process_queue('signal'), name='signal_processor'),\n           asyncio.create_task(self._process_queue('order'), name='order_processor')\n       ]\n       self._processor_tasks = tasks\n       \n       # Wait for all processors (runs until stop() is called)\n       await asyncio.gather(*tasks, return_exceptions=True)\n   ```\n\n2. Implement `stop()` method:\n   ```python\n   def stop(self):\n       \"\"\"Signal processors to stop\"\"\"\n       self.logger.info(\"Stopping EventBus processors\")\n       self._running = False\n   ```\n\n3. Implement async `shutdown()` method for graceful cleanup:\n   ```python\n   async def shutdown(self, timeout: float = 5.0):\n       \"\"\"Gracefully shutdown with pending event processing\"\"\"\n       self.stop()\n       \n       # Wait for queues to empty\n       for name, queue in self._queues.items():\n           try:\n               await asyncio.wait_for(queue.join(), timeout=timeout)\n           except asyncio.TimeoutError:\n               self.logger.warning(f\"Queue {name} didn't empty in time\")\n       \n       # Cancel processor tasks\n       if hasattr(self, '_processor_tasks'):\n           for task in self._processor_tasks:\n               task.cancel()\n   ```\n\n4. Add proper logging for lifecycle events",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "1. Test start() creates all three processor tasks\n2. Verify processors run continuously until stop() is called\n3. Test stop() sets _running flag and processors exit\n4. Test shutdown() waits for pending events to process\n5. Verify shutdown() timeout prevents indefinite waiting\n6. Test task cancellation works correctly\n7. Integration test: start → publish events → stop → verify all events processed",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-12T08:35:46.481Z"
           },
           {
             "id": 5,
@@ -327,7 +328,7 @@
         "complexity": 7,
         "recommendedSubtasks": 5,
         "expansionPrompt": "Break down into: 1) Implement EventBus class with subscriber registry and event type routing, 2) Implement multi-queue system (data/signal/order) with asyncio.Queue and configurable size limits, 3) Implement async queue processors with timeout handling and error recovery, 4) Implement TradingEngine orchestrator class with event handler registration, 5) Implement graceful startup/shutdown with proper task cancellation and cleanup",
-        "updatedAt": "2025-12-11T16:34:53.900Z"
+        "updatedAt": "2025-12-12T08:35:46.481Z"
       },
       {
         "id": "5",
@@ -768,7 +769,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-11T16:34:53.901Z",
+      "lastModified": "2025-12-12T08:35:46.481Z",
       "taskCount": 10,
       "completedCount": 3,
       "tags": [
