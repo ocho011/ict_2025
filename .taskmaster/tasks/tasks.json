@@ -259,7 +259,7 @@
           "2",
           "3"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -320,15 +320,16 @@
               4
             ],
             "details": "Create `src/core/trading_engine.py`:\n\n1. Implement TradingEngine class:\n   ```python\n   from src.core.event_handler import EventBus\n   from src.models.event import Event, EventType\n   import asyncio\n   import logging\n\n   class TradingEngine:\n       def __init__(self, config: dict):\n           self.config = config\n           self.logger = logging.getLogger(__name__)\n           \n           # Core components\n           self.event_bus = EventBus()\n           self.data_collector = None  # Will be injected\n           self.strategy = None  # Will be injected\n           self.order_manager = None  # Will be injected\n           \n           # Setup event handlers\n           self._setup_handlers()\n       \n       def _setup_handlers(self):\n           \"\"\"Register event handlers for trading pipeline\"\"\"\n           self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)\n           self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal)\n           self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)\n           self.event_bus.subscribe(EventType.ERROR, self._on_error)\n       \n       async def _on_candle_closed(self, event: Event):\n           \"\"\"Handle new candle → generate signal\"\"\"\n           candle = event.data\n           self.logger.debug(f\"Candle closed: {candle.symbol} {candle.close_time}\")\n           \n           if self.strategy:\n               signal = await self.strategy.analyze(candle)\n               if signal:\n                   await self.event_bus.publish(\n                       Event(EventType.SIGNAL_GENERATED, signal),\n                       queue_name='signal'\n                   )\n       \n       async def _on_signal(self, event: Event):\n           \"\"\"Handle signal → create order\"\"\"\n           signal = event.data\n           self.logger.info(f\"Signal generated: {signal.direction} {signal.symbol}\")\n           \n           if self.order_manager:\n               order = await self.order_manager.create_order(signal)\n               if order:\n                   await self.event_bus.publish(\n                       Event(EventType.ORDER_CREATED, order),\n                       queue_name='order'\n                   )\n       \n       async def _on_order_filled(self, event: Event):\n           \"\"\"Handle order filled → update position\"\"\"\n           order = event.data\n           self.logger.info(f\"Order filled: {order.order_id}\")\n           # Position management logic will be added later\n       \n       async def _on_error(self, event: Event):\n           \"\"\"Handle system errors\"\"\"\n           self.logger.error(f\"System error: {event.data}\")\n       \n       async def run(self):\n           \"\"\"Start the trading engine\"\"\"\n           self.logger.info(\"Starting TradingEngine\")\n           \n           try:\n               # Start all components concurrently\n               await asyncio.gather(\n                   self.event_bus.start(),\n                   self.data_collector.start_streaming() if self.data_collector else asyncio.sleep(0),\n                   return_exceptions=True\n               )\n           except KeyboardInterrupt:\n               self.logger.info(\"Shutdown requested\")\n           finally:\n               await self.shutdown()\n       \n       async def shutdown(self):\n           \"\"\"Gracefully shutdown all components\"\"\"\n           self.logger.info(\"Shutting down TradingEngine\")\n           \n           # Stop data collector first\n           if self.data_collector:\n               await self.data_collector.stop()\n           \n           # Shutdown event bus (processes pending events)\n           await self.event_bus.shutdown(timeout=10.0)\n   ```\n\n2. Add component injection methods:\n   - `set_data_collector(collector)`\n   - `set_strategy(strategy)`\n   - `set_order_manager(manager)`\n\n3. Add health check method for monitoring",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "1. Test _setup_handlers() registers all event types\n2. Mock strategy and verify _on_candle_closed() calls strategy.analyze()\n3. Test signal → order pipeline with mocked components\n4. Verify run() starts both event_bus and data_collector\n5. Test shutdown() stops all components gracefully\n6. Integration test: inject mock components → run() → verify event flow\n7. Test KeyboardInterrupt triggers proper shutdown\n8. Verify handler errors are logged but don't crash engine",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-12T08:54:47.149Z"
           }
         ],
         "complexity": 7,
         "recommendedSubtasks": 5,
         "expansionPrompt": "Break down into: 1) Implement EventBus class with subscriber registry and event type routing, 2) Implement multi-queue system (data/signal/order) with asyncio.Queue and configurable size limits, 3) Implement async queue processors with timeout handling and error recovery, 4) Implement TradingEngine orchestrator class with event handler registration, 5) Implement graceful startup/shutdown with proper task cancellation and cleanup",
-        "updatedAt": "2025-12-12T08:35:46.481Z"
+        "updatedAt": "2025-12-12T08:54:47.149Z"
       },
       {
         "id": "5",
@@ -769,9 +770,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-12T08:35:46.481Z",
+      "lastModified": "2025-12-12T08:54:47.150Z",
       "taskCount": 10,
-      "completedCount": 3,
+      "completedCount": 4,
       "tags": [
         "master"
       ]
