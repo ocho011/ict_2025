@@ -343,7 +343,7 @@
           "3",
           "4"
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -351,9 +351,10 @@
             "description": "Create the abstract base strategy class in src/strategies/base.py with candle buffer management, abstract method definitions, and configuration handling.",
             "dependencies": [],
             "details": "Implement BaseStrategy as an ABC with:\n- Constructor accepting symbol and config dict\n- Candle buffer list with configurable max size (default 100)\n- update_buffer() method that appends candles and maintains buffer size via FIFO\n- Abstract methods: analyze(), calculate_take_profit(), calculate_stop_loss()\n- Import required types from src.models.candle and src.models.signal\n- Add type hints for all methods and properties\n- Include docstrings for the class and all methods",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Test buffer initialization with default and custom sizes, 2) Verify buffer FIFO behavior when exceeding max size, 3) Confirm abstract methods raise NotImplementedError when called directly, 4) Test type hints with mypy",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-12T14:16:09.561Z"
           },
           {
             "id": 2,
@@ -396,7 +397,8 @@
         ],
         "complexity": 5,
         "recommendedSubtasks": 4,
-        "expansionPrompt": "Break down into: 1) Implement BaseStrategy abstract class with candle buffer management and abstract methods, 2) Implement MockSMACrossoverStrategy with fast/slow SMA calculation using numpy, 3) Implement TP/SL calculation logic with configurable risk/reward ratios, 4) Implement StrategyFactory pattern for strategy instantiation and registration"
+        "expansionPrompt": "Break down into: 1) Implement BaseStrategy abstract class with candle buffer management and abstract methods, 2) Implement MockSMACrossoverStrategy with fast/slow SMA calculation using numpy, 3) Implement TP/SL calculation logic with configurable risk/reward ratios, 4) Implement StrategyFactory pattern for strategy instantiation and registration",
+        "updatedAt": "2025-12-12T14:16:09.561Z"
       },
       {
         "id": "6",
@@ -770,7 +772,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-12T08:54:47.150Z",
+      "lastModified": "2025-12-12T14:16:09.562Z",
       "taskCount": 10,
       "completedCount": 4,
       "tags": [
