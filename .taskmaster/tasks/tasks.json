@@ -343,7 +343,7 @@
           "3",
           "4"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -392,15 +392,16 @@
               3
             ],
             "details": "Implement StrategyFactory:\n- Create class-level _strategies dict mapping strategy names to classes: {'mock_sma': MockSMACrossoverStrategy}\n- Implement create() classmethod accepting name (str), symbol (str), config (dict)\n- Validate strategy name exists in _strategies, raise ValueError with descriptive message if not found\n- Instantiate and return the appropriate strategy class with provided symbol and config\n- Add comment placeholder for future ICT strategies (e.g., 'ict_fvg': ICTFVGStrategy)\n- Import MockSMACrossoverStrategy and BaseStrategy\n- Add type hints: create() returns BaseStrategy",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Test successful creation of 'mock_sma' strategy, 2) Verify ValueError raised for unknown strategy name, 3) Confirm returned instance is correct type, 4) Test config parameters are passed correctly to strategy constructor, 5) Verify factory extensibility by adding a dummy strategy class",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-16T14:36:12.175Z"
           }
         ],
         "complexity": 5,
         "recommendedSubtasks": 4,
         "expansionPrompt": "Break down into: 1) Implement BaseStrategy abstract class with candle buffer management and abstract methods, 2) Implement MockSMACrossoverStrategy with fast/slow SMA calculation using numpy, 3) Implement TP/SL calculation logic with configurable risk/reward ratios, 4) Implement StrategyFactory pattern for strategy instantiation and registration",
-        "updatedAt": "2025-12-16T13:59:12.619Z"
+        "updatedAt": "2025-12-16T14:36:12.175Z"
       },
       {
         "id": "6",
@@ -774,9 +775,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-16T13:59:12.620Z",
+      "lastModified": "2025-12-16T14:36:12.176Z",
       "taskCount": 10,
-      "completedCount": 4,
+      "completedCount": 5,
       "tags": [
         "master"
       ]
