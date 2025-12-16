@@ -19,7 +19,10 @@
       "Bash(rmdir:*)",
       "Bash(tree:*)",
       "mcp__serena__edit_memory",
-      "mcp__smithery-ai-server-sequential-thinking__sequentialthinking"
+      "mcp__smithery-ai-server-sequential-thinking__sequentialthinking",
+      "mcp__context7__resolve-library-id",
+      "mcp__serena__list_dir",
+      "mcp__context7__get-library-docs"
     ]
   },
   "enableAllProjectMcpServers": true,
