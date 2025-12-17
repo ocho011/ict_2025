@@ -1343,3 +1343,287 @@ class TestQueryMethods:
 
         with pytest.raises(OrderExecutionError, match="Order cancellation failed"):
             manager.cancel_all_orders('BTCUSDT')
+
+
+# ==================== Price Formatting Tests (Task 6.5) ====================
+
+class TestPriceFormatting:
+    """Test suite for dynamic price formatting with tick sizes"""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Mock Binance UMFutures client"""
+        return MagicMock()
+
+    @pytest.fixture
+    def manager(self, mock_client):
+        """OrderExecutionManager instance with mock client"""
+        with patch('src.execution.order_manager.UMFutures', return_value=mock_client):
+            with patch.dict('os.environ', {
+                'BINANCE_API_KEY': 'test_key',
+                'BINANCE_API_SECRET': 'test_secret'
+            }):
+                return OrderExecutionManager(is_testnet=True)
+
+    @pytest.fixture
+    def mock_exchange_info(self):
+        """Mock exchange_info API response with various tick sizes"""
+        return {
+            'timezone': 'UTC',
+            'serverTime': 1678886400000,
+            'symbols': [
+                {
+                    'symbol': 'BTCUSDT',
+                    'status': 'TRADING',
+                    'filters': [
+                        {
+                            'filterType': 'PRICE_FILTER',
+                            'tickSize': '0.01',
+                            'minPrice': '100.00',
+                            'maxPrice': '100000.00'
+                        }
+                    ]
+                },
+                {
+                    'symbol': 'BNBUSDT',
+                    'status': 'TRADING',
+                    'filters': [
+                        {
+                            'filterType': 'PRICE_FILTER',
+                            'tickSize': '0.001',
+                            'minPrice': '10.000',
+                            'maxPrice': '10000.000'
+                        }
+                    ]
+                },
+                {
+                    'symbol': 'ETHUSDT',
+                    'status': 'TRADING',
+                    'filters': [
+                        {
+                            'filterType': 'PRICE_FILTER',
+                            'tickSize': '0.1',
+                            'minPrice': '100.0',
+                            'maxPrice': '50000.0'
+                        }
+                    ]
+                },
+                {
+                    'symbol': 'DOGEUSDT',
+                    'status': 'TRADING',
+                    'filters': [
+                        {
+                            'filterType': 'PRICE_FILTER',
+                            'tickSize': '0.0001',
+                            'minPrice': '0.0001',
+                            'maxPrice': '1.0000'
+                        }
+                    ]
+                },
+                {
+                    'symbol': '1000PEPEUSDT',
+                    'status': 'TRADING',
+                    'filters': [
+                        {
+                            'filterType': 'PRICE_FILTER',
+                            'tickSize': '0.00001',
+                            'minPrice': '0.00001',
+                            'maxPrice': '0.10000'
+                        }
+                    ]
+                }
+            ]
+        }
+
+    # ========== _calculate_precision() Tests ==========
+
+    def test_calculate_precision_two_decimals(self, manager):
+        """tickSize 0.01 → 2 decimals"""
+        precision = manager._calculate_precision(0.01)
+        assert precision == 2
+
+    def test_calculate_precision_three_decimals(self, manager):
+        """tickSize 0.001 → 3 decimals"""
+        precision = manager._calculate_precision(0.001)
+        assert precision == 3
+
+    def test_calculate_precision_one_decimal(self, manager):
+        """tickSize 0.1 → 1 decimal"""
+        precision = manager._calculate_precision(0.1)
+        assert precision == 1
+
+    def test_calculate_precision_four_decimals(self, manager):
+        """tickSize 0.0001 → 4 decimals"""
+        precision = manager._calculate_precision(0.0001)
+        assert precision == 4
+
+    def test_calculate_precision_integer(self, manager):
+        """tickSize 1.0 → 0 decimals"""
+        precision = manager._calculate_precision(1.0)
+        assert precision == 0
+
+    # ========== Cache Management Tests ==========
+
+    def test_cache_expires_after_24_hours(self, manager):
+        """Cache expires after 24 hours"""
+        from datetime import datetime, timedelta
+
+        # Set cache timestamp to 25 hours ago
+        manager._cache_timestamp = datetime.now() - timedelta(hours=25)
+
+        assert manager._is_cache_expired() is True
+
+    def test_cache_valid_within_24_hours(self, manager):
+        """Cache is valid within 24 hours"""
+        from datetime import datetime, timedelta
+
+        # Set cache timestamp to 23 hours ago
+        manager._cache_timestamp = datetime.now() - timedelta(hours=23)
+
+        assert manager._is_cache_expired() is False
+
+    def test_cache_expired_when_never_set(self, manager):
+        """Cache is expired when never set (None)"""
+        assert manager._cache_timestamp is None
+        assert manager._is_cache_expired() is True
+
+    # ========== _refresh_exchange_info() Tests ==========
+
+    def test_refresh_exchange_info_success(self, manager, mock_client, mock_exchange_info):
+        """Exchange info refresh parses all symbols correctly"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        manager._refresh_exchange_info()
+
+        # Verify all symbols cached
+        assert 'BTCUSDT' in manager._exchange_info_cache
+        assert 'BNBUSDT' in manager._exchange_info_cache
+        assert 'ETHUSDT' in manager._exchange_info_cache
+        assert 'DOGEUSDT' in manager._exchange_info_cache
+        assert '1000PEPEUSDT' in manager._exchange_info_cache
+
+        # Verify tick sizes
+        assert manager._exchange_info_cache['BTCUSDT']['tickSize'] == 0.01
+        assert manager._exchange_info_cache['BNBUSDT']['tickSize'] == 0.001
+        assert manager._exchange_info_cache['ETHUSDT']['tickSize'] == 0.1
+        assert manager._exchange_info_cache['DOGEUSDT']['tickSize'] == 0.0001
+        assert manager._exchange_info_cache['1000PEPEUSDT']['tickSize'] == 0.00001
+
+        # Verify cache timestamp set
+        assert manager._cache_timestamp is not None
+
+    def test_refresh_exchange_info_api_error(self, manager, mock_client):
+        """Exchange info fetch API error raises OrderExecutionError"""
+        mock_client.exchange_info.side_effect = ClientError(
+            status_code=400,
+            error_code=-1000,
+            error_message="Server error",
+            header={}
+        )
+
+        with pytest.raises(OrderExecutionError, match="Exchange info fetch failed"):
+            manager._refresh_exchange_info()
+
+    def test_refresh_exchange_info_network_error(self, manager, mock_client):
+        """Exchange info fetch network error raises OrderExecutionError"""
+        mock_client.exchange_info.side_effect = Exception("Network timeout")
+
+        with pytest.raises(OrderExecutionError, match="Exchange info fetch failed"):
+            manager._refresh_exchange_info()
+
+    # ========== _get_tick_size() Tests ==========
+
+    def test_get_tick_size_cache_hit(self, manager, mock_client, mock_exchange_info):
+        """Tick size retrieval from valid cache (no API call)"""
+        # Pre-populate cache
+        mock_client.exchange_info.return_value = mock_exchange_info
+        manager._refresh_exchange_info()
+
+        # Reset mock to verify no additional API calls
+        mock_client.reset_mock()
+
+        tick_size = manager._get_tick_size('BTCUSDT')
+
+        assert tick_size == 0.01
+        mock_client.exchange_info.assert_not_called()  # Cache hit
+
+    def test_get_tick_size_cache_miss_fetches_data(self, manager, mock_client, mock_exchange_info):
+        """Tick size retrieval with empty cache triggers fetch"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        tick_size = manager._get_tick_size('BNBUSDT')
+
+        assert tick_size == 0.001
+        mock_client.exchange_info.assert_called_once()
+
+    def test_get_tick_size_symbol_not_found_fallback(self, manager, mock_client, mock_exchange_info, caplog):
+        """Symbol not in exchange info returns fallback 0.01 with warning"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        with caplog.at_level(logging.WARNING):
+            tick_size = manager._get_tick_size('UNKNOWNUSDT')
+
+        assert tick_size == 0.01  # Fallback value
+        assert "UNKNOWNUSDT not found" in caplog.text
+
+    def test_get_tick_size_expired_cache_refreshes(self, manager, mock_client, mock_exchange_info):
+        """Expired cache triggers refresh before retrieval"""
+        from datetime import datetime, timedelta
+
+        # Pre-populate cache with expired timestamp
+        mock_client.exchange_info.return_value = mock_exchange_info
+        manager._refresh_exchange_info()
+        manager._cache_timestamp = datetime.now() - timedelta(hours=25)  # Expire cache
+
+        # Reset mock to count refresh calls
+        mock_client.reset_mock()
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        tick_size = manager._get_tick_size('BTCUSDT')
+
+        assert tick_size == 0.01
+        mock_client.exchange_info.assert_called_once()  # Refresh triggered
+
+    # ========== _format_price() Integration Tests ==========
+
+    def test_format_price_btcusdt_two_decimals(self, manager, mock_client, mock_exchange_info):
+        """BTCUSDT price formatting (tick_size=0.01, 2 decimals)"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        assert manager._format_price(50123.456, 'BTCUSDT') == '50123.46'
+        assert manager._format_price(50123.444, 'BTCUSDT') == '50123.44'
+        assert manager._format_price(50123.0, 'BTCUSDT') == '50123.00'
+
+    def test_format_price_bnbusdt_three_decimals(self, manager, mock_client, mock_exchange_info):
+        """BNBUSDT price formatting (tick_size=0.001, 3 decimals)"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        assert manager._format_price(492.1234, 'BNBUSDT') == '492.123'
+        assert manager._format_price(492.1236, 'BNBUSDT') == '492.124'
+        assert manager._format_price(492.0, 'BNBUSDT') == '492.000'
+
+    def test_format_price_ethusdt_one_decimal(self, manager, mock_client, mock_exchange_info):
+        """ETHUSDT price formatting (tick_size=0.1, 1 decimal)"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        assert manager._format_price(3456.789, 'ETHUSDT') == '3456.8'
+        assert manager._format_price(3456.12, 'ETHUSDT') == '3456.1'
+        assert manager._format_price(3456.0, 'ETHUSDT') == '3456.0'
+
+    def test_format_price_dogeusdt_four_decimals(self, manager, mock_client, mock_exchange_info):
+        """DOGEUSDT price formatting (tick_size=0.0001, 4 decimals)"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        assert manager._format_price(0.123456, 'DOGEUSDT') == '0.1235'
+        assert manager._format_price(0.123444, 'DOGEUSDT') == '0.1234'
+        assert manager._format_price(0.1, 'DOGEUSDT') == '0.1000'
+
+    def test_format_price_unknown_symbol_uses_fallback(self, manager, mock_client, mock_exchange_info, caplog):
+        """Unknown symbol uses fallback tick_size=0.01 (2 decimals)"""
+        mock_client.exchange_info.return_value = mock_exchange_info
+
+        with caplog.at_level(logging.WARNING):
+            formatted = manager._format_price(123.456789, 'UNKNOWNUSDT')
+
+        assert formatted == '123.46'  # Fallback to 2 decimals
+        assert "UNKNOWNUSDT not found" in caplog.text

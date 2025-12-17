@@ -4,7 +4,7 @@ Order execution and management with Binance Futures API integration.
 
 import os
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 
 from binance.um_futures import UMFutures
@@ -124,6 +124,10 @@ class OrderExecutionManager:
 
         # 상태 초기화
         self._open_orders: Dict[str, List[Order]] = {}
+
+        # Exchange info cache (Task 6.5)
+        self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
+        self._cache_timestamp: Optional[datetime] = None
 
     def set_leverage(self, symbol: str, leverage: int) -> bool:
         """
@@ -251,26 +255,161 @@ class OrderExecutionManager:
 
     def _format_price(self, price: float, symbol: str) -> str:
         """
-        Format price to appropriate decimal precision for Binance API.
+        Format price according to symbol's tick size specification.
+
+        Fetches tick size from Binance exchange info (cached), calculates
+        precision, and formats price to exact decimal places required.
 
         Args:
             price: Raw price value
             symbol: Trading symbol (e.g., 'BTCUSDT')
 
         Returns:
-            Price formatted as string with 2 decimal places
+            Price formatted as string with symbol-specific precision
 
-        Note:
-            Subtask 6.5 will implement dynamic precision based on symbol.
-            For now, assumes USDT pairs require 2 decimal places.
+        Raises:
+            OrderExecutionError: Exchange info fetch fails critically
 
         Example:
             >>> manager._format_price(50123.456, 'BTCUSDT')
-            '50123.46'
+            '50123.46'  # 2 decimals for BTCUSDT
+
+            >>> manager._format_price(492.1234, 'BNBUSDT')
+            '492.123'  # 3 decimals for BNBUSDT
         """
-        # Fixed 2 decimal precision for USDT pairs
-        # TODO (6.5): Fetch precision from exchange info API
-        return f"{price:.2f}"
+        # 1. Get symbol-specific tick size (with caching)
+        tick_size = self._get_tick_size(symbol)
+
+        # 2. Calculate decimal precision from tick size
+        decimal_places = self._calculate_precision(tick_size)
+
+        # 3. Format price with calculated precision
+        formatted = f"{price:.{decimal_places}f}"
+
+        # 4. Log formatting (debug level)
+        self.logger.debug(
+            f"Formatted price for {symbol}: {price} → {formatted} "
+            f"(tick_size={tick_size}, precision={decimal_places})"
+        )
+
+        return formatted
+
+    def _calculate_precision(self, tick_size: float) -> int:
+        """
+        Calculate decimal precision from tick size.
+
+        Args:
+            tick_size: Minimum price increment (e.g., 0.01)
+
+        Returns:
+            Number of decimal places (e.g., 2)
+
+        Example:
+            >>> self._calculate_precision(0.01)
+            2
+            >>> self._calculate_precision(0.001)
+            3
+            >>> self._calculate_precision(1.0)
+            0
+        """
+        # Convert to string to count decimal places
+        tick_str = f"{tick_size:.10f}".rstrip('0')  # Remove trailing zeros
+
+        if '.' not in tick_str:
+            return 0  # Integer tick size
+
+        # Count digits after decimal point
+        decimal_part = tick_str.split('.')[1]
+        precision = len(decimal_part)
+
+        return precision
+
+    def _is_cache_expired(self) -> bool:
+        """Check if exchange info cache has expired (24h TTL)."""
+        if self._cache_timestamp is None:
+            return True  # Never cached
+
+        age = datetime.now() - self._cache_timestamp
+        return age > timedelta(hours=24)
+
+    def _refresh_exchange_info(self) -> None:
+        """Fetch and cache exchange information from Binance."""
+        self.logger.info("Fetching exchange information from Binance")
+
+        try:
+            # 1. Call Binance API
+            response = self.client.exchange_info()
+
+            # 2. Parse symbols and extract tick sizes
+            symbols_parsed = 0
+            for symbol_data in response['symbols']:
+                symbol = symbol_data['symbol']
+
+                # Find PRICE_FILTER
+                price_filter = None
+                for filter_item in symbol_data['filters']:
+                    if filter_item['filterType'] == 'PRICE_FILTER':
+                        price_filter = filter_item
+                        break
+
+                if price_filter:
+                    tick_size = float(price_filter['tickSize'])
+                    self._exchange_info_cache[symbol] = {
+                        'tickSize': tick_size,
+                        'minPrice': float(price_filter['minPrice']),
+                        'maxPrice': float(price_filter['maxPrice'])
+                    }
+                    symbols_parsed += 1
+
+            # 3. Update cache timestamp
+            self._cache_timestamp = datetime.now()
+
+            self.logger.info(
+                f"Exchange info cached: {symbols_parsed} symbols loaded"
+            )
+
+        except ClientError as e:
+            self.logger.error(f"Failed to fetch exchange info: {e}")
+            raise OrderExecutionError(
+                f"Exchange info fetch failed: code={e.error_code}, msg={e.error_message}"
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to fetch exchange info: {e}")
+            raise OrderExecutionError(f"Exchange info fetch failed: {e}")
+
+    def _get_tick_size(self, symbol: str) -> float:
+        """
+        Get tick size for symbol from exchange info (cached).
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+
+        Returns:
+            Tick size as float (e.g., 0.01)
+
+        Raises:
+            OrderExecutionError: Exchange info fetch fails
+
+        Note:
+            Falls back to 0.01 (2 decimals) if symbol not found
+        """
+        # 1. Check cache validity
+        if self._is_cache_expired():
+            self._refresh_exchange_info()
+
+        # 2. Look up symbol in cache
+        if symbol in self._exchange_info_cache:
+            tick_size = self._exchange_info_cache[symbol]['tickSize']
+            self.logger.debug(f"Cache hit for {symbol}: tickSize={tick_size}")
+            return tick_size
+
+        # 3. Symbol not found - graceful fallback
+        self.logger.warning(
+            f"Symbol {symbol} not found in exchange info. "
+            f"Using default tickSize=0.01 (2 decimals). "
+            f"This may cause order rejection for non-standard pairs."
+        )
+        return 0.01  # Default for USDT pairs
 
     def _determine_order_side(self, signal: Signal) -> OrderSide:
         """

@@ -475,9 +475,10 @@
               1
             ],
             "details": "Implement _format_price(symbol: str, price: float) -> str method. Use client.exchange_info() to fetch symbol specifications. Cache exchange info to avoid repeated API calls. Extract 'filters' array from symbol data, find 'PRICE_FILTER' type, and get 'tickSize' value. Calculate number of decimal places from tick size (e.g., tickSize=0.01 means 2 decimals). Format price using calculated precision. Handle edge cases: missing symbol info, invalid tick sizes. Add caching mechanism for exchange info with TTL.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test: 1) Mock exchange_info() response with various tick sizes (0.01, 0.1, 1.0), 2) Verify correct decimal precision calculation, 3) Test price rounding (e.g., 12345.678 with tickSize=0.1 becomes '12345.7'), 4) Test caching behavior. Integration test on Testnet: 1) Fetch real tick sizes for BTCUSDT, ETHUSDT, 2) Format prices and verify order acceptance",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T05:32:46.584Z"
           },
           {
             "id": 6,
@@ -499,7 +500,7 @@
         "complexity": 8,
         "recommendedSubtasks": 6,
         "expansionPrompt": "Break down into: 1) Implement OrderExecutionManager class with REST client setup and leverage/margin configuration, 2) Implement execute_signal method with market entry order placement, 3) Implement TP/SL order placement using TAKE_PROFIT_MARKET and STOP_MARKET order types, 4) Implement position and account balance query methods, 5) Implement price formatting according to symbol tick size specifications, 6) Implement error handling with retry logic, rate limiting, and order cancellation",
-        "updatedAt": "2025-12-17T05:14:53.167Z"
+        "updatedAt": "2025-12-17T05:32:46.584Z"
       },
       {
         "id": "7",
@@ -780,7 +781,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-17T05:14:53.168Z",
+      "lastModified": "2025-12-17T05:32:46.585Z",
       "taskCount": 10,
       "completedCount": 5,
       "tags": [
