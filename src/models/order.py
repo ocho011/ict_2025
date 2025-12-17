@@ -66,7 +66,14 @@ class Order:
 
     def __post_init__(self) -> None:
         """Validate order parameters."""
-        if self.quantity <= 0:
+        # For TP/SL orders with closePosition=True, quantity can be 0
+        # since Binance manages the position closure automatically
+        is_tpsl_order = self.order_type in (
+            OrderType.STOP_MARKET,
+            OrderType.TAKE_PROFIT_MARKET
+        )
+
+        if not is_tpsl_order and self.quantity <= 0:
             raise ValueError(f"Quantity must be > 0, got {self.quantity}")
 
         # LIMIT orders require price
@@ -74,6 +81,6 @@ class Order:
             raise ValueError("LIMIT orders require price")
 
         # STOP orders require stop_price
-        if self.order_type in (OrderType.STOP_MARKET, OrderType.TAKE_PROFIT_MARKET):
+        if is_tpsl_order:
             if self.stop_price is None:
                 raise ValueError(f"{self.order_type.value} requires stop_price")

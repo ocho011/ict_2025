@@ -449,9 +449,10 @@
               2
             ],
             "details": "After entry order placement, create TP order using type='TAKE_PROFIT_MARKET' with stopPrice set to signal.take_profit, closePosition=True to automatically close entire position, and workingType='MARK_PRICE' to use mark price for triggering. Create SL order using type='STOP_MARKET' with stopPrice set to signal.stop_loss and same parameters. Use _format_price() helper (to be implemented) for price formatting. Parse both responses into Order objects. Return tuple of (entry_order, [tp_order, sl_order]).",
-            "status": "pending",
+            "status": "review",
             "testStrategy": "Unit test with mocked API responses: 1) Verify correct order type selection, 2) Test stopPrice formatting for TP/SL levels, 3) Validate closePosition and workingType parameters, 4) Test return tuple structure. Integration test on Testnet: 1) Place TP/SL orders, 2) Verify orders appear in open orders, 3) Test order triggering with price movements",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T00:54:30.243Z"
           },
           {
             "id": 4,
@@ -497,7 +498,7 @@
         "complexity": 8,
         "recommendedSubtasks": 6,
         "expansionPrompt": "Break down into: 1) Implement OrderExecutionManager class with REST client setup and leverage/margin configuration, 2) Implement execute_signal method with market entry order placement, 3) Implement TP/SL order placement using TAKE_PROFIT_MARKET and STOP_MARKET order types, 4) Implement position and account balance query methods, 5) Implement price formatting according to symbol tick size specifications, 6) Implement error handling with retry logic, rate limiting, and order cancellation",
-        "updatedAt": "2025-12-16T18:50:53.748Z"
+        "updatedAt": "2025-12-17T00:54:30.243Z"
       },
       {
         "id": "7",
@@ -778,7 +779,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-16T18:50:53.750Z",
+      "lastModified": "2025-12-17T00:54:30.244Z",
       "taskCount": 10,
       "completedCount": 5,
       "tags": [

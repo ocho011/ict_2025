@@ -327,6 +327,32 @@ class TestExecuteSignal:
             timestamp=datetime.now(timezone.utc)
         )
 
+    @pytest.fixture
+    def close_long_signal(self):
+        """CLOSE_LONG 시그널"""
+        return Signal(
+            signal_type=SignalType.CLOSE_LONG,
+            symbol='BTCUSDT',
+            entry_price=61000.0,
+            take_profit=62000.0,  # Not used for close signals
+            stop_loss=60000.0,    # Not used for close signals
+            strategy_name='TestStrategy',
+            timestamp=datetime.now(timezone.utc)
+        )
+
+    @pytest.fixture
+    def close_short_signal(self):
+        """CLOSE_SHORT 시그널"""
+        return Signal(
+            signal_type=SignalType.CLOSE_SHORT,
+            symbol='BTCUSDT',
+            entry_price=58000.0,
+            take_profit=57000.0,  # Not used
+            stop_loss=59000.0,    # Not used
+            strategy_name='TestStrategy',
+            timestamp=datetime.now(timezone.utc)
+        )
+
     # ==================== _determine_order_side() 테스트 ====================
 
     def test_determine_order_side_long_entry(self, manager, long_entry_signal):
@@ -582,3 +608,453 @@ class TestExecuteSignal:
             assert "Order rejected by Binance" in caplog.text
             assert "code=-2019" in caplog.text
             assert "Margin is insufficient" in caplog.text
+
+
+class TestTPSLPlacement:
+    """TP/SL 주문 배치 테스트 (Task 6.3)"""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Mock Binance UMFutures 클라이언트"""
+        return MagicMock()
+
+    @pytest.fixture
+    def manager(self, mock_client):
+        """OrderExecutionManager 인스턴스 (mock client 사용)"""
+        with patch('src.execution.order_manager.UMFutures', return_value=mock_client):
+            with patch.dict('os.environ', {
+                'BINANCE_API_KEY': 'test_key',
+                'BINANCE_API_SECRET': 'test_secret'
+            }):
+                return OrderExecutionManager(is_testnet=True)
+
+    @pytest.fixture
+    def long_entry_signal(self):
+        """LONG_ENTRY 시그널"""
+        return Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol='BTCUSDT',
+            entry_price=50000.0,
+            take_profit=52000.0,
+            stop_loss=49000.0,
+            strategy_name='TestStrategy',
+            timestamp=datetime.now(timezone.utc)
+        )
+
+    @pytest.fixture
+    def short_entry_signal(self):
+        """SHORT_ENTRY 시그널"""
+        return Signal(
+            signal_type=SignalType.SHORT_ENTRY,
+            symbol='BTCUSDT',
+            entry_price=50000.0,
+            take_profit=48000.0,
+            stop_loss=51000.0,
+            strategy_name='TestStrategy',
+            timestamp=datetime.now(timezone.utc)
+        )
+
+    @pytest.fixture
+    def close_long_signal(self):
+        """CLOSE_LONG 시그널"""
+        return Signal(
+            signal_type=SignalType.CLOSE_LONG,
+            symbol='BTCUSDT',
+            entry_price=51000.0,
+            take_profit=52000.0,
+            stop_loss=50000.0,
+            strategy_name='TestStrategy',
+            timestamp=datetime.now(timezone.utc)
+        )
+
+    # ==================== Helper Method Tests ====================
+
+    def test_format_price_rounds_correctly(self, manager):
+        """가격 포맷팅 (2자리 소수점)"""
+        assert manager._format_price(50123.456, 'BTCUSDT') == '50123.46'
+        assert manager._format_price(50123.444, 'BTCUSDT') == '50123.44'
+        assert manager._format_price(50123.0, 'BTCUSDT') == '50123.00'
+
+    def test_format_price_handles_edge_cases(self, manager):
+        """가격 포맷팅 엣지 케이스"""
+        assert manager._format_price(0.01, 'BTCUSDT') == '0.01'
+        assert manager._format_price(99999.99, 'BTCUSDT') == '99999.99'
+
+    # ==================== TP Order Tests ====================
+
+    def test_place_tp_order_long_success(self, manager, mock_client, long_entry_signal):
+        """LONG 포지션 TP 주문 배치 성공"""
+        mock_client.new_order.return_value = {
+            "orderId": 987654321,
+            "symbol": "BTCUSDT",
+            "status": "NEW",
+            "type": "TAKE_PROFIT_MARKET",
+            "side": "SELL",
+            "stopPrice": "52000.00",
+            "updateTime": 1678886401000,
+            "origQty": "0.000",
+            "avgPrice": "0.00"
+        }
+
+        tp_order = manager._place_tp_order(long_entry_signal, OrderSide.SELL)
+
+        assert tp_order is not None
+        assert tp_order.order_id == "987654321"
+        assert tp_order.order_type == OrderType.TAKE_PROFIT_MARKET
+        assert tp_order.stop_price == 52000.0
+        assert tp_order.side == OrderSide.SELL
+
+        mock_client.new_order.assert_called_once_with(
+            symbol="BTCUSDT",
+            side="SELL",
+            type="TAKE_PROFIT_MARKET",
+            stopPrice="52000.00",
+            closePosition="true",
+            workingType="MARK_PRICE"
+        )
+
+    def test_place_tp_order_short_success(self, manager, mock_client, short_entry_signal):
+        """SHORT 포지션 TP 주문 배치 성공"""
+        mock_client.new_order.return_value = {
+            "orderId": 987654322,
+            "symbol": "BTCUSDT",
+            "status": "NEW",
+            "type": "TAKE_PROFIT_MARKET",
+            "side": "BUY",
+            "stopPrice": "48000.00",
+            "updateTime": 1678886401000,
+            "origQty": "0.000",
+            "avgPrice": "0.00"
+        }
+
+        tp_order = manager._place_tp_order(short_entry_signal, OrderSide.BUY)
+
+        assert tp_order is not None
+        assert tp_order.side == OrderSide.BUY
+        assert tp_order.stop_price == 48000.0
+
+    def test_place_tp_order_api_error_returns_none(self, manager, mock_client, long_entry_signal):
+        """TP 주문 API 에러 시 None 반환"""
+        mock_client.new_order.side_effect = ClientError(
+            status_code=400,
+            error_code=-2010,
+            error_message="Order would immediately trigger",
+            header={}
+        )
+
+        tp_order = manager._place_tp_order(long_entry_signal, OrderSide.SELL)
+
+        assert tp_order is None  # Should return None, not raise
+
+    # ==================== SL Order Tests ====================
+
+    def test_place_sl_order_long_success(self, manager, mock_client, long_entry_signal):
+        """LONG 포지션 SL 주문 배치 성공"""
+        mock_client.new_order.return_value = {
+            "orderId": 987654323,
+            "symbol": "BTCUSDT",
+            "status": "NEW",
+            "type": "STOP_MARKET",
+            "side": "SELL",
+            "stopPrice": "49000.00",
+            "updateTime": 1678886402000,
+            "origQty": "0.000",
+            "avgPrice": "0.00"
+        }
+
+        sl_order = manager._place_sl_order(long_entry_signal, OrderSide.SELL)
+
+        assert sl_order is not None
+        assert sl_order.order_type == OrderType.STOP_MARKET
+        assert sl_order.stop_price == 49000.0
+
+        mock_client.new_order.assert_called_once_with(
+            symbol="BTCUSDT",
+            side="SELL",
+            type="STOP_MARKET",
+            stopPrice="49000.00",
+            closePosition="true",
+            workingType="MARK_PRICE"
+        )
+
+    def test_place_sl_order_short_success(self, manager, mock_client, short_entry_signal):
+        """SHORT 포지션 SL 주문 배치 성공"""
+        mock_client.new_order.return_value = {
+            "orderId": 987654324,
+            "symbol": "BTCUSDT",
+            "status": "NEW",
+            "type": "STOP_MARKET",
+            "side": "BUY",
+            "stopPrice": "51000.00",
+            "updateTime": 1678886402000,
+            "origQty": "0.000",
+            "avgPrice": "0.00"
+        }
+
+        sl_order = manager._place_sl_order(short_entry_signal, OrderSide.BUY)
+
+        assert sl_order is not None
+        assert sl_order.side == OrderSide.BUY
+        assert sl_order.stop_price == 51000.0
+
+    def test_place_sl_order_network_error_returns_none(self, manager, mock_client, long_entry_signal):
+        """SL 주문 네트워크 에러 시 None 반환"""
+        mock_client.new_order.side_effect = ConnectionError("Network timeout")
+
+        sl_order = manager._place_sl_order(long_entry_signal, OrderSide.SELL)
+
+        assert sl_order is None  # Should not raise exception
+
+    # ==================== Integration Tests ====================
+
+    def test_execute_signal_long_entry_with_tpsl_success(
+        self, manager, mock_client, long_entry_signal
+    ):
+        """LONG 진입 + TP/SL 완전 성공"""
+        mock_client.new_order.side_effect = [
+            # Entry order (MARKET)
+            {
+                "orderId": 123456789,
+                "symbol": "BTCUSDT",
+                "status": "FILLED",
+                "type": "MARKET",
+                "side": "BUY",
+                "avgPrice": "50123.45",
+                "origQty": "0.001",
+                "executedQty": "0.001",
+                "updateTime": 1678886400000
+            },
+            # TP order (TAKE_PROFIT_MARKET)
+            {
+                "orderId": 123456790,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "TAKE_PROFIT_MARKET",
+                "side": "SELL",
+                "stopPrice": "52000.00",
+                "updateTime": 1678886401000,
+                "origQty": "0.000",
+                "avgPrice": "0.00"
+            },
+            # SL order (STOP_MARKET)
+            {
+                "orderId": 123456791,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "STOP_MARKET",
+                "side": "SELL",
+                "stopPrice": "49000.00",
+                "updateTime": 1678886402000,
+                "origQty": "0.000",
+                "avgPrice": "0.00"
+            }
+        ]
+
+        entry_order, tpsl_orders = manager.execute_signal(
+            long_entry_signal,
+            quantity=0.001
+        )
+
+        # Entry order assertions
+        assert entry_order.order_id == "123456789"
+        assert entry_order.order_type == OrderType.MARKET
+        assert entry_order.side == OrderSide.BUY
+        assert entry_order.status == OrderStatus.FILLED
+
+        # TP/SL orders assertions
+        assert len(tpsl_orders) == 2
+
+        tp_order = tpsl_orders[0]
+        assert tp_order.order_type == OrderType.TAKE_PROFIT_MARKET
+        assert tp_order.stop_price == 52000.0
+        assert tp_order.side == OrderSide.SELL
+
+        sl_order = tpsl_orders[1]
+        assert sl_order.order_type == OrderType.STOP_MARKET
+        assert sl_order.stop_price == 49000.0
+        assert sl_order.side == OrderSide.SELL
+
+        assert mock_client.new_order.call_count == 3
+
+    def test_execute_signal_short_entry_with_tpsl_success(
+        self, manager, mock_client, short_entry_signal
+    ):
+        """SHORT 진입 + TP/SL 완전 성공"""
+        mock_client.new_order.side_effect = [
+            {
+                "orderId": 123456800,
+                "symbol": "BTCUSDT",
+                "status": "FILLED",
+                "type": "MARKET",
+                "side": "SELL",
+                "avgPrice": "50000.00",
+                "origQty": "0.001",
+                "updateTime": 1678886400000
+            },
+            {
+                "orderId": 123456801,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "TAKE_PROFIT_MARKET",
+                "side": "BUY",
+                "stopPrice": "48000.00",
+                "updateTime": 1678886401000,
+                "origQty": "0.000",
+                "avgPrice": "0.00"
+            },
+            {
+                "orderId": 123456802,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "STOP_MARKET",
+                "side": "BUY",
+                "stopPrice": "51000.00",
+                "updateTime": 1678886402000,
+                "origQty": "0.000",
+                "avgPrice": "0.00"
+            }
+        ]
+
+        entry_order, tpsl_orders = manager.execute_signal(
+            short_entry_signal,
+            quantity=0.001
+        )
+
+        assert entry_order.side == OrderSide.SELL
+        assert len(tpsl_orders) == 2
+        assert tpsl_orders[0].side == OrderSide.BUY  # TP for SHORT
+        assert tpsl_orders[1].side == OrderSide.BUY  # SL for SHORT
+
+    def test_execute_signal_close_long_no_tpsl(
+        self, manager, mock_client, close_long_signal
+    ):
+        """CLOSE_LONG 시그널은 TP/SL 주문 없음"""
+        mock_client.new_order.return_value = {
+            "orderId": 123456789,
+            "symbol": "BTCUSDT",
+            "status": "FILLED",
+            "type": "MARKET",
+            "side": "SELL",
+            "avgPrice": "51000.00",
+            "origQty": "0.001",
+            "executedQty": "0.001",
+            "updateTime": 1678886400000
+        }
+
+        entry_order, tpsl_orders = manager.execute_signal(
+            close_long_signal,
+            quantity=0.001
+        )
+
+        assert entry_order.side == OrderSide.SELL
+        assert len(tpsl_orders) == 0  # No TP/SL for close signals
+        assert mock_client.new_order.call_count == 1  # Only entry order
+
+    # ==================== Error Handling Tests ====================
+
+    def test_execute_signal_entry_fails_raises_exception(
+        self, manager, mock_client, long_entry_signal
+    ):
+        """진입 주문 실패 시 예외 발생 (TP/SL 시도 없음)"""
+        mock_client.new_order.side_effect = ClientError(
+            status_code=400,
+            error_code=-2019,
+            error_message="Margin is insufficient",
+            header={}
+        )
+
+        with pytest.raises(OrderRejectedError, match="Margin is insufficient"):
+            manager.execute_signal(long_entry_signal, quantity=0.001)
+
+        # Verify only entry order was attempted
+        assert mock_client.new_order.call_count == 1
+
+    def test_execute_signal_entry_success_tp_fails_sl_success(
+        self, manager, mock_client, long_entry_signal
+    ):
+        """진입 성공, TP 실패, SL 성공 (부분 실행)"""
+        mock_client.new_order.side_effect = [
+            # Entry succeeds
+            {
+                "orderId": 123456789,
+                "symbol": "BTCUSDT",
+                "status": "FILLED",
+                "type": "MARKET",
+                "side": "BUY",
+                "avgPrice": "50123.45",
+                "origQty": "0.001",
+                "updateTime": 1678886400000
+            },
+            # TP fails
+            ClientError(
+                status_code=400,
+                error_code=-2010,
+                error_message="Order would immediately trigger",
+                header={}
+            ),
+            # SL succeeds
+            {
+                "orderId": 123456791,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "STOP_MARKET",
+                "side": "SELL",
+                "stopPrice": "49000.00",
+                "updateTime": 1678886402000,
+                "origQty": "0.000",
+                "avgPrice": "0.00"
+            }
+        ]
+
+        entry_order, tpsl_orders = manager.execute_signal(
+            long_entry_signal,
+            quantity=0.001
+        )
+
+        # Entry succeeded
+        assert entry_order.status == OrderStatus.FILLED
+
+        # Only SL order placed (TP failed)
+        assert len(tpsl_orders) == 1
+        assert tpsl_orders[0].order_type == OrderType.STOP_MARKET
+
+    def test_execute_signal_entry_success_both_tpsl_fail(
+        self, manager, mock_client, long_entry_signal
+    ):
+        """진입 성공, TP/SL 모두 실패"""
+        mock_client.new_order.side_effect = [
+            # Entry succeeds
+            {
+                "orderId": 123456789,
+                "symbol": "BTCUSDT",
+                "status": "FILLED",
+                "type": "MARKET",
+                "side": "BUY",
+                "avgPrice": "50123.45",
+                "origQty": "0.001",
+                "updateTime": 1678886400000
+            },
+            # TP fails
+            ClientError(
+                status_code=400,
+                error_code=-2010,
+                error_message="TP error",
+                header={}
+            ),
+            # SL fails
+            ClientError(
+                status_code=400,
+                error_code=-2010,
+                error_message="SL error",
+                header={}
+            )
+        ]
+
+        entry_order, tpsl_orders = manager.execute_signal(
+            long_entry_signal,
+            quantity=0.001
+        )
+
+        # Entry succeeded, no TP/SL orders
+        assert entry_order.status == OrderStatus.FILLED
+        assert len(tpsl_orders) == 0
