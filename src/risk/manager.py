@@ -102,15 +102,29 @@ class RiskManager:
         position_value = risk_amount / sl_distance_percent
         quantity = position_value / entry_price
 
-        # Step 6: Log calculation details
+        # Step 6: Calculate maximum position size
+        max_position_value = account_balance * self.max_position_size_percent * leverage
+        max_quantity = max_position_value / entry_price
+
+        # Step 7: Apply position size limit
+        if quantity > max_quantity:
+            self.logger.warning(
+                f"Position size {quantity:.4f} exceeds maximum {max_quantity:.4f} "
+                f"({self.max_position_size_percent:.1%} of account with {leverage}x leverage), "
+                f"capping to {max_quantity:.4f}"
+            )
+            quantity = max_quantity
+
+        # Step 8: Log final calculation details
         self.logger.info(
             f"Position size calculated: {quantity:.4f} "
             f"(risk={risk_amount:.2f} USDT, "
-            f"SL distance={sl_distance_percent:.2%})"
+            f"SL distance={sl_distance_percent:.2%}, "
+            f"max_allowed={max_quantity:.4f})"
         )
 
-        # Step 7: Return calculated quantity
-        # Note: Limiting and rounding will be added in subtasks 7.3 and 7.4
+        # Step 9: Return limited quantity
+        # Note: Rounding will be added in subtask 7.4
         return quantity
 
     def validate_risk(self, signal: Signal, position: Optional[Position]) -> bool:

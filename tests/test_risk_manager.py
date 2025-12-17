@@ -52,6 +52,7 @@ class TestPositionSizeCalculation:
         - SL Distance: 0.1% (tight)
         - Position Value: 100 / 0.001 = 100,000 USDT
         - Quantity: 100,000 / 50000 = 2.0 BTC (large!)
+        - But capped to max: 0.2 BTC (10% × 10x leverage)
         """
         quantity = risk_manager.calculate_position_size(
             account_balance=10000,
@@ -60,8 +61,8 @@ class TestPositionSizeCalculation:
             leverage=10
         )
 
-        # Tight SL = larger position for same risk
-        assert quantity == pytest.approx(2.0, rel=0.01)
+        # Tight SL would give 2.0 BTC, but capped to max 0.2 BTC
+        assert quantity == pytest.approx(0.2, rel=0.01)
 
     def test_wide_sl_10_percent(self, risk_manager):
         """
@@ -88,9 +89,10 @@ class TestPositionSizeCalculation:
         Edge case: Zero SL distance (entry == stop_loss)
 
         Expected:
-        - Warning logged
+        - Warning logged for zero SL
         - Use 0.001 (0.1%) minimum SL distance
-        - Quantity calculated based on 0.1% SL
+        - Quantity calculated based on 0.1% SL would be 2.0 BTC
+        - But capped to max: 0.2 BTC (10% × 10x leverage)
         """
         with caplog.at_level(logging.WARNING):
             quantity = risk_manager.calculate_position_size(
@@ -100,12 +102,11 @@ class TestPositionSizeCalculation:
                 leverage=10
             )
 
-        # Should use 0.1% minimum SL
-        # Position Value: 100 / 0.001 = 100,000 USDT
-        # Quantity: 100,000 / 50000 = 2.0 BTC
-        assert quantity == pytest.approx(2.0, rel=0.01)
+        # Should use 0.1% minimum SL, giving 2.0 BTC
+        # But capped to max 0.2 BTC
+        assert quantity == pytest.approx(0.2, rel=0.01)
 
-        # Check warning was logged
+        # Check warnings were logged (both zero SL and position limiting)
         assert "Zero SL distance" in caplog.text
         assert "0.1%" in caplog.text
 
@@ -503,3 +504,266 @@ class TestSignalValidation:
         # Check log contains actual values
         assert "49000" in caplog.text  # Invalid TP value
         assert "50000" in caplog.text  # Entry price value
+
+
+class TestPositionSizeLimiting:
+    """Test suite for subtask 7.3 - Position size limiting"""
+
+    @pytest.fixture
+    def risk_manager(self):
+        """Setup RiskManager with standard config"""
+        config = {
+            'max_risk_per_trade': 0.01,
+            'max_leverage': 20,
+            'default_leverage': 10,
+            'max_position_size_percent': 0.1  # 10%
+        }
+        return RiskManager(config)
+
+    def test_position_within_limit_not_capped(self, risk_manager):
+        """
+        Normal case: Position size within limit is not capped
+
+        Risk-based: 0.1 BTC
+        Max (10% × 10x): 0.2 BTC
+        Result: 0.1 BTC (not limited)
+        """
+        quantity = risk_manager.calculate_position_size(
+            account_balance=10000,
+            entry_price=50000,
+            stop_loss_price=49000,  # 2% SL
+            leverage=10
+        )
+
+        # Should not be limited
+        assert quantity == pytest.approx(0.1, rel=0.01)
+
+    def test_tight_sl_exceeds_limit_capped(self, risk_manager, caplog):
+        """
+        Edge case: Tight SL creates large position that exceeds limit
+
+        Risk-based: 2.0 BTC (from 0.1% tight SL)
+        Max (10% × 10x): 0.2 BTC
+        Result: 0.2 BTC (capped)
+        """
+        with caplog.at_level(logging.WARNING):
+            quantity = risk_manager.calculate_position_size(
+                account_balance=10000,
+                entry_price=50000,
+                stop_loss_price=49950,  # 0.1% tight SL
+                leverage=10
+            )
+
+        # Should be capped to max
+        max_quantity = 10000 * 0.1 * 10 / 50000  # 0.2 BTC
+        assert quantity == pytest.approx(max_quantity, rel=0.01)
+
+        # Check warning logged
+        assert "exceeds maximum" in caplog.text
+        assert "capping to" in caplog.text
+
+    def test_high_leverage_increases_max_limit(self, risk_manager):
+        """
+        Max position size scales with leverage
+
+        Leverage 10x: Max = 0.2 BTC
+        Leverage 20x: Max = 0.4 BTC
+        """
+        # Calculate max with different leverages
+        max_10x = 10000 * 0.1 * 10 / 50000  # 0.2 BTC
+        max_20x = 10000 * 0.1 * 20 / 50000  # 0.4 BTC
+
+        # Verify scaling
+        assert max_20x == pytest.approx(2 * max_10x, rel=0.01)
+
+        # Test with tight SL to trigger both limits
+        quantity_10x = risk_manager.calculate_position_size(
+            account_balance=10000,
+            entry_price=50000,
+            stop_loss_price=49950,  # Tight SL
+            leverage=10
+        )
+
+        quantity_20x = risk_manager.calculate_position_size(
+            account_balance=10000,
+            entry_price=50000,
+            stop_loss_price=49950,  # Same tight SL
+            leverage=20
+        )
+
+        # 20x should allow 2x larger position
+        assert quantity_20x == pytest.approx(2 * quantity_10x, rel=0.01)
+
+    def test_custom_max_position_percent(self):
+        """
+        Custom max_position_size_percent is respected
+
+        5% max instead of 10%
+        """
+        manager = RiskManager({
+            'max_risk_per_trade': 0.01,
+            'max_position_size_percent': 0.05  # 5%
+        })
+
+        quantity = manager.calculate_position_size(
+            account_balance=10000,
+            entry_price=50000,
+            stop_loss_price=49500,  # 1% SL to potentially trigger limit
+            leverage=10
+        )
+
+        # Max with 5%: 10000 * 0.05 * 10 / 50000 = 0.1 BTC
+        max_quantity = 0.1
+        assert quantity <= max_quantity
+
+    def test_warning_contains_specific_values(self, risk_manager, caplog):
+        """
+        Warning log contains actual calculated and max values
+        """
+        with caplog.at_level(logging.WARNING):
+            risk_manager.calculate_position_size(
+                account_balance=10000,
+                entry_price=50000,
+                stop_loss_price=49950,  # 0.1% tight SL
+                leverage=10
+            )
+
+        # Check log contains specific values
+        assert "0.2" in caplog.text  # Max quantity
+        assert "10.0%" in caplog.text or "10%" in caplog.text  # Percentage
+        assert "10x" in caplog.text  # Leverage
+
+    def test_integration_full_calculation_with_limiting(self, risk_manager):
+        """
+        Integration test: Full position calculation with limiting
+
+        Verifies entire flow from input to limited output
+        """
+        # Scenario: Very tight SL (0.05%) should trigger limit
+        quantity = risk_manager.calculate_position_size(
+            account_balance=10000,
+            entry_price=50000,
+            stop_loss_price=49975,  # 0.05% SL
+            leverage=10
+        )
+
+        # Max allowed: 0.2 BTC
+        max_quantity = 0.2
+
+        # Should be capped
+        assert quantity == pytest.approx(max_quantity, rel=0.01)
+
+        # Should be less than uncapped calculation
+        # Risk-based would give: 100 / 0.0005 / 50000 = 4.0 BTC
+        assert quantity < 4.0
+
+    def test_max_position_respects_leverage_parameter(self, risk_manager):
+        """
+        Max position calculation uses the provided leverage parameter
+        """
+        # Test with leverage 5x
+        quantity_5x = risk_manager.calculate_position_size(
+            account_balance=10000,
+            entry_price=50000,
+            stop_loss_price=49950,  # Tight SL to trigger limit
+            leverage=5
+        )
+
+        # Test with leverage 15x
+        quantity_15x = risk_manager.calculate_position_size(
+            account_balance=10000,
+            entry_price=50000,
+            stop_loss_price=49950,  # Same tight SL
+            leverage=15
+        )
+
+        # 15x leverage should allow 3x larger position than 5x
+        assert quantity_15x == pytest.approx(3 * quantity_5x, rel=0.01)
+
+
+class TestSignalRiskRewardRatio:
+    """Test suite for Signal.risk_reward_ratio property (verification)"""
+
+    def test_risk_reward_ratio_1_to_2(self):
+        """
+        R:R ratio 1:2 correctly calculated
+
+        Entry: 50,000
+        SL: 49,000 (1,000 risk)
+        TP: 52,000 (2,000 reward)
+        R:R: 2,000 / 1,000 = 2.0
+        """
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            stop_loss=49000,  # 1,000 risk
+            take_profit=52000,  # 2,000 reward
+            strategy_name="test",
+            timestamp=datetime.now()
+        )
+
+        assert signal.risk_reward_ratio == pytest.approx(2.0, rel=0.01)
+
+    def test_risk_reward_ratio_1_to_1(self):
+        """
+        R:R ratio 1:1 correctly calculated
+
+        Entry: 50,000
+        SL: 49,000 (1,000 risk)
+        TP: 51,000 (1,000 reward)
+        R:R: 1,000 / 1,000 = 1.0
+        """
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            stop_loss=49000,  # 1,000 risk
+            take_profit=51000,  # 1,000 reward
+            strategy_name="test",
+            timestamp=datetime.now()
+        )
+
+        assert signal.risk_reward_ratio == pytest.approx(1.0, rel=0.01)
+
+    def test_risk_reward_ratio_1_to_3(self):
+        """
+        R:R ratio 1:3 correctly calculated (attractive ratio)
+
+        Entry: 50,000
+        SL: 49,000 (1,000 risk)
+        TP: 53,000 (3,000 reward)
+        R:R: 3,000 / 1,000 = 3.0
+        """
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            stop_loss=49000,  # 1,000 risk
+            take_profit=53000,  # 3,000 reward
+            strategy_name="test",
+            timestamp=datetime.now()
+        )
+
+        assert signal.risk_reward_ratio == pytest.approx(3.0, rel=0.01)
+
+    def test_risk_reward_ratio_for_short_signal(self):
+        """
+        R:R ratio works for SHORT signals
+
+        Entry: 50,000
+        SL: 51,000 (1,000 risk - above entry for SHORT)
+        TP: 48,000 (2,000 reward - below entry for SHORT)
+        R:R: 2,000 / 1,000 = 2.0
+        """
+        signal = Signal(
+            signal_type=SignalType.SHORT_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            stop_loss=51000,  # 1,000 risk (above for SHORT)
+            take_profit=48000,  # 2,000 reward (below for SHORT)
+            strategy_name="test",
+            timestamp=datetime.now()
+        )
+
+        assert signal.risk_reward_ratio == pytest.approx(2.0, rel=0.01)

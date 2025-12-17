@@ -548,9 +548,10 @@
               1
             ],
             "details": "Implement two methods in RiskManager class:\n\n1. **`calculate_risk_reward_ratio()` method**:\n   - Calculate risk: `risk = abs(signal.entry_price - signal.stop_loss)`\n   - Calculate reward: `reward = abs(signal.take_profit - signal.entry_price)`\n   - Return R:R ratio: `reward / risk` (handle division by zero)\n   - Used for signal quality assessment\n\n2. **Maximum position size limiting** in `calculate_position_size()`:\n   - Calculate max position value: `max_position_value = account_balance * self.max_position_size_percent * leverage`\n   - Calculate max quantity: `max_quantity = max_position_value / entry_price`\n   - Compare calculated quantity against max_quantity\n   - If quantity > max_quantity, limit to max_quantity and log warning with both values\n   - Apply this limit AFTER initial position size calculation but BEFORE lot size rounding\n\nEnsure this integrates with subtask 1's position size calculation.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: (1) R:R ratio calculation for 1:2 risk/reward, (2) R:R ratio with zero risk returns 0, (3) Position size limited when exceeding max_position_size_percent (10% default), (4) Warning logged when position size is capped, (5) Max position calculation respects leverage parameter, (6) Integration test: full position size calculation with limiting applied correctly",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T17:09:16.397Z"
           },
           {
             "id": 4,
@@ -569,7 +570,7 @@
         "complexity": 5,
         "recommendedSubtasks": 4,
         "expansionPrompt": "Break down into: 1) Implement position size calculation with percentage-based risk and stop loss distance, 2) Implement signal validation for TP/SL logic correctness and position conflicts, 3) Implement risk/reward ratio calculation and maximum position size limiting, 4) Implement lot size rounding according to Binance symbol specifications",
-        "updatedAt": "2025-12-17T16:53:13.675Z"
+        "updatedAt": "2025-12-17T17:09:16.397Z"
       },
       {
         "id": "8",
@@ -785,7 +786,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-17T16:53:13.676Z",
+      "lastModified": "2025-12-17T17:09:16.398Z",
       "taskCount": 10,
       "completedCount": 6,
       "tags": [
