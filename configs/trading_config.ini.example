@@ -26,3 +26,14 @@ take_profit_ratio = 2.0
 
 # Stop loss percentage (as decimal, e.g., 0.02 = 2%)
 stop_loss_percent = 0.02
+
+[logging]
+# Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+# DEBUG: Detailed information for diagnosing problems
+# INFO: General informational messages (recommended for production)
+# WARNING: Warning messages for potentially harmful situations
+# ERROR: Error messages for serious problems
+log_level = INFO
+
+# Directory for log files (relative to project root)
+log_dir = logs

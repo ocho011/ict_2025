@@ -45,6 +45,21 @@ class TradingConfig:
             )
 
 
+@dataclass
+class LoggingConfig:
+    """Logging system configuration"""
+    log_level: str = "INFO"
+    log_dir: str = "logs"
+
+    def __post_init__(self):
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+        if self.log_level.upper() not in valid_levels:
+            raise ConfigurationError(
+                f"Invalid log level: {self.log_level}. "
+                f"Must be one of {valid_levels}"
+            )
+
+
 class ConfigManager:
     """
     Manages system configuration from INI files with environment overrides
@@ -54,6 +69,7 @@ class ConfigManager:
         self.config_dir = Path(config_dir)
         self._api_config = None
         self._trading_config = None
+        self._logging_config = None
 
         # Load configurations
         self._load_configs()
@@ -62,6 +78,7 @@ class ConfigManager:
         """Load all configuration files"""
         self._api_config = self._load_api_config()
         self._trading_config = self._load_trading_config()
+        self._logging_config = self._load_logging_config()
 
     def _load_api_config(self) -> APIConfig:
         """
@@ -194,3 +211,28 @@ class ConfigManager:
     def trading_config(self) -> TradingConfig:
         """Get trading configuration"""
         return self._trading_config
+
+    def _load_logging_config(self) -> LoggingConfig:
+        """Load logging configuration from INI file"""
+        config_file = self.config_dir / "trading_config.ini"
+
+        if not config_file.exists():
+            return LoggingConfig()  # Use defaults
+
+        config = ConfigParser()
+        config.read(config_file)
+
+        if "logging" not in config:
+            return LoggingConfig()  # Use defaults
+
+        logging_section = config["logging"]
+
+        return LoggingConfig(
+            log_level=logging_section.get("log_level", "INFO"),
+            log_dir=logging_section.get("log_dir", "logs")
+        )
+
+    @property
+    def logging_config(self) -> LoggingConfig:
+        """Get logging configuration"""
+        return self._logging_config
