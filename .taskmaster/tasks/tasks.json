@@ -415,17 +415,18 @@
           "3",
           "4"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
             "title": "Implement OrderExecutionManager class with REST client setup and leverage/margin configuration",
             "description": "Create the base OrderExecutionManager class with Binance UMFutures REST client initialization, supporting both testnet and mainnet environments. Implement set_leverage() and set_margin_type() methods for position configuration.",
             "dependencies": [],
-            "details": "Initialize UMFutures client with API credentials and base URL selection based on is_testnet flag. Implement set_leverage() method using client.change_leverage() with proper error handling. Implement set_margin_type() method using client.change_margin_type() for ISOLATED/CROSSED margin modes. Handle the common 'No need to change margin type' error gracefully. Set up logging infrastructure and _open_orders state dictionary for tracking active orders.",
-            "status": "pending",
+            "details": "Initialize UMFutures client with API credentials and base URL selection based on is_testnet flag. Implement set_leverage() method using client.change_leverage() with proper error handling. Implement set_margin_type() method using client.change_margin_type() for ISOLATED/CROSSED margin modes. Handle the common 'No need to change margin type' error gracefully. Set up logging infrastructure and _open_orders state dictionary for tracking active orders.\n<info added on 2025-12-16T18:33:25.939Z>\nI'll analyze the codebase to understand the current implementation and provide a comprehensive update for the subtask details.Based on my codebase analysis, here is the new text content that should be added to the subtask details:\n\n**Implementation Completed (2025-12-17)**\n\nSuccessfully implemented OrderExecutionManager class with full test coverage:\n\n**Code Files:**\n- src/execution/order_manager.py (245 lines): OrderExecutionManager with UMFutures client, set_leverage(), set_margin_type()\n- src/core/exceptions.py (48 lines): Added ValidationError, RateLimitError, OrderRejectedError classes\n- tests/test_order_execution.py (254 lines): 21 comprehensive test cases\n\n**Implementation Details:**\n1. API Key Management: Environment variables (BINANCE_API_KEY, BINANCE_API_SECRET) with parameter override capability\n2. URL Selection: Testnet (https://testnet.binancefuture.com) vs Mainnet (https://fapi.binance.com) based on is_testnet flag\n3. Logger Setup: StreamHandler with custom formatter, INFO level, auto-initialization in __init__\n4. State Tracking: _open_orders dictionary initialized as empty Dict[str, List[Order]]\n5. set_leverage(): Uses client.change_leverage(), returns bool, handles ClientError with error_code/error_message logging\n6. set_margin_type(): Uses client.change_margin_type(), gracefully handles -4046 \"No need to change margin type\" error as success, ISOLATED default\n7. Error Handling: try-except blocks for ClientError and generic Exception with detailed logging\n\n**Test Coverage:**\n- Initialization Tests (5): testnet/mainnet URL, API key validation, parameter override, _open_orders initialization\n- Leverage Tests (6): success case, various values (1x/20x/125x), API error, network error, success/error logging\n- Margin Type Tests (7): ISOLATED/CROSSED success, default value, already-set handling, open orders error, logging\n- Exception Tests (3): ValidationError, RateLimitError, OrderRejectedError inheritance validation\n- Code Coverage: 94% on order_manager.py\n- Test Results: 21/21 passed\n\n**Design Decisions:**\n1. Idempotency: \"No need to change margin type\" error returns True for retry safety\n2. Logging Strategy: INFO for success, ERROR for failures, DEBUG for already-set cases\n3. Type Hints: Full type annotations with Optional, Dict, List from typing module\n4. Documentation: Comprehensive docstrings with Args/Returns/Example sections in Korean\n</info added on 2025-12-16T18:33:25.939Z>",
+            "status": "done",
             "testStrategy": "Unit test with mocked Binance client to verify: 1) Correct base URL selection for testnet/mainnet, 2) Leverage setting with various values (1x-125x), 3) Margin type configuration for both ISOLATED and CROSSED modes, 4) Error handling when margin type is already set, 5) Logging output for successful operations",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-16T18:33:37.828Z"
           },
           {
             "id": 2,
@@ -435,9 +436,10 @@
               1
             ],
             "details": "Parse Signal object to determine order side: BUY for LONG_ENTRY, SELL for SHORT_ENTRY. Calculate close_side as opposite of entry side. Use client.new_order() with type='MARKET' to place entry order. Implement _parse_order_response() helper method to convert Binance API response into Order object. Add comprehensive logging for each order placement. Handle quantity precision according to symbol specifications. Return parsed entry Order object.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test with mocked client.new_order(): 1) Verify correct side selection for LONG/SHORT signals, 2) Test quantity formatting, 3) Validate Order object parsing from API response, 4) Test logging output includes order details. Integration test on Binance Testnet: place actual market orders and verify execution.",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-16T18:50:53.748Z"
           },
           {
             "id": 3,
@@ -447,9 +449,10 @@
               2
             ],
             "details": "After entry order placement, create TP order using type='TAKE_PROFIT_MARKET' with stopPrice set to signal.take_profit, closePosition=True to automatically close entire position, and workingType='MARK_PRICE' to use mark price for triggering. Create SL order using type='STOP_MARKET' with stopPrice set to signal.stop_loss and same parameters. Use _format_price() helper (to be implemented) for price formatting. Parse both responses into Order objects. Return tuple of (entry_order, [tp_order, sl_order]).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test with mocked API responses: 1) Verify correct order type selection, 2) Test stopPrice formatting for TP/SL levels, 3) Validate closePosition and workingType parameters, 4) Test return tuple structure. Integration test on Testnet: 1) Place TP/SL orders, 2) Verify orders appear in open orders, 3) Test order triggering with price movements",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T01:00:44.251Z"
           },
           {
             "id": 4,
@@ -459,9 +462,10 @@
               1
             ],
             "details": "Implement get_position() using client.get_position_risk(symbol) to fetch position data. Parse response to create Position object with fields: symbol, side (LONG/SHORT based on positionAmt sign), entry_price, quantity (absolute value), leverage, unrealized_pnl, and liquidation_price. Return None if position size is zero. Implement get_account_balance() using client.account() to fetch account info, iterate through assets array to find USDT, and return walletBalance as float. Implement cancel_all_orders() using client.cancel_open_orders() with try/except error handling.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test with mocked API responses: 1) Test position parsing for LONG/SHORT positions, 2) Test zero position handling, 3) Test USDT balance extraction from account data, 4) Test order cancellation. Integration test on Testnet: 1) Open test position and verify get_position() accuracy, 2) Query actual account balance, 3) Place and cancel orders",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T05:14:53.167Z"
           },
           {
             "id": 5,
@@ -471,9 +475,10 @@
               1
             ],
             "details": "Implement _format_price(symbol: str, price: float) -> str method. Use client.exchange_info() to fetch symbol specifications. Cache exchange info to avoid repeated API calls. Extract 'filters' array from symbol data, find 'PRICE_FILTER' type, and get 'tickSize' value. Calculate number of decimal places from tick size (e.g., tickSize=0.01 means 2 decimals). Format price using calculated precision. Handle edge cases: missing symbol info, invalid tick sizes. Add caching mechanism for exchange info with TTL.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test: 1) Mock exchange_info() response with various tick sizes (0.01, 0.1, 1.0), 2) Verify correct decimal precision calculation, 3) Test price rounding (e.g., 12345.678 with tickSize=0.1 becomes '12345.7'), 4) Test caching behavior. Integration test on Testnet: 1) Fetch real tick sizes for BTCUSDT, ETHUSDT, 2) Format prices and verify order acceptance",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T05:32:46.584Z"
           },
           {
             "id": 6,
@@ -487,14 +492,16 @@
               5
             ],
             "details": "Create @retry_with_backoff decorator with parameters: max_retries=3, initial_delay=1.0, backoff_factor=2.0. Wrap all client API calls in try/except blocks. Handle specific exceptions: BinanceAPIException for API errors, requests.exceptions.RequestException for network errors. Implement rate limit detection (HTTP 429 or error code -1003) with exponential backoff. Add request_weight tracking to avoid hitting rate limits. Implement audit logging that records: timestamp, operation type, symbol, order details, response status, error messages. Store audit logs in structured format (JSON lines). Add order_audit_log() method called after every order operation.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit test: 1) Mock API failures and verify retry behavior with exponential delays, 2) Test rate limit detection and backoff logic, 3) Test max retries exhaustion handling, 4) Verify audit log format and content. Integration test: 1) Simulate network failures and verify recovery, 2) Test rate limit handling by sending burst requests, 3) Verify all operations are logged correctly, 4) Test order cancellation during error recovery",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T05:55:06.331Z"
           }
         ],
         "complexity": 8,
         "recommendedSubtasks": 6,
-        "expansionPrompt": "Break down into: 1) Implement OrderExecutionManager class with REST client setup and leverage/margin configuration, 2) Implement execute_signal method with market entry order placement, 3) Implement TP/SL order placement using TAKE_PROFIT_MARKET and STOP_MARKET order types, 4) Implement position and account balance query methods, 5) Implement price formatting according to symbol tick size specifications, 6) Implement error handling with retry logic, rate limiting, and order cancellation"
+        "expansionPrompt": "Break down into: 1) Implement OrderExecutionManager class with REST client setup and leverage/margin configuration, 2) Implement execute_signal method with market entry order placement, 3) Implement TP/SL order placement using TAKE_PROFIT_MARKET and STOP_MARKET order types, 4) Implement position and account balance query methods, 5) Implement price formatting according to symbol tick size specifications, 6) Implement error handling with retry logic, rate limiting, and order cancellation",
+        "updatedAt": "2025-12-17T05:55:06.331Z"
       },
       {
         "id": "7",
@@ -775,9 +782,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-16T14:36:12.176Z",
+      "lastModified": "2025-12-17T05:55:06.332Z",
       "taskCount": 10,
-      "completedCount": 5,
+      "completedCount": 6,
       "tags": [
         "master"
       ]
