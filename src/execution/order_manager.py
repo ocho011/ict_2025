@@ -713,3 +713,219 @@ class OrderExecutionManager:
 
         # 9. Return entry order and TP/SL orders
         return (entry_order, tpsl_orders)
+
+    def get_position(self, symbol: str) -> Optional[Position]:
+        """
+        Query current position information for a symbol.
+
+        Retrieves position data from Binance Futures API and parses it into
+        a Position object. Returns None if no active position exists (positionAmt=0).
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+
+        Returns:
+            Position object if position exists, None if no position
+
+        Raises:
+            ValidationError: Invalid symbol format
+            OrderExecutionError: API call fails or response parsing error
+
+        Example:
+            >>> position = manager.get_position('BTCUSDT')
+            >>> if position:
+            ...     print(f"{position.side} position: {position.quantity} @ {position.entry_price}")
+            ... else:
+            ...     print("No position")
+        """
+        # 1. Validate input
+        if not symbol or not isinstance(symbol, str):
+            raise ValidationError(f"Invalid symbol: {symbol}")
+
+        # 2. Log API call
+        self.logger.info(f"Querying position for {symbol}")
+
+        try:
+            # 3. Call Binance API
+            response = self.client.get_position_risk(symbol=symbol)
+
+            # 4. Parse response
+            if not response or len(response) == 0:
+                self.logger.warning(f"No position data returned for {symbol}")
+                return None
+
+            position_data = response[0]  # First element
+            position_amt = float(position_data["positionAmt"])
+
+            # 5. Check if position exists
+            if position_amt == 0:
+                self.logger.info(f"No active position for {symbol}")
+                return None
+
+            # 6. Determine position side
+            side = "LONG" if position_amt > 0 else "SHORT"
+            quantity = abs(position_amt)
+
+            # 7. Extract required fields
+            entry_price = float(position_data["entryPrice"])
+            leverage = int(position_data["leverage"])
+            unrealized_pnl = float(position_data["unRealizedProfit"])
+
+            # 8. Extract optional liquidation price
+            liquidation_price = None
+            if "liquidationPrice" in position_data:
+                liq_price_str = position_data["liquidationPrice"]
+                if liq_price_str and liq_price_str != "0":
+                    liquidation_price = float(liq_price_str)
+
+            # 9. Create Position object
+            position = Position(
+                symbol=symbol,
+                side=side,
+                entry_price=entry_price,
+                quantity=quantity,
+                leverage=leverage,
+                unrealized_pnl=unrealized_pnl,
+                liquidation_price=liquidation_price
+            )
+
+            self.logger.info(
+                f"Position retrieved: {side} {quantity} {symbol} @ {entry_price}, "
+                f"PnL: {unrealized_pnl}"
+            )
+
+            return position
+
+        except ClientError as e:
+            # Handle Binance API errors
+            if e.error_code == -1121:
+                raise ValidationError(f"Invalid symbol: {symbol}")
+            elif e.error_code == -2015:
+                raise OrderExecutionError(f"API authentication failed: {e.error_message}")
+            else:
+                raise OrderExecutionError(
+                    f"Position query failed: code={e.error_code}, msg={e.error_message}"
+                )
+        except (KeyError, ValueError, TypeError) as e:
+            raise OrderExecutionError(f"Failed to parse position data: {e}")
+
+    def get_account_balance(self) -> float:
+        """
+        Query USDT wallet balance.
+
+        Retrieves account information from Binance Futures API and extracts
+        USDT wallet balance from the assets array.
+
+        Returns:
+            USDT wallet balance as float (returns 0.0 if USDT not found)
+
+        Raises:
+            OrderExecutionError: API call fails or response parsing error
+
+        Example:
+            >>> balance = manager.get_account_balance()
+            >>> print(f"Available USDT: {balance:.2f}")
+        """
+        # 1. Log API call
+        self.logger.info("Querying account balance")
+
+        try:
+            # 2. Call Binance API
+            response = self.client.account()
+
+            # 3. Extract assets array
+            if "assets" not in response:
+                raise OrderExecutionError("Account response missing 'assets' field")
+
+            assets = response["assets"]
+
+            # 4. Find USDT balance
+            usdt_balance = None
+
+            for asset in assets:
+                if asset.get("asset") == "USDT":
+                    usdt_balance = float(asset["walletBalance"])
+                    break
+
+            if usdt_balance is None:
+                # USDT not found in assets array
+                self.logger.warning("USDT not found in account assets, returning 0.0")
+                return 0.0
+
+            # 5. Log and return
+            self.logger.info(f"USDT balance: {usdt_balance:.2f}")
+            return usdt_balance
+
+        except ClientError as e:
+            # Handle Binance API errors
+            if e.error_code == -2015:
+                raise OrderExecutionError(f"API authentication failed: {e.error_message}")
+            else:
+                raise OrderExecutionError(
+                    f"Balance query failed: code={e.error_code}, msg={e.error_message}"
+                )
+        except (KeyError, ValueError, TypeError) as e:
+            raise OrderExecutionError(f"Failed to parse account data: {e}")
+
+    def cancel_all_orders(self, symbol: str) -> int:
+        """
+        Cancel all open orders for a symbol.
+
+        Cancels all active orders for the specified trading symbol using
+        Binance Futures API. Returns the count of cancelled orders.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+
+        Returns:
+            Number of orders cancelled
+
+        Raises:
+            ValidationError: Invalid symbol format
+            OrderExecutionError: API call fails
+
+        Example:
+            >>> cancelled_count = manager.cancel_all_orders('BTCUSDT')
+            >>> print(f"Cancelled {cancelled_count} orders")
+        """
+        # 1. Validate input
+        if not symbol or not isinstance(symbol, str):
+            raise ValidationError(f"Invalid symbol: {symbol}")
+
+        # 2. Log API call
+        self.logger.info(f"Cancelling all orders for {symbol}")
+
+        try:
+            # 3. Call Binance API
+            response = self.client.cancel_open_orders(symbol=symbol)
+
+            # 4. Parse response
+            cancelled_count = 0
+
+            if isinstance(response, list):
+                # Response is a list of cancelled order objects
+                cancelled_count = len(response)
+                self.logger.info(f"Cancelled {cancelled_count} orders for {symbol}")
+            elif isinstance(response, dict) and response.get("code") == 200:
+                # Response is a success message (no orders to cancel)
+                cancelled_count = 0
+                self.logger.info(f"No open orders to cancel for {symbol}")
+            else:
+                # Unexpected response format
+                self.logger.warning(f"Unexpected response format: {response}")
+                cancelled_count = 0
+
+            return cancelled_count
+
+        except ClientError as e:
+            # Handle Binance API errors
+            if e.error_code == -1121:
+                raise ValidationError(f"Invalid symbol: {symbol}")
+            elif e.error_code == -2015:
+                raise OrderExecutionError(f"API authentication failed: {e.error_message}")
+            else:
+                raise OrderExecutionError(
+                    f"Order cancellation failed: code={e.error_code}, msg={e.error_message}"
+                )
+        except Exception as e:
+            raise OrderExecutionError(f"Unexpected error during order cancellation: {e}")

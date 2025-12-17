@@ -1058,3 +1058,288 @@ class TestTPSLPlacement:
         # Entry succeeded, no TP/SL orders
         assert entry_order.status == OrderStatus.FILLED
         assert len(tpsl_orders) == 0
+
+
+class TestQueryMethods:
+    """Test suite for position and account query methods."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Mock Binance UMFutures client"""
+        return MagicMock()
+
+    @pytest.fixture
+    def manager(self, mock_client):
+        """OrderExecutionManager instance (using mock client)"""
+        with patch('src.execution.order_manager.UMFutures', return_value=mock_client):
+            with patch.dict('os.environ', {
+                'BINANCE_API_KEY': 'test_key',
+                'BINANCE_API_SECRET': 'test_secret'
+            }):
+                return OrderExecutionManager(is_testnet=True)
+
+    @pytest.fixture
+    def mock_position_long(self):
+        """Mock API response for LONG position"""
+        return [{
+            "symbol": "BTCUSDT",
+            "positionAmt": "0.001",
+            "entryPrice": "50000.00",
+            "unRealizedProfit": "10.25",
+            "leverage": "20",
+            "isolated": True,
+            "isolatedWallet": "100.00",
+            "positionSide": "BOTH",
+            "liquidationPrice": "45000.00",
+            "markPrice": "50500.00",
+            "updateTime": 1678886400000
+        }]
+
+    @pytest.fixture
+    def mock_position_short(self):
+        """Mock API response for SHORT position"""
+        return [{
+            "symbol": "BTCUSDT",
+            "positionAmt": "-0.001",
+            "entryPrice": "50000.00",
+            "unRealizedProfit": "-5.50",
+            "leverage": "10",
+            "isolated": False,
+            "liquidationPrice": "55000.00",
+            "markPrice": "49500.00",
+            "updateTime": 1678886400000
+        }]
+
+    @pytest.fixture
+    def mock_position_zero(self):
+        """Mock API response for no position"""
+        return [{
+            "symbol": "BTCUSDT",
+            "positionAmt": "0.000",
+            "entryPrice": "0.00",
+            "unRealizedProfit": "0.00",
+            "leverage": "20",
+            "isolated": False,
+            "updateTime": 1678886400000
+        }]
+
+    @pytest.fixture
+    def mock_account_with_usdt(self):
+        """Mock account response with USDT balance"""
+        return {
+            "feeTier": 0,
+            "canTrade": True,
+            "assets": [
+                {
+                    "asset": "USDT",
+                    "walletBalance": "1234.56",
+                    "unrealizedProfit": "10.25",
+                    "marginBalance": "1244.81",
+                    "maintMargin": "5.00",
+                    "initialMargin": "10.00",
+                    "availableBalance": "1224.56",
+                    "updateTime": 1678886400000
+                },
+                {
+                    "asset": "BTC",
+                    "walletBalance": "0.001",
+                    "unrealizedProfit": "0.00",
+                    "updateTime": 1678886400000
+                }
+            ]
+        }
+
+    @pytest.fixture
+    def mock_account_without_usdt(self):
+        """Mock account response without USDT"""
+        return {
+            "feeTier": 0,
+            "canTrade": True,
+            "assets": [
+                {
+                    "asset": "BTC",
+                    "walletBalance": "0.001",
+                    "unrealizedProfit": "0.00",
+                    "updateTime": 1678886400000
+                }
+            ]
+        }
+
+    @pytest.fixture
+    def mock_cancel_with_orders(self):
+        """Mock response for cancel with orders"""
+        return [
+            {
+                "orderId": 123456,
+                "symbol": "BTCUSDT",
+                "status": "CANCELED",
+                "clientOrderId": "order1",
+                "price": "50000.00",
+                "origQty": "0.001",
+                "type": "LIMIT",
+                "side": "BUY",
+                "updateTime": 1678886400000
+            },
+            {
+                "orderId": 123457,
+                "symbol": "BTCUSDT",
+                "status": "CANCELED",
+                "clientOrderId": "order2",
+                "price": "51000.00",
+                "origQty": "0.002",
+                "type": "LIMIT",
+                "side": "SELL",
+                "updateTime": 1678886400000
+            }
+        ]
+
+    @pytest.fixture
+    def mock_cancel_no_orders(self):
+        """Mock response for cancel with no orders"""
+        return {
+            "code": 200,
+            "msg": "The operation of cancel all open order is done."
+        }
+
+    # ========== get_position() Tests ==========
+
+    def test_get_position_long_success(self, manager, mock_client, mock_position_long):
+        """LONG 포지션 조회 성공"""
+        mock_client.get_position_risk.return_value = mock_position_long
+
+        position = manager.get_position('BTCUSDT')
+
+        assert position is not None
+        assert position.symbol == 'BTCUSDT'
+        assert position.side == 'LONG'
+        assert position.quantity == 0.001
+        assert position.entry_price == 50000.0
+        assert position.leverage == 20
+        assert position.unrealized_pnl == 10.25
+        assert position.liquidation_price == 45000.0
+
+        mock_client.get_position_risk.assert_called_once_with(symbol='BTCUSDT')
+
+    def test_get_position_short_success(self, manager, mock_client, mock_position_short):
+        """SHORT 포지션 조회 성공"""
+        mock_client.get_position_risk.return_value = mock_position_short
+
+        position = manager.get_position('BTCUSDT')
+
+        assert position is not None
+        assert position.symbol == 'BTCUSDT'
+        assert position.side == 'SHORT'
+        assert position.quantity == 0.001  # abs(-0.001)
+        assert position.entry_price == 50000.0
+        assert position.leverage == 10
+        assert position.unrealized_pnl == -5.50
+        assert position.liquidation_price == 55000.0
+
+    def test_get_position_no_position(self, manager, mock_client, mock_position_zero):
+        """포지션 없음 (positionAmt=0)"""
+        mock_client.get_position_risk.return_value = mock_position_zero
+
+        position = manager.get_position('BTCUSDT')
+
+        assert position is None
+        mock_client.get_position_risk.assert_called_once_with(symbol='BTCUSDT')
+
+    def test_get_position_invalid_symbol(self, manager, mock_client):
+        """잘못된 심볼"""
+        mock_client.get_position_risk.side_effect = ClientError(
+            status_code=400,
+            error_code=-1121,
+            error_message="Invalid symbol.",
+            header={}
+        )
+
+        with pytest.raises(ValidationError, match="Invalid symbol"):
+            manager.get_position('INVALID')
+
+    def test_get_position_api_error(self, manager, mock_client):
+        """API 인증 오류"""
+        mock_client.get_position_risk.side_effect = ClientError(
+            status_code=401,
+            error_code=-2015,
+            error_message="Invalid API-key",
+            header={}
+        )
+
+        with pytest.raises(OrderExecutionError, match="API authentication failed"):
+            manager.get_position('BTCUSDT')
+
+    # ========== get_account_balance() Tests ==========
+
+    def test_get_account_balance_success(self, manager, mock_client, mock_account_with_usdt):
+        """USDT 잔액 조회 성공"""
+        mock_client.account.return_value = mock_account_with_usdt
+
+        balance = manager.get_account_balance()
+
+        assert balance == 1234.56
+        mock_client.account.assert_called_once()
+
+    def test_get_account_balance_usdt_not_found(self, manager, mock_client, mock_account_without_usdt):
+        """USDT가 assets에 없음"""
+        mock_client.account.return_value = mock_account_without_usdt
+
+        balance = manager.get_account_balance()
+
+        assert balance == 0.0
+        mock_client.account.assert_called_once()
+
+    def test_get_account_balance_api_error(self, manager, mock_client):
+        """API 인증 오류"""
+        mock_client.account.side_effect = ClientError(
+            status_code=401,
+            error_code=-2015,
+            error_message="Invalid API-key",
+            header={}
+        )
+
+        with pytest.raises(OrderExecutionError, match="API authentication failed"):
+            manager.get_account_balance()
+
+    # ========== cancel_all_orders() Tests ==========
+
+    def test_cancel_all_orders_success_with_orders(self, manager, mock_client, mock_cancel_with_orders):
+        """주문 취소 성공 (2개 주문 취소)"""
+        mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
+
+        cancelled_count = manager.cancel_all_orders('BTCUSDT')
+
+        assert cancelled_count == 2
+        mock_client.cancel_open_orders.assert_called_once_with(symbol='BTCUSDT')
+
+    def test_cancel_all_orders_success_no_orders(self, manager, mock_client, mock_cancel_no_orders):
+        """취소할 주문 없음"""
+        mock_client.cancel_open_orders.return_value = mock_cancel_no_orders
+
+        cancelled_count = manager.cancel_all_orders('BTCUSDT')
+
+        assert cancelled_count == 0
+        mock_client.cancel_open_orders.assert_called_once_with(symbol='BTCUSDT')
+
+    def test_cancel_all_orders_invalid_symbol(self, manager, mock_client):
+        """잘못된 심볼"""
+        mock_client.cancel_open_orders.side_effect = ClientError(
+            status_code=400,
+            error_code=-1121,
+            error_message="Invalid symbol.",
+            header={}
+        )
+
+        with pytest.raises(ValidationError, match="Invalid symbol"):
+            manager.cancel_all_orders('INVALID')
+
+    def test_cancel_all_orders_api_error(self, manager, mock_client):
+        """API 오류"""
+        mock_client.cancel_open_orders.side_effect = ClientError(
+            status_code=500,
+            error_code=-1000,
+            error_message="Internal server error",
+            header={}
+        )
+
+        with pytest.raises(OrderExecutionError, match="Order cancellation failed"):
+            manager.cancel_all_orders('BTCUSDT')
