@@ -8,7 +8,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, List, Any
 
 from binance.um_futures import UMFutures
-from binance.error import ClientError
+from binance.error import ClientError, ServerError
 
 from src.models.order import Order, OrderSide, OrderType, OrderStatus
 from src.models.position import Position
@@ -18,6 +18,82 @@ from src.core.exceptions import (
     ValidationError,
     OrderRejectedError
 )
+from src.core.retry import retry_with_backoff
+from src.core.audit_logger import AuditLogger, AuditEventType
+
+
+class RequestWeightTracker:
+    """
+    Tracks API request weight to prevent rate limit violations.
+
+    Binance provides weight usage in response headers when client is initialized
+    with show_limit_usage=True. This tracker monitors the usage and warns when
+    approaching limits.
+
+    Attributes:
+        current_weight: Current weight used in 1-minute window
+        weight_limit: Maximum weight allowed per minute (default: 2400)
+        last_reset: Timestamp of last weight reset
+    """
+
+    def __init__(self):
+        """Initialize weight tracker."""
+        self.current_weight = 0
+        self.weight_limit = 2400  # Binance limit: 2400 requests/minute
+        self.last_reset = datetime.now()
+        self.logger = logging.getLogger(__name__)
+
+    def update_from_response(self, response_headers: Optional[Dict] = None):
+        """
+        Update weight tracking from API response headers.
+
+        Binance returns weight information in headers:
+        - 'X-MBX-USED-WEIGHT-1M': Current weight used in 1-minute window
+
+        Args:
+            response_headers: Response headers from Binance API
+        """
+        if not response_headers:
+            return
+
+        # Extract weight from headers
+        weight_str = response_headers.get('X-MBX-USED-WEIGHT-1M')
+        if weight_str:
+            try:
+                self.current_weight = int(weight_str)
+
+                # Log warning if approaching limit (80% threshold)
+                if self.current_weight > self.weight_limit * 0.8:
+                    self.logger.warning(
+                        f"Approaching rate limit: {self.current_weight}/{self.weight_limit} "
+                        f"({self.current_weight / self.weight_limit * 100:.1f}%)"
+                    )
+            except ValueError:
+                self.logger.error(f"Invalid weight value in header: {weight_str}")
+
+    def check_limit(self) -> bool:
+        """
+        Check if we're approaching rate limit.
+
+        Returns:
+            True if safe to proceed, False if should wait
+        """
+        # Allow up to 90% of limit
+        return self.current_weight < self.weight_limit * 0.9
+
+    def get_status(self) -> Dict[str, Any]:
+        """
+        Get current weight tracking status.
+
+        Returns:
+            Dictionary with weight usage information
+        """
+        return {
+            'current_weight': self.current_weight,
+            'weight_limit': self.weight_limit,
+            'usage_percent': (self.current_weight / self.weight_limit * 100),
+            'safe_to_proceed': self.check_limit()
+        }
 
 
 class OrderExecutionManager:
@@ -104,11 +180,12 @@ class OrderExecutionManager:
             else "https://fapi.binance.com"
         )
 
-        # UMFutures 클라이언트 초기화
+        # UMFutures 클라이언트 초기화 (Task 6.6: enable weight tracking)
         self.client = UMFutures(
             key=api_key_value,
             secret=api_secret_value,
-            base_url=base_url
+            base_url=base_url,
+            show_limit_usage=True  # Enable weight usage tracking in headers
         )
 
         # 로거 설정
@@ -129,6 +206,11 @@ class OrderExecutionManager:
         self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
         self._cache_timestamp: Optional[datetime] = None
 
+        # Task 6.6: Initialize audit logger and weight tracker
+        self.audit_logger = AuditLogger(log_dir='logs/audit')
+        self.weight_tracker = RequestWeightTracker()
+
+    @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def set_leverage(self, symbol: str, leverage: int) -> bool:
         """
         심볼의 레버리지 설정.
@@ -146,6 +228,7 @@ class OrderExecutionManager:
         Note:
             - Hedge Mode에서는 LONG과 SHORT 포지션이 동일한 레버리지를 사용합니다.
             - 레버리지 변경은 오픈 포지션이 없을 때 권장됩니다.
+            - Task 6.6: Retry logic with exponential backoff on transient failures
 
         Example:
             >>> manager.set_leverage('BTCUSDT', 10)
@@ -160,9 +243,21 @@ class OrderExecutionManager:
         """
         try:
             # Binance API 호출
-            self.client.change_leverage(
+            response = self.client.change_leverage(
                 symbol=symbol,
                 leverage=leverage
+            )
+
+            # Task 6.6: Update weight tracker from response headers
+            if hasattr(response, 'headers'):
+                self.weight_tracker.update_from_response(response.headers)
+
+            # Task 6.6: Audit log success
+            self.audit_logger.log_event(
+                event_type=AuditEventType.LEVERAGE_SET,
+                operation="set_leverage",
+                symbol=symbol,
+                response={'leverage': leverage, 'status': 'success'}
             )
 
             # 성공 로깅
@@ -170,10 +265,40 @@ class OrderExecutionManager:
             return True
 
         except ClientError as e:
+            # Task 6.6: Audit log error
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="set_leverage",
+                symbol=symbol,
+                error={
+                    'status_code': e.status_code,
+                    'error_code': e.error_code,
+                    'error_message': e.error_message
+                }
+            )
+
             # Binance API 오류 (4xx)
             self.logger.error(
                 f"Failed to set leverage for {symbol}: "
                 f"code={e.error_code}, msg={e.error_message}"
+            )
+            return False
+
+        except ServerError as e:
+            # Task 6.6: Handle server errors
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="set_leverage",
+                symbol=symbol,
+                error={
+                    'status_code': e.status_code,
+                    'message': e.message
+                }
+            )
+
+            self.logger.error(
+                f"Server error setting leverage for {symbol}: "
+                f"status={e.status_code}, msg={e.message}"
             )
             return False
 
@@ -184,6 +309,7 @@ class OrderExecutionManager:
             )
             return False
 
+    @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def set_margin_type(
         self,
         symbol: str,
@@ -206,6 +332,7 @@ class OrderExecutionManager:
             - 이미 설정된 마진 타입으로 변경 시도 시 "No need to change" 에러는 무시됩니다.
             - Hedge Mode에서는 LONG과 SHORT 포지션이 동일한 마진 타입을 사용합니다.
             - ISOLATED 마진에서는 LONG과 SHORT가 독립적인 마진을 가집니다.
+            - Task 6.6: Retry logic with exponential backoff on transient failures
 
         Example:
             >>> # ISOLATED 마진 설정 (권장)
@@ -222,9 +349,21 @@ class OrderExecutionManager:
         """
         try:
             # Binance API 호출
-            self.client.change_margin_type(
+            response = self.client.change_margin_type(
                 symbol=symbol,
                 marginType=margin_type
+            )
+
+            # Task 6.6: Update weight tracker
+            if hasattr(response, 'headers'):
+                self.weight_tracker.update_from_response(response.headers)
+
+            # Task 6.6: Audit log success
+            self.audit_logger.log_event(
+                event_type=AuditEventType.MARGIN_TYPE_SET,
+                operation="set_margin_type",
+                symbol=symbol,
+                response={'margin_type': margin_type, 'status': 'success'}
             )
 
             # 성공 로깅
@@ -239,10 +378,40 @@ class OrderExecutionManager:
                 )
                 return True
 
+            # Task 6.6: Audit log error
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="set_margin_type",
+                symbol=symbol,
+                error={
+                    'status_code': e.status_code,
+                    'error_code': e.error_code,
+                    'error_message': e.error_message
+                }
+            )
+
             # 다른 ClientError는 실패
             self.logger.error(
                 f"Failed to set margin type for {symbol}: "
                 f"code={e.error_code}, msg={e.error_message}"
+            )
+            return False
+
+        except ServerError as e:
+            # Task 6.6: Handle server errors
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="set_margin_type",
+                symbol=symbol,
+                error={
+                    'status_code': e.status_code,
+                    'message': e.message
+                }
+            )
+
+            self.logger.error(
+                f"Server error setting margin type for {symbol}: "
+                f"status={e.status_code}, msg={e.message}"
             )
             return False
 
@@ -332,6 +501,7 @@ class OrderExecutionManager:
         age = datetime.now() - self._cache_timestamp
         return age > timedelta(hours=24)
 
+    @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def _refresh_exchange_info(self) -> None:
         """Fetch and cache exchange information from Binance."""
         self.logger.info("Fetching exchange information from Binance")
@@ -339,6 +509,10 @@ class OrderExecutionManager:
         try:
             # 1. Call Binance API
             response = self.client.exchange_info()
+
+            # Task 6.6: Update weight tracker
+            if hasattr(response, 'headers'):
+                self.weight_tracker.update_from_response(response.headers)
 
             # 2. Parse symbols and extract tick sizes
             symbols_parsed = 0
@@ -369,10 +543,36 @@ class OrderExecutionManager:
             )
 
         except ClientError as e:
+            # Task 6.6: Audit log error
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="_refresh_exchange_info",
+                error={
+                    'status_code': e.status_code,
+                    'error_code': e.error_code,
+                    'error_message': e.error_message
+                }
+            )
+
             self.logger.error(f"Failed to fetch exchange info: {e}")
             raise OrderExecutionError(
                 f"Exchange info fetch failed: code={e.error_code}, msg={e.error_message}"
             )
+
+        except ServerError as e:
+            # Task 6.6: Handle server errors
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="_refresh_exchange_info",
+                error={
+                    'status_code': e.status_code,
+                    'message': e.message
+                }
+            )
+
+            self.logger.error(f"Server error fetching exchange info: {e}")
+            raise OrderExecutionError(f"Exchange info fetch failed: {e.message}")
+
         except Exception as e:
             self.logger.error(f"Failed to fetch exchange info: {e}")
             raise OrderExecutionError(f"Exchange info fetch failed: {e}")
@@ -712,6 +912,7 @@ class OrderExecutionManager:
             )
             return None
 
+    @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def execute_signal(
         self,
         signal: Signal,
@@ -743,6 +944,7 @@ class OrderExecutionManager:
         Note:
             TP/SL placement failures are logged but don't raise exceptions.
             Entry order must succeed; TP/SL failures result in partial execution.
+            Task 6.6: Retry logic with exponential backoff on transient failures.
 
         Example:
             >>> signal = Signal(
@@ -775,20 +977,39 @@ class OrderExecutionManager:
         )
 
         # 4-6. Place market entry order (existing logic from 6.2)
+        # Prepare order data for audit logging
+        order_params = {
+            'symbol': signal.symbol,
+            'side': side.value,
+            'type': OrderType.MARKET.value,
+            'quantity': quantity,
+            'reduceOnly': reduce_only
+        }
+
         try:
-            response = self.client.new_order(
-                symbol=signal.symbol,
-                side=side.value,           # "BUY" or "SELL"
-                type=OrderType.MARKET.value,  # "MARKET"
-                quantity=quantity,
-                reduceOnly=reduce_only
-            )
+            response = self.client.new_order(**order_params)
+
+            # Task 6.6: Update weight tracker
+            if hasattr(response, 'headers'):
+                self.weight_tracker.update_from_response(response.headers)
 
             # Parse API response into Order object
             entry_order = self._parse_order_response(
                 response=response,
                 symbol=signal.symbol,
                 side=side
+            )
+
+            # Task 6.6: Audit log successful order
+            self.audit_logger.log_order_placed(
+                symbol=signal.symbol,
+                order_data=order_params,
+                response={
+                    'order_id': entry_order.order_id,
+                    'status': entry_order.status.value,
+                    'price': str(entry_order.price),
+                    'quantity': str(entry_order.quantity)
+                }
             )
 
             # Log successful execution
@@ -799,6 +1020,17 @@ class OrderExecutionManager:
             )
 
         except ClientError as e:
+            # Task 6.6: Audit log order rejection
+            self.audit_logger.log_order_rejected(
+                symbol=signal.symbol,
+                order_data=order_params,
+                error={
+                    'status_code': e.status_code,
+                    'error_code': e.error_code,
+                    'error_message': e.error_message
+                }
+            )
+
             # Binance API errors (4xx status codes)
             self.logger.error(
                 f"Entry order rejected by Binance: "
@@ -806,6 +1038,27 @@ class OrderExecutionManager:
             )
             raise OrderRejectedError(
                 f"Binance rejected order: {e.error_message}"
+            ) from e
+
+        except ServerError as e:
+            # Task 6.6: Handle server errors
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="execute_signal",
+                symbol=signal.symbol,
+                order_data=order_params,
+                error={
+                    'status_code': e.status_code,
+                    'message': e.message
+                }
+            )
+
+            self.logger.error(
+                f"Binance server error placing order: "
+                f"status={e.status_code}, msg={e.message}"
+            )
+            raise OrderExecutionError(
+                f"Binance server error: {e.message}"
             ) from e
 
         except Exception as e:
