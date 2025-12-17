@@ -124,4 +124,42 @@ class RiskManager:
         Returns:
             True if risk is acceptable
         """
-        pass
+        # Import SignalType enum
+        from src.models.signal import SignalType
+
+        # Check for existing position conflict
+        if position is not None:
+            self.logger.warning(
+                f"Signal rejected: existing position for {signal.symbol} "
+                f"(side: {position.side}, entry: {position.entry_price})"
+            )
+            return False
+
+        # Validate LONG_ENTRY signals
+        if signal.signal_type == SignalType.LONG_ENTRY:
+            if signal.take_profit <= signal.entry_price:
+                self.logger.warning(
+                    f"Signal rejected: LONG TP ({signal.take_profit}) must be > entry ({signal.entry_price})"
+                )
+                return False
+            if signal.stop_loss >= signal.entry_price:
+                self.logger.warning(
+                    f"Signal rejected: LONG SL ({signal.stop_loss}) must be < entry ({signal.entry_price})"
+                )
+                return False
+
+        # Validate SHORT_ENTRY signals
+        elif signal.signal_type == SignalType.SHORT_ENTRY:
+            if signal.take_profit >= signal.entry_price:
+                self.logger.warning(
+                    f"Signal rejected: SHORT TP ({signal.take_profit}) must be < entry ({signal.entry_price})"
+                )
+                return False
+            if signal.stop_loss <= signal.entry_price:
+                self.logger.warning(
+                    f"Signal rejected: SHORT SL ({signal.stop_loss}) must be > entry ({signal.entry_price})"
+                )
+                return False
+
+        # All validations passed
+        return True

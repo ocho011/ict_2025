@@ -535,10 +535,10 @@
               1
             ],
             "details": "Implement the `validate_signal()` method in RiskManager class:\n\n1. Check for existing position conflict: if `current_position` is not None, reject signal and log \"Signal rejected: existing position\"\n2. For LONG_ENTRY signals:\n   - Validate TP > entry_price (reject if TP <= entry)\n   - Validate SL < entry_price (reject if SL >= entry)\n   - Log specific warning messages for each validation failure\n3. For SHORT_ENTRY signals:\n   - Validate TP < entry_price (reject if TP >= entry)\n   - Validate SL > entry_price (reject if SL <= entry)\n   - Log specific warning messages for each validation failure\n4. Return True if all validations pass, False otherwise\n5. Ensure clear, actionable log messages for each rejection reason\n\nDepends on Signal and Position data models from Task 6.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: (1) Valid LONG signal with correct TP/SL passes validation, (2) Valid SHORT signal with correct TP/SL passes validation, (3) LONG signal with invalid TP (TP <= entry) is rejected, (4) LONG signal with invalid SL (SL >= entry) is rejected, (5) SHORT signal with invalid TP/SL is rejected, (6) Signal rejected when position already exists, (7) Verify warning logs contain specific rejection reasons",
             "parentId": "undefined",
-            "updatedAt": "2025-12-17T16:18:52.934Z"
+            "updatedAt": "2025-12-17T16:53:13.675Z"
           },
           {
             "id": 3,
@@ -569,7 +569,7 @@
         "complexity": 5,
         "recommendedSubtasks": 4,
         "expansionPrompt": "Break down into: 1) Implement position size calculation with percentage-based risk and stop loss distance, 2) Implement signal validation for TP/SL logic correctness and position conflicts, 3) Implement risk/reward ratio calculation and maximum position size limiting, 4) Implement lot size rounding according to Binance symbol specifications",
-        "updatedAt": "2025-12-17T16:18:52.934Z"
+        "updatedAt": "2025-12-17T16:53:13.675Z"
       },
       {
         "id": "8",
@@ -785,7 +785,7 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-17T16:18:52.935Z",
+      "lastModified": "2025-12-17T16:53:13.676Z",
       "taskCount": 10,
       "completedCount": 6,
       "tags": [

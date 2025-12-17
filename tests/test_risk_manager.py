@@ -1,10 +1,13 @@
 """
-Unit tests for RiskManager - Subtask 7.1: Position Size Calculation
+Unit tests for RiskManager - Subtask 7.1 & 7.2
 """
 
 import pytest
 import logging
+from datetime import datetime
 from src.risk.manager import RiskManager
+from src.models.signal import Signal, SignalType
+from src.models.position import Position
 
 
 class TestPositionSizeCalculation:
@@ -287,3 +290,216 @@ class TestPositionSizeCalculation:
         )
 
         assert quantity == pytest.approx(0.1, rel=0.01)
+
+
+class TestSignalValidation:
+    """Test suite for subtask 7.2 - Signal validation"""
+
+    @pytest.fixture
+    def risk_manager(self):
+        """Setup RiskManager with standard config"""
+        config = {
+            'max_risk_per_trade': 0.01,
+            'max_leverage': 20,
+            'default_leverage': 10,
+            'max_position_size_percent': 0.1
+        }
+        return RiskManager(config)
+
+    def test_valid_long_signal_passes(self, risk_manager):
+        """
+        Valid LONG signal with correct TP/SL passes validation
+
+        LONG requirements:
+        - TP > entry_price
+        - SL < entry_price
+        """
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=51000,  # Above entry ✅
+            stop_loss=49000,    # Below entry ✅
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        result = risk_manager.validate_risk(signal, position=None)
+        assert result is True
+
+    def test_valid_short_signal_passes(self, risk_manager):
+        """
+        Valid SHORT signal with correct TP/SL passes validation
+
+        SHORT requirements:
+        - TP < entry_price
+        - SL > entry_price
+        """
+        signal = Signal(
+            signal_type=SignalType.SHORT_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=49000,  # Below entry ✅
+            stop_loss=51000,    # Above entry ✅
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        result = risk_manager.validate_risk(signal, position=None)
+        assert result is True
+
+    def test_long_signal_invalid_tp_rejected(self, risk_manager, caplog):
+        """
+        LONG signal with TP <= entry is rejected
+
+        Note: Signal.__post_init__ validates this, so we can't create
+        an invalid Signal directly. This tests the RiskManager layer.
+        """
+        # Create a valid signal first
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=51000,
+            stop_loss=49000,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        # Manually override TP to invalid value (for testing purposes)
+        # In real scenario, Signal validation would catch this first
+        object.__setattr__(signal, 'take_profit', 49000)  # Invalid: TP <= entry
+
+        with caplog.at_level(logging.WARNING):
+            result = risk_manager.validate_risk(signal, position=None)
+
+        assert result is False
+        assert "LONG TP" in caplog.text
+        assert "must be > entry" in caplog.text
+
+    def test_long_signal_invalid_sl_rejected(self, risk_manager, caplog):
+        """
+        LONG signal with SL >= entry is rejected
+        """
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=51000,
+            stop_loss=49000,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        # Manually override SL to invalid value
+        object.__setattr__(signal, 'stop_loss', 51000)  # Invalid: SL >= entry
+
+        with caplog.at_level(logging.WARNING):
+            result = risk_manager.validate_risk(signal, position=None)
+
+        assert result is False
+        assert "LONG SL" in caplog.text
+        assert "must be < entry" in caplog.text
+
+    def test_short_signal_invalid_tp_rejected(self, risk_manager, caplog):
+        """
+        SHORT signal with TP >= entry is rejected
+        """
+        signal = Signal(
+            signal_type=SignalType.SHORT_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=49000,
+            stop_loss=51000,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        # Manually override TP to invalid value
+        object.__setattr__(signal, 'take_profit', 51000)  # Invalid: TP >= entry
+
+        with caplog.at_level(logging.WARNING):
+            result = risk_manager.validate_risk(signal, position=None)
+
+        assert result is False
+        assert "SHORT TP" in caplog.text
+        assert "must be < entry" in caplog.text
+
+    def test_short_signal_invalid_sl_rejected(self, risk_manager, caplog):
+        """
+        SHORT signal with SL <= entry is rejected
+        """
+        signal = Signal(
+            signal_type=SignalType.SHORT_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=49000,
+            stop_loss=51000,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        # Manually override SL to invalid value
+        object.__setattr__(signal, 'stop_loss', 49000)  # Invalid: SL <= entry
+
+        with caplog.at_level(logging.WARNING):
+            result = risk_manager.validate_risk(signal, position=None)
+
+        assert result is False
+        assert "SHORT SL" in caplog.text
+        assert "must be > entry" in caplog.text
+
+    def test_signal_rejected_when_position_exists(self, risk_manager, caplog):
+        """
+        Signal rejected when position already exists (no concurrent positions)
+        """
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=51000,
+            stop_loss=49000,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        # Create existing position
+        position = Position(
+            symbol="BTCUSDT",
+            side="LONG",
+            entry_price=50000,
+            quantity=0.1,
+            leverage=10
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = risk_manager.validate_risk(signal, position)
+
+        assert result is False
+        assert "Signal rejected: existing position" in caplog.text
+        assert "BTCUSDT" in caplog.text
+        assert "LONG" in caplog.text
+
+    def test_warning_logs_contain_specific_values(self, risk_manager, caplog):
+        """
+        Verify warning logs contain specific rejection reasons and values
+        """
+        signal = Signal(
+            signal_type=SignalType.LONG_ENTRY,
+            symbol="BTCUSDT",
+            entry_price=50000,
+            take_profit=51000,
+            stop_loss=49000,
+            strategy_name="test_strategy",
+            timestamp=datetime.now()
+        )
+
+        # Test with invalid TP
+        object.__setattr__(signal, 'take_profit', 49000)
+
+        with caplog.at_level(logging.WARNING):
+            risk_manager.validate_risk(signal, position=None)
+
+        # Check log contains actual values
+        assert "49000" in caplog.text  # Invalid TP value
+        assert "50000" in caplog.text  # Entry price value
