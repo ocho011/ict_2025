@@ -4,14 +4,20 @@ Order execution and management with Binance Futures API integration.
 
 import os
 import logging
-from typing import Optional, Dict, List
+from datetime import datetime, timezone
+from typing import Optional, Dict, List, Any
 
 from binance.um_futures import UMFutures
 from binance.error import ClientError
 
-from src.models.order import Order
+from src.models.order import Order, OrderSide, OrderType, OrderStatus
 from src.models.position import Position
-from src.core.exceptions import OrderExecutionError
+from src.models.signal import Signal, SignalType
+from src.core.exceptions import (
+    OrderExecutionError,
+    ValidationError,
+    OrderRejectedError
+)
 
 
 class OrderExecutionManager:
@@ -242,3 +248,222 @@ class OrderExecutionManager:
                 f"Unexpected error setting margin type for {symbol}: {e}"
             )
             return False
+
+    def _determine_order_side(self, signal: Signal) -> OrderSide:
+        """
+        Determine Binance order side (BUY/SELL) from signal type.
+
+        Mapping:
+            LONG_ENTRY  → BUY   (enter long position)
+            SHORT_ENTRY → SELL  (enter short position)
+            CLOSE_LONG  → SELL  (close long position)
+            CLOSE_SHORT → BUY   (close short position)
+
+        Args:
+            signal: Trading signal
+
+        Returns:
+            OrderSide enum (BUY or SELL)
+
+        Raises:
+            ValidationError: Unknown signal type
+
+        Example:
+            >>> signal = Signal(SignalType.LONG_ENTRY, ...)
+            >>> side = manager._determine_order_side(signal)
+            >>> assert side == OrderSide.BUY
+        """
+        mapping = {
+            SignalType.LONG_ENTRY: OrderSide.BUY,
+            SignalType.SHORT_ENTRY: OrderSide.SELL,
+            SignalType.CLOSE_LONG: OrderSide.SELL,
+            SignalType.CLOSE_SHORT: OrderSide.BUY,
+        }
+
+        if signal.signal_type not in mapping:
+            raise ValidationError(
+                f"Unknown signal type: {signal.signal_type}"
+            )
+
+        return mapping[signal.signal_type]
+
+    def _parse_order_response(
+        self,
+        response: Dict[str, Any],
+        symbol: str,
+        side: OrderSide
+    ) -> Order:
+        """
+        Parse Binance API response into Order object.
+
+        Converts Binance's JSON response structure into our internal Order model,
+        handling type conversions and timestamp parsing.
+
+        Args:
+            response: Binance new_order() API response dictionary
+            symbol: Trading pair (for validation)
+            side: Order side (for validation)
+
+        Returns:
+            Order object with populated fields
+
+        Raises:
+            OrderExecutionError: Missing required fields or malformed response
+
+        Example Response:
+            {
+                "orderId": 123456789,
+                "symbol": "BTCUSDT",
+                "status": "FILLED",
+                "avgPrice": "59808.02",
+                "origQty": "0.001",
+                "executedQty": "0.001",
+                "updateTime": 1653563095000,
+                ...
+            }
+
+        Example:
+            >>> response = {...}  # Binance API response
+            >>> order = manager._parse_order_response(response, 'BTCUSDT', OrderSide.BUY)
+            >>> assert order.order_id == '123456789'
+            >>> assert order.status == OrderStatus.FILLED
+        """
+        try:
+            # Extract required fields
+            order_id = str(response["orderId"])
+            status_str = response["status"]
+            quantity = float(response["origQty"])
+
+            # Parse execution price (avgPrice for market orders)
+            avg_price = float(response.get("avgPrice", "0"))
+
+            # Convert timestamp (milliseconds → datetime)
+            timestamp_ms = response["updateTime"]
+            timestamp = datetime.fromtimestamp(
+                timestamp_ms / 1000,
+                tz=timezone.utc
+            )
+
+            # Map Binance status string to OrderStatus enum
+            status = OrderStatus[status_str]  # Raises KeyError if invalid
+
+            # Create Order object
+            return Order(
+                symbol=symbol,
+                side=side,
+                order_type=OrderType.MARKET,
+                quantity=quantity,
+                price=avg_price if avg_price > 0 else None,
+                order_id=order_id,
+                client_order_id=response.get("clientOrderId"),
+                status=status,
+                timestamp=timestamp
+            )
+
+        except KeyError as e:
+            raise OrderExecutionError(
+                f"Missing required field in API response: {e}"
+            )
+        except (ValueError, TypeError) as e:
+            raise OrderExecutionError(
+                f"Invalid data type in API response: {e}"
+            )
+
+    def execute_signal(
+        self,
+        signal: Signal,
+        quantity: float,
+        reduce_only: bool = False
+    ) -> Order:
+        """
+        Execute a trading signal by placing a market order on Binance Futures.
+
+        Translates Signal objects into Binance market orders, handling order side
+        determination, API submission, and response parsing.
+
+        Args:
+            signal: Trading signal containing entry parameters
+            quantity: Order size in base asset (e.g., BTC for BTCUSDT)
+            reduce_only: If True, order only reduces existing position
+
+        Returns:
+            Order object with Binance execution details (order_id, status, etc.)
+
+        Raises:
+            ValidationError: Invalid signal type or quantity <= 0
+            OrderRejectedError: Binance rejected the order
+            OrderExecutionError: API call failed or unexpected response
+
+        Example:
+            >>> signal = Signal(
+            ...     signal_type=SignalType.LONG_ENTRY,
+            ...     symbol='BTCUSDT',
+            ...     entry_price=50000.0,
+            ...     take_profit=52000.0,
+            ...     stop_loss=49000.0,
+            ...     strategy_name='SMA_Crossover',
+            ...     timestamp=datetime.now(timezone.utc)
+            ... )
+            >>> order = manager.execute_signal(signal, quantity=0.001)
+            >>> print(f"Order ID: {order.order_id}, Status: {order.status.value}")
+            Order ID: 123456789, Status: FILLED
+        """
+        # 1. Validate inputs
+        if quantity <= 0:
+            raise ValidationError(f"Quantity must be > 0, got {quantity}")
+
+        # 2. Determine order side from signal type
+        side = self._determine_order_side(signal)
+
+        # 3. Log order intent
+        self.logger.info(
+            f"Executing {signal.signal_type.value} signal: "
+            f"{signal.symbol} {side.value} {quantity} "
+            f"(strategy: {signal.strategy_name})"
+        )
+
+        # 4. Place market order via Binance API
+        try:
+            response = self.client.new_order(
+                symbol=signal.symbol,
+                side=side.value,           # "BUY" or "SELL"
+                type=OrderType.MARKET.value,  # "MARKET"
+                quantity=quantity,
+                reduceOnly=reduce_only
+            )
+
+            # 5. Parse API response into Order object
+            order = self._parse_order_response(
+                response=response,
+                symbol=signal.symbol,
+                side=side
+            )
+
+            # 6. Log successful execution
+            self.logger.info(
+                f"Order executed: ID={order.order_id}, "
+                f"status={order.status.value}, "
+                f"filled={order.quantity} @ {order.price}"
+            )
+
+            # 7. Return Order object
+            return order
+
+        except ClientError as e:
+            # Binance API errors (4xx status codes)
+            self.logger.error(
+                f"Order rejected by Binance: "
+                f"code={e.error_code}, msg={e.error_message}"
+            )
+            raise OrderRejectedError(
+                f"Binance rejected order: {e.error_message}"
+            ) from e
+
+        except Exception as e:
+            # Unexpected errors (network, parsing, etc.)
+            self.logger.error(
+                f"Order execution failed: {type(e).__name__}: {e}"
+            )
+            raise OrderExecutionError(
+                f"Failed to execute order: {e}"
+            ) from e
