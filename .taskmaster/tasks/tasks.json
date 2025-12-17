@@ -514,7 +514,7 @@
           "2",
           "6"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -562,15 +562,16 @@
               3
             ],
             "details": "Implement the `_round_to_lot_size()` private method in RiskManager class:\n\n1. Accept parameters: `quantity` (float), `symbol_info` (dict)\n2. Extract from symbol_info:\n   - `lot_size`: minimum quantity increment (default 0.001)\n   - `quantity_precision`: decimal places for rounding (default 3)\n3. Rounding logic: `round(quantity - (quantity % lot_size), quantity_precision)`\n   - This floors the quantity to the nearest valid lot size\n   - Then rounds to the required precision\n4. Handle missing symbol_info gracefully (use defaults)\n\n5. **Integration in `calculate_position_size()`**:\n   - After max position size limiting (subtask 3)\n   - If symbol_info provided, call `_round_to_lot_size()`\n   - Else, use default rounding: `round(quantity, 3)`\n   - Return the final rounded quantity\n\n6. Add example symbol_info structure in docstring:\n   ```python\n   symbol_info = {\n       'lot_size': 0.001,  # BTCUSDT\n       'quantity_precision': 3\n   }\n   ```",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: (1) Round 1.2345 BTC with lot_size=0.001 and precision=3 to 1.234, (2) Round 0.0567 with lot_size=0.01 to 0.05, (3) Handle missing symbol_info by using defaults, (4) Integration test: full calculate_position_size() flow produces Binance-compliant quantity, (5) Verify quantity never exceeds required precision, (6) Test with real Binance symbol specs (BTCUSDT, ETHUSDT)",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-17T17:23:16.502Z"
           }
         ],
         "complexity": 5,
         "recommendedSubtasks": 4,
         "expansionPrompt": "Break down into: 1) Implement position size calculation with percentage-based risk and stop loss distance, 2) Implement signal validation for TP/SL logic correctness and position conflicts, 3) Implement risk/reward ratio calculation and maximum position size limiting, 4) Implement lot size rounding according to Binance symbol specifications",
-        "updatedAt": "2025-12-17T17:09:16.397Z"
+        "updatedAt": "2025-12-17T17:23:16.502Z"
       },
       {
         "id": "8",
@@ -786,9 +787,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-17T17:09:16.398Z",
+      "lastModified": "2025-12-17T17:23:16.504Z",
       "taskCount": 10,
-      "completedCount": 6,
+      "completedCount": 7,
       "tags": [
         "master"
       ]

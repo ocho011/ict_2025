@@ -115,16 +115,21 @@ class RiskManager:
             )
             quantity = max_quantity
 
-        # Step 8: Log final calculation details
+        # Step 8: Round to symbol specifications
+        if symbol_info is not None:
+            quantity = self._round_to_lot_size(quantity, symbol_info)
+        else:
+            # Default rounding for backward compatibility
+            quantity = round(quantity, 3)
+
+        # Step 9: Log final quantity
         self.logger.info(
-            f"Position size calculated: {quantity:.4f} "
+            f"Final position size: {quantity} "
             f"(risk={risk_amount:.2f} USDT, "
             f"SL distance={sl_distance_percent:.2%}, "
             f"max_allowed={max_quantity:.4f})"
         )
 
-        # Step 9: Return limited quantity
-        # Note: Rounding will be added in subtask 7.4
         return quantity
 
     def validate_risk(self, signal: Signal, position: Optional[Position]) -> bool:
@@ -177,3 +182,54 @@ class RiskManager:
 
         # All validations passed
         return True
+
+    def _round_to_lot_size(
+        self,
+        quantity: float,
+        symbol_info: Optional[dict] = None
+    ) -> float:
+        """
+        Round quantity to Binance lot size and precision specifications.
+
+        Applies two-stage rounding:
+        1. Floor to nearest lot size (stepSize) multiple
+        2. Round to required decimal precision
+
+        Args:
+            quantity: Raw calculated position size
+            symbol_info: Optional dict with 'lot_size' and 'quantity_precision'
+
+        Returns:
+            Binance-compliant rounded quantity
+
+        Raises:
+            None - Uses safe defaults if symbol_info missing
+
+        Example:
+            >>> manager = RiskManager({'max_risk_per_trade': 0.01})
+            >>> manager._round_to_lot_size(1.2345, {'lot_size': 0.001, 'quantity_precision': 3})
+            1.234
+
+            >>> manager._round_to_lot_size(0.0567, {'lot_size': 0.01, 'quantity_precision': 2})
+            0.05
+        """
+        # Step 1: Extract specs with defaults (BTCUSDT as reference)
+        if symbol_info is None:
+            symbol_info = {}
+
+        lot_size = symbol_info.get('lot_size', 0.001)
+        quantity_precision = symbol_info.get('quantity_precision', 3)
+
+        # Step 2: Floor to lot size (ensures quantity is multiple of stepSize)
+        floored = quantity - (quantity % lot_size)
+
+        # Step 3: Round to precision (ensures correct decimal places)
+        rounded = round(floored, quantity_precision)
+
+        # Step 4: Log operation (debug level for troubleshooting)
+        self.logger.debug(
+            f"Quantity rounding: {quantity:.6f} → {rounded} "
+            f"(lot_size={lot_size}, precision={quantity_precision})"
+        )
+
+        return rounded
