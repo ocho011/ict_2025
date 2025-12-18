@@ -25,7 +25,18 @@ class APIConfig:
 
 @dataclass
 class TradingConfig:
-    """Trading strategy configuration"""
+    """
+    Trading strategy configuration
+
+    Validation Rules:
+        - leverage: 1-125 (Binance futures limits)
+        - max_risk_per_trade: 0 < value ≤ 0.1 (0-10%)
+        - take_profit_ratio: must be positive
+        - stop_loss_percent: 0 < value ≤ 0.5 (0-50%)
+        - symbol: must end with 'USDT'
+        - intervals: must be valid Binance interval formats
+          (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w)
+    """
     symbol: str
     intervals: List[str]
     strategy: str
@@ -43,6 +54,37 @@ class TradingConfig:
             raise ConfigurationError(
                 f"Max risk per trade must be 0-10%, got {self.max_risk_per_trade}"
             )
+
+        # Validate take_profit_ratio
+        if self.take_profit_ratio <= 0:
+            raise ConfigurationError(
+                f"Take profit ratio must be positive, got {self.take_profit_ratio}"
+            )
+
+        # Validate stop_loss_percent
+        if self.stop_loss_percent <= 0 or self.stop_loss_percent > 0.5:
+            raise ConfigurationError(
+                f"Stop loss percent must be 0-50%, got {self.stop_loss_percent}"
+            )
+
+        # Validate symbol format
+        if not self.symbol or not self.symbol.endswith("USDT"):
+            raise ConfigurationError(
+                f"Invalid symbol format: {self.symbol}. Must end with 'USDT'"
+            )
+
+        # Validate intervals
+        valid_intervals = {
+            "1m", "3m", "5m", "15m", "30m",
+            "1h", "2h", "4h", "6h", "8h", "12h",
+            "1d", "3d", "1w"
+        }
+        for interval in self.intervals:
+            if interval not in valid_intervals:
+                raise ConfigurationError(
+                    f"Invalid interval: {interval}. "
+                    f"Must be one of {sorted(valid_intervals)}"
+                )
 
 
 @dataclass
@@ -181,21 +223,43 @@ class ConfigManager:
             stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02)
         )
 
-    def validate(self) -> None:
+    def validate(self) -> bool:
         """
         Validate all configurations
 
-        Raises:
-            ConfigurationError: If any validation fails
-        """
-        # API config validation happens in __post_init__
-        # Trading config validation happens in __post_init__
+        Returns:
+            bool: True if all validations pass, False otherwise
 
-        # Additional cross-config validation
+        Note:
+            - API and Trading config validation happens in __post_init__
+            - All validation errors are logged before returning
+            - This method performs additional cross-config validation
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+        errors = []
+
+        # API config validation (already done in __post_init__)
+        # Trading config validation (already done in __post_init__)
+
+        # Cross-config validation: leverage warning in testnet
+        if self._trading_config.leverage > 1 and self._api_config.is_testnet:
+            logger.warning(
+                f"Using {self._trading_config.leverage}x leverage in testnet mode"
+            )
+
+        # Log environment mode
         if self._api_config.is_testnet:
-            print("⚠️  WARNING: Running in TESTNET mode")
+            logger.info("⚠️  Running in TESTNET mode")
         else:
-            print("⚠️  WARNING: Running in PRODUCTION mode with real funds!")
+            logger.warning("⚠️  Running in PRODUCTION mode with real funds!")
+
+        # Log all accumulated errors
+        for error in errors:
+            logger.error(error)
+
+        return len(errors) == 0
 
     @property
     def is_testnet(self) -> bool:

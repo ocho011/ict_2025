@@ -22,7 +22,16 @@
       "mcp__smithery-ai-server-sequential-thinking__sequentialthinking",
       "mcp__context7__resolve-library-id",
       "mcp__serena__list_dir",
-      "mcp__context7__get-library-docs"
+      "mcp__context7__get-library-docs",
+      "mcp__serena__get_current_config",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git checkout:*)",
+      "Bash(git merge:*)",
+      "Bash(git branch:*)",
+      "mcp__serena__activate_project",
+      "mcp__serena__read_memory",
+      "mcp__serena__think_about_collected_information"
     ]
   },
   "enableAllProjectMcpServers": true,
