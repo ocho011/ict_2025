@@ -591,9 +591,10 @@
             "description": "Create the TradingLogger class with initialization, configuration management, and setup of console and rotating file handlers for system-wide logging.",
             "dependencies": [],
             "details": "Implement the TradingLogger class in `src/utils/logger.py` with:\n- `__init__` method accepting config dict with log_level and log_dir\n- Create log directory using Path.mkdir(exist_ok=True)\n- `_setup_logging` method that:\n  - Configures root logger with specified log level\n  - Clears existing handlers\n  - Creates StreamHandler for console output (INFO level, simple format with timestamp, level, name, message)\n  - Creates RotatingFileHandler for trading.log (DEBUG level, detailed format with line numbers, 10MB max size, 5 backup files)\n  - Sets appropriate formatters for each handler\n  - Adds handlers to root logger",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Verify log directory creation, 2) Verify handlers are configured with correct levels and formatters, 3) Test log messages appear in both console and file, 4) Verify file rotation occurs at 10MB threshold, 5) Check backup file creation and count limit",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T00:11:47.526Z"
           },
           {
             "id": 2,
@@ -603,9 +604,10 @@
               1
             ],
             "details": "Extend TradingLogger._setup_logging in `src/utils/logger.py` to:\n- Create TimedRotatingFileHandler for trades.log (rotates at midnight, keeps 30 days of backups)\n- Set handler level to INFO\n- Implement TradeLogFilter class that:\n  - Inherits from logging.Filter\n  - Implements filter() method to return True only for records with name='trades'\n- Apply TradeLogFilter to trade handler\n- Add trade handler to root logger\nThis ensures trade events are logged separately from general system logs for easier analysis and auditing.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Verify trades.log file is created, 2) Test TradeLogFilter only passes 'trades' logger records, 3) Verify time-based rotation triggers at midnight, 4) Check 30-day backup retention, 5) Ensure trade logs don't appear in trading.log when filtered correctly",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T00:11:47.529Z"
           },
           {
             "id": 3,
@@ -615,9 +617,10 @@
               2
             ],
             "details": "Add to TradingLogger class in `src/utils/logger.py`:\n- Implement `log_trade` static method with parameters:\n  - action: str (e.g., 'SIGNAL_GENERATED', 'ORDER_FILLED', 'POSITION_CLOSED')\n  - data: dict (trade-specific data like symbol, price, quantity, order_id)\n- Method logic:\n  - Get logger instance with name='trades'\n  - Create structured log entry dict with:\n    - timestamp: datetime.utcnow().isoformat()\n    - action: action parameter\n    - **data: unpacked trade data dictionary\n  - Serialize dict to JSON string using json.dumps()\n  - Log using logger.info()\nThis provides structured, parseable trade logs for post-trade analysis, monitoring dashboards, and audit trails.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Verify JSON structure includes timestamp and action fields, 2) Test various trade data dictionaries are properly serialized, 3) Verify logs appear only in trades.log, 4) Test JSON parsing of logged entries, 5) Validate ISO timestamp format, 6) Test with different action types (SIGNAL_GENERATED, ORDER_FILLED, etc.)",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T00:11:47.532Z"
           },
           {
             "id": 4,
@@ -627,15 +630,16 @@
               1
             ],
             "details": "Add to `src/utils/logger.py`:\n- Import contextlib and time modules\n- Implement `log_execution_time` context manager function:\n  - Parameter: operation (str) - name of operation being timed\n  - Use @contextmanager decorator\n  - Record start time using time.perf_counter()\n  - Yield control to wrapped code block\n  - Calculate elapsed time after block completes\n  - Log at DEBUG level: f\"{operation} completed in {elapsed:.3f}s\"\n\nUsage example:\n```python\nwith log_execution_time('indicator_calculation'):\n    # expensive operation\n    result = calculate_indicators()\n```\nThis helps identify slow operations in data processing, indicator calculations, and order execution.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Unit tests: 1) Verify context manager wraps code block correctly, 2) Test elapsed time calculation accuracy (±10ms tolerance), 3) Verify log message format includes operation name and time, 4) Test with various operation durations, 5) Verify logs appear at DEBUG level in trading.log, 6) Test exception handling doesn't break timing",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T00:11:47.534Z"
           }
         ],
         "complexity": 4,
         "recommendedSubtasks": 4,
         "expansionPrompt": "Break down into: 1) Implement TradingLogger class with console and file handlers using RotatingFileHandler, 2) Implement trade-specific logging with TimedRotatingFileHandler and TradeLogFilter, 3) Implement structured JSON trade logging with log_trade static method, 4) Implement performance logging decorator with execution time measurement",
-        "updatedAt": "2025-12-17T22:17:40.168Z"
+        "updatedAt": "2025-12-18T00:11:47.534Z"
       },
       {
         "id": "9",
@@ -647,7 +651,7 @@
         "dependencies": [
           "1"
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -655,9 +659,10 @@
             "description": "Create strongly-typed dataclass structures for API configuration (api_key, api_secret, is_testnet) and trading configuration (symbol, intervals, strategy, leverage, risk parameters) to provide type safety and clear configuration contracts.",
             "dependencies": [],
             "details": "In `src/utils/config.py`, implement the two dataclasses:\n\n1. **APIConfig dataclass**:\n   - Fields: api_key (str), api_secret (str), is_testnet (bool with default=True)\n   - Use @dataclass decorator for automatic __init__ and __repr__\n   - Add docstring explaining each field's purpose\n\n2. **TradingConfig dataclass**:\n   - Fields: symbol (str), intervals (list), strategy (str), leverage (int), max_risk_per_trade (float), take_profit_ratio (float), stop_loss_percent (float)\n   - Use @dataclass decorator\n   - Add validation in __post_init__ for basic type checking\n   - Document expected value ranges in docstrings\n\n3. Add imports: `from dataclasses import dataclass` and `from typing import List`\n\n4. Ensure both dataclasses are immutable where appropriate using frozen=True if needed for sensitive data",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "1. Unit test dataclass instantiation with valid values\n2. Test default value behavior for APIConfig.is_testnet\n3. Verify dataclass string representation (__repr__) masks sensitive fields\n4. Test type hints are correct using mypy or similar\n5. Validate dataclass equality comparison works correctly",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T02:09:34.301Z"
           },
           {
             "id": 2,
@@ -667,9 +672,10 @@
               1
             ],
             "details": "In ConfigManager class:\n\n1. **load_api_config() method**:\n   - Initialize configparser.ConfigParser()\n   - Check if `self.config_dir / 'api_keys.ini'` exists\n   - If exists, read the file: `config.read(config_file)`\n   \n2. **Environment variable override logic**:\n   - api_key: `os.getenv('BINANCE_API_KEY') or config.get('binance', 'api_key', fallback='')`\n   - api_secret: `os.getenv('BINANCE_API_SECRET') or config.get('binance', 'api_secret', fallback='')`\n   - is_testnet: Parse from `os.getenv('BINANCE_TESTNET', 'true')` with `.lower() == 'true'` conversion, then check config file as fallback\n\n3. **Validation**:\n   - Raise ValueError if api_key or api_secret are empty: \"Binance API credentials not configured\"\n   - Log warning if using testnet mode\n   \n4. **Store and return**:\n   - Create APIConfig instance\n   - Store in self._api_config\n   - Return the config object\n\n5. **Create example file**: `configs/api_keys.ini.example` with placeholder values",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "1. Test loading from file only (no env vars)\n2. Test env var override when file exists\n3. Test env var only (no file)\n4. Test missing credentials raises ValueError\n5. Test testnet flag parsing from both env and file\n6. Verify sensitive data is not logged in plain text",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T02:09:35.804Z"
           },
           {
             "id": 3,
@@ -679,9 +685,10 @@
               1
             ],
             "details": "In ConfigManager class:\n\n1. **load_trading_config() method**:\n   - Initialize configparser.ConfigParser()\n   - Check if `self.config_dir / 'trading_config.ini'` exists\n   - Raise FileNotFoundError with clear path if not found\n   - Read the config file\n\n2. **Parse trading section**:\n   - symbol: `config.get('trading', 'symbol', fallback='BTCUSDT')`\n   - intervals: Split comma-separated string: `config.get('trading', 'intervals', fallback='1h').split(',')`\n   - strategy: `config.get('trading', 'strategy', fallback='mock_sma')`\n   - leverage: `config.getint('trading', 'leverage', fallback=10)`\n\n3. **Parse risk section**:\n   - max_risk_per_trade: `config.getfloat('risk', 'max_risk_per_trade', fallback=0.01)`\n   - take_profit_ratio: `config.getfloat('risk', 'take_profit_ratio', fallback=2.0)`\n   - stop_loss_percent: `config.getfloat('risk', 'stop_loss_percent', fallback=0.01)`\n\n4. **Strategy-specific sections**:\n   - Support reading `[strategy.{strategy_name}]` sections for strategy parameters\n   - Store strategy params in TradingConfig or separate dict\n\n5. **Create example file**: `configs/trading_config.ini.example` with all sections documented\n\n6. **Store and return**: Create TradingConfig instance, store in self._trading_config, return it",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "1. Test loading complete valid config\n2. Test fallback values when sections missing\n3. Test intervals parsing from comma-separated string\n4. Test strategy-specific section reading\n5. Test FileNotFoundError when config missing\n6. Verify float/int parsing handles invalid formats gracefully",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T02:09:37.298Z"
           },
           {
             "id": 4,
@@ -693,14 +700,16 @@
               3
             ],
             "details": "In ConfigManager class:\n\n1. **validate_config() method**:\n   - Initialize empty errors list\n   - Add logging setup: `self.logger = logging.getLogger(__name__)`\n\n2. **API config validation** (if self._api_config exists):\n   - Check api_key is non-empty\n   - Check api_secret is non-empty\n   - Append errors if validation fails\n\n3. **Trading config validation** (if self._trading_config exists):\n   - Leverage range: `1 <= tc.leverage <= 125`, error: \"Invalid leverage: {value} (must be 1-125)\"\n   - Risk per trade: `0 < tc.max_risk_per_trade <= 0.1`, error: \"Risk per trade out of range: {value} (must be 0-10%)\"\n   - Take profit ratio: `tc.take_profit_ratio > 0`, error: \"Take profit ratio must be positive\"\n   - Stop loss percent: `0 < tc.stop_loss_percent <= 0.5`, error: \"Stop loss percent out of range: {value}\"\n   - Symbol format: Basic validation for uppercase alphanumeric ending in USDT\n   - Intervals: Check each interval is valid format (e.g., 1m, 5m, 1h, 4h, 1d)\n\n4. **Error handling**:\n   - Log each error with `self.logger.error(error)`\n   - Return True if len(errors) == 0, False otherwise\n\n5. **Add validate() helper** that calls both load methods and validate_config in sequence\n\n6. **Documentation**: Add clear docstrings explaining validation rules",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "1. Test valid configuration passes all checks\n2. Test leverage out of range (0, 126, -5) triggers errors\n3. Test risk percentage edge cases (0, 0.11, -0.01)\n4. Test invalid symbol format detection\n5. Test invalid interval format (e.g., '1x', 'invalid')\n6. Verify all errors are logged with clear messages\n7. Test validate() method orchestrates full validation flow",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-18T02:09:38.995Z"
           }
         ],
         "complexity": 4,
         "recommendedSubtasks": 4,
-        "expansionPrompt": "Break down into: 1) Implement APIConfig and TradingConfig dataclasses for typed configuration, 2) Implement load_api_config with environment variable override support, 3) Implement load_trading_config with strategy-specific section parsing, 4) Implement configuration validation with clear error messages and example file creation"
+        "expansionPrompt": "Break down into: 1) Implement APIConfig and TradingConfig dataclasses for typed configuration, 2) Implement load_api_config with environment variable override support, 3) Implement load_trading_config with strategy-specific section parsing, 4) Implement configuration validation with clear error messages and example file creation",
+        "updatedAt": "2025-12-18T02:09:38.995Z"
       },
       {
         "id": "10",
@@ -788,9 +797,9 @@
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-17T22:17:40.169Z",
+      "lastModified": "2025-12-18T02:09:38.996Z",
       "taskCount": 10,
-      "completedCount": 8,
+      "completedCount": 9,
       "tags": [
         "master"
       ]
