@@ -185,29 +185,52 @@ class TradingBot:
         """
         Wire up event subscriptions between components.
 
-        Implemented in Subtask 10.2.
-
         This method subscribes to:
         - EventType.CANDLE_CLOSED -> _on_candle_closed
         - EventType.SIGNAL_GENERATED -> _on_signal_generated
         - EventType.ORDER_FILLED -> _on_order_filled
         """
-        pass
+        # Subscribe to candle closed events (trigger strategy analysis)
+        self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)
+
+        # Subscribe to signal generated events (trigger risk validation and order execution)
+        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal_generated)
+
+        # Subscribe to order filled events (trigger position tracking)
+        self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)
+
+        self.logger.info("✅ Event handlers registered successfully")
 
     def _on_candle_received(self, candle: Candle) -> None:
         """
         Callback from BinanceDataCollector on every candle update.
 
-        Implemented in Subtask 10.2.
-
         This method bridges the WebSocket data stream to the EventBus by:
-        1. Creating an Event from the received Candle
-        2. Publishing the Event to the EventBus 'data' queue
+        1. Determining event type based on candle.is_closed
+        2. Creating an Event wrapper
+        3. Publishing the Event to the EventBus 'data' queue (non-blocking)
 
         Args:
             candle: Candle data from WebSocket stream
         """
-        pass
+        # Determine event type based on candle state
+        event_type = EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
+
+        # Create Event wrapper
+        event = Event(event_type, candle)
+
+        # Publish to EventBus asynchronously (non-blocking)
+        # Using create_task to avoid blocking the WebSocket thread
+        asyncio.create_task(
+            self.event_bus.publish(event, queue_name='data')
+        )
+
+        # Debug logging for closed candles only (avoid spam from updates)
+        if candle.is_closed:
+            self.logger.debug(
+                f"Candle closed: {candle.symbol} {candle.interval} "
+                f"@ {candle.close} (published to EventBus)"
+            )
 
     async def _on_candle_closed(self, event: Event) -> None:
         """
