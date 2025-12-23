@@ -28,6 +28,7 @@ class TestTradingBotConstructor:
         assert bot.order_manager is None
         assert bot.risk_manager is None
         assert bot.strategy is None
+        assert bot.trading_engine is None
         assert bot.logger is None
 
         # Verify state flag
@@ -50,10 +51,12 @@ class TestTradingBotInitialization:
     @patch('src.main.RiskManager')
     @patch('src.main.StrategyFactory')
     @patch('src.main.EventBus')
+    @patch('src.main.TradingEngine')
     @patch('logging.getLogger')
     def test_initialize_with_valid_config(
         self,
         mock_get_logger,
+        mock_trading_engine,
         mock_event_bus,
         mock_strategy_factory,
         mock_risk_manager,
@@ -114,6 +117,7 @@ class TestTradingBotInitialization:
         assert mock_risk_manager.called, "RiskManager not initialized"
         assert mock_strategy_factory.create.called, "Strategy not created"
         assert mock_event_bus.called, "EventBus not initialized"
+        assert mock_trading_engine.called, "TradingEngine not initialized"
 
         # Verify components are set
         assert bot.config_manager is not None
@@ -122,7 +126,12 @@ class TestTradingBotInitialization:
         assert bot.order_manager is not None
         assert bot.risk_manager is not None
         assert bot.strategy is not None
+        assert bot.trading_engine is not None
         assert bot.logger is not None
+
+        # Verify TradingEngine.set_components() was called with all dependencies
+        mock_trading_engine_instance = mock_trading_engine.return_value
+        mock_trading_engine_instance.set_components.assert_called_once()
 
         # Verify leverage was set
         mock_order_instance.set_leverage.assert_called_once_with('BTCUSDT', 10)
@@ -374,29 +383,23 @@ class TestTradingBotInitialization:
         assert risk_config['max_position_size_percent'] == 0.1
 
 
-class TestTradingBotStubMethods:
-    """Tests for stub methods (implemented in later subtasks)."""
+class TestTradingBotDelegation:
+    """Tests for TradingBot delegation pattern."""
 
-    def test_setup_event_handlers_exists(self):
-        """Test _setup_event_handlers method exists (stub)."""
-        bot = TradingBot()
-        assert hasattr(bot, '_setup_event_handlers')
-        assert callable(bot._setup_event_handlers)
-
-    def test_on_candle_received_exists(self):
-        """Test _on_candle_received method exists (stub)."""
+    def test_on_candle_received_bridge_exists(self):
+        """Test _on_candle_received bridge method exists."""
         bot = TradingBot()
         assert hasattr(bot, '_on_candle_received')
         assert callable(bot._on_candle_received)
 
-    def test_run_method_exists(self):
-        """Test run method exists (stub)."""
+    def test_run_delegates_to_trading_engine(self):
+        """Test run method delegates to TradingEngine."""
         bot = TradingBot()
         assert hasattr(bot, 'run')
         assert callable(bot.run)
 
-    def test_shutdown_method_exists(self):
-        """Test shutdown method exists (stub)."""
+    def test_shutdown_delegates_to_trading_engine(self):
+        """Test shutdown method delegates to TradingEngine."""
         bot = TradingBot()
         assert hasattr(bot, 'shutdown')
         assert callable(bot.shutdown)
