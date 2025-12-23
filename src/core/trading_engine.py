@@ -14,10 +14,14 @@ from typing import Any, Optional
 
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
-from src.execution.order_manager import OrderManager
+from src.execution.order_manager import OrderExecutionManager
+from src.risk.manager import RiskManager
+from src.strategies.base import BaseStrategy
+from src.utils.config import ConfigManager
 from src.models.candle import Candle
 from src.models.event import Event, EventType
 from src.models.signal import Signal
+from src.models.order import Order
 
 
 class TradingEngine:
@@ -54,71 +58,122 @@ class TradingEngine:
         - _on_order_filled: Order → Position update (future)
     """
 
-    def __init__(self, config: dict) -> None:
+    def __init__(self) -> None:
         """
-        Initialize TradingEngine with configuration and components.
+        Initialize TradingEngine with minimal setup.
 
-        Args:
-            config: Configuration dictionary with settings:
-                - environment: 'testnet' or 'mainnet'
-                - log_level: Logging level (default: 'INFO')
-                - Additional strategy/risk parameters
+        Components are injected via set_components() method after construction.
+        This allows for better testability and clear separation between
+        bootstrap (TradingBot) and execution (TradingEngine).
 
         Attributes:
-            config: Configuration dictionary
             logger: Logger instance for engine events
-            event_bus: EventBus instance (created immediately)
-            data_collector: BinanceDataCollector (injected via setter)
-            strategy: Strategy instance (injected via setter)
-            order_manager: OrderManager instance (injected via setter)
+            event_bus: Optional[EventBus] (injected via set_components)
+            data_collector: Optional[BinanceDataCollector] (injected via set_components)
+            strategy: Optional[BaseStrategy] (injected via set_components)
+            order_manager: Optional[OrderExecutionManager] (injected via set_components)
+            risk_manager: Optional[RiskManager] (injected via set_components)
+            config_manager: Optional[ConfigManager] (injected via set_components)
+            _running: Runtime state flag
 
         Process Flow:
-            1. Store config and create logger
-            2. Initialize EventBus (core infrastructure)
-            3. Set component placeholders to None (inject later)
-            4. Call _setup_handlers() to register event handlers
-
-        Notes:
-            - EventBus created immediately (always needed)
-            - Other components injected via setters (supports testing)
-            - Handlers registered even if components None (fail gracefully)
-            - Logger uses engine name for component identification
+            1. Create logger
+            2. Set component placeholders to None
+            3. Wait for set_components() call
 
         Example:
             ```python
-            config = {
-                'environment': 'testnet',
-                'log_level': 'DEBUG',
-                'strategy_params': {...}
-            }
-            engine = TradingEngine(config)
+            engine = TradingEngine()
+            engine.set_components(
+                event_bus=event_bus,
+                data_collector=collector,
+                strategy=strategy,
+                order_manager=order_manager,
+                risk_manager=risk_manager,
+                config_manager=config_manager
+            )
+            await engine.run()
             ```
         """
-        self.config = config
         self.logger = logging.getLogger(__name__)
-        self.logger.setLevel(config.get('log_level', 'INFO'))
 
-        # Core event infrastructure
-        self.event_bus = EventBus()
-
-        # Components (inject via setters)
+        # Components (injected via set_components)
+        self.event_bus: Optional[EventBus] = None
         self.data_collector: Optional[BinanceDataCollector] = None
-        self.strategy: Optional[Any] = None  # Strategy interface TBD
-        self.order_manager: Optional[OrderManager] = None
+        self.strategy: Optional[BaseStrategy] = None
+        self.order_manager: Optional[OrderExecutionManager] = None
+        self.risk_manager: Optional[RiskManager] = None
+        self.config_manager: Optional[ConfigManager] = None
 
-        # Register event handlers for trading pipeline
-        self._setup_handlers()
+        # Runtime state
+        self._running: bool = False
 
-        self.logger.info("TradingEngine initialized")
+        self.logger.info("TradingEngine initialized (awaiting component injection)")
 
-    def _setup_handlers(self) -> None:
+    def set_components(
+        self,
+        event_bus: EventBus,
+        data_collector: BinanceDataCollector,
+        strategy: BaseStrategy,
+        order_manager: OrderExecutionManager,
+        risk_manager: RiskManager,
+        config_manager: ConfigManager
+    ) -> None:
         """
-        Register event handlers for complete trading pipeline.
+        Inject all required components in one call.
+
+        This method receives all dependencies from TradingBot and:
+        1. Stores component references
+        2. Registers event handlers
+        3. Logs successful injection
+
+        Args:
+            event_bus: EventBus instance for pub-sub coordination
+            data_collector: BinanceDataCollector for WebSocket streaming
+            strategy: Trading strategy implementing BaseStrategy
+            order_manager: OrderExecutionManager for order execution
+            risk_manager: RiskManager for validation and position sizing
+            config_manager: ConfigManager for trading configuration
+
+        Notes:
+            - Must be called before run()
+            - All components required (no None allowed)
+            - Automatically registers event handlers after injection
+            - Called by TradingBot.initialize() Step 9
+
+        Example:
+            ```python
+            engine = TradingEngine()
+            engine.set_components(
+                event_bus=self.event_bus,
+                data_collector=self.data_collector,
+                strategy=self.strategy,
+                order_manager=self.order_manager,
+                risk_manager=self.risk_manager,
+                config_manager=self.config_manager
+            )
+            ```
+        """
+        self.event_bus = event_bus
+        self.data_collector = data_collector
+        self.strategy = strategy
+        self.order_manager = order_manager
+        self.risk_manager = risk_manager
+        self.config_manager = config_manager
+
+        # Setup handlers AFTER all components available
+        self._setup_event_handlers()
+
+        self.logger.info("✅ TradingEngine components injected and handlers registered")
+
+    def _setup_event_handlers(self) -> None:
+        """
+        Register event subscriptions with EventBus.
 
         Subscribes handlers to EventBus for:
-        - CANDLE_CLOSED: Trigger strategy analysis
-        - SIGNAL_GENERATED: Create orders from signals
-        - ORDER_FILLED: Update positions (future)
+        - CANDLE_CLOSED → _on_candle_closed: Trigger strategy analysis
+        - SIGNAL_GENERATED → _on_signal_generated: Risk validation and order execution
+        - ORDER_FILLED → _on_order_filled: Position tracking
 
         Handler Routing:
             - All handlers are async methods
@@ -127,388 +182,212 @@ class TradingEngine:
             - Logging at each pipeline stage
 
         Notes:
-            - Called automatically in __init__()
-            - Safe to call even if components None
-            - Handlers check component existence before use
+            - Called automatically by set_components()
+            - Requires event_bus to be injected first
             - Private method (internal setup only)
 
-        Example Event Flow:
+        Event Flow:
             CANDLE_CLOSED → _on_candle_closed → Strategy
                          ↓
-            SIGNAL_GENERATED → _on_signal → OrderManager
+            SIGNAL_GENERATED → _on_signal_generated → RiskManager → OrderManager
                              ↓
             ORDER_FILLED → _on_order_filled → Position
         """
         self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)
-        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal)
+        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal_generated)
         self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)
 
-        self.logger.debug("Event handlers registered for trading pipeline")
+        self.logger.info("✅ Event handlers registered:")
+        self.logger.info("  - CANDLE_CLOSED → _on_candle_closed")
+        self.logger.info("  - SIGNAL_GENERATED → _on_signal_generated")
+        self.logger.info("  - ORDER_FILLED → _on_order_filled")
 
     async def _on_candle_closed(self, event: Event) -> None:
         """
-        Handle CANDLE_CLOSED event: Analyze candle and generate signal.
+        Handle closed candle event - run strategy analysis.
 
-        Pipeline Stage: Data → Strategy
+        This handler is called when a candle fully closes (is_closed=True).
+        It runs the trading strategy analysis and publishes signals if conditions are met.
 
         Args:
-            event: Event with candle data
-                event.data: Candle instance
-                event.source: 'BinanceDataCollector'
+            event: Event containing closed Candle data
+        """
+        # Step 1: Extract candle from event data
+        candle: Candle = event.data
 
-        Process Flow:
-            1. Extract candle from event
-            2. Log candle close (DEBUG level)
-            3. Check if strategy is configured
-            4. Call strategy.analyze(candle)
-            5. If signal returned, publish SIGNAL_GENERATED
-            6. Handle errors without crashing
+        # Step 2: Log candle received (info level)
+        self.logger.info(
+            f"Analyzing closed candle: {candle.symbol} {candle.interval} "
+            f"@ {candle.close} (vol: {candle.volume})"
+        )
 
-        Error Handling:
-            - Strategy None: Log warning, skip analysis
-            - Strategy.analyze() error: Log error, continue
-            - Publish error: Logged by EventBus, not re-raised
+        # Step 3: Call strategy.analyze() to generate signal
+        try:
+            signal = await self.strategy.analyze(candle)
+        except Exception as e:
+            # Don't crash on strategy errors
+            self.logger.error(
+                f"Strategy analysis failed for {candle.symbol}: {e}",
+                exc_info=True
+            )
+            return
 
-        Performance:
-            - Should be fast (<10ms) to avoid backlog
-            - Heavy analysis → strategy should spawn tasks
-            - No blocking I/O in this handler
-
-        Example:
-            ```python
-            # Incoming event
-            event = Event(
-                event_type=EventType.CANDLE_CLOSED,
-                data=Candle(...),
-                source='BinanceDataCollector'
+        # Step 4: If signal exists, publish SIGNAL_GENERATED event
+        if signal is not None:
+            self.logger.info(
+                f"Signal generated: {signal.signal_type.value} "
+                f"@ {signal.entry_price} (TP: {signal.take_profit}, "
+                f"SL: {signal.stop_loss})"
             )
 
-            # Handler processes → strategy.analyze() → signal
-            # If signal: publishes SIGNAL_GENERATED to signal queue
-            ```
-
-        Notes:
-            - Strategy interface: async analyze(candle: Candle) -> Optional[Signal]
-            - Signal None is valid (no trade opportunity)
-            - Publish to 'signal' queue (medium priority)
-        """
-        try:
-            candle: Candle = event.data
+            # Create event and publish to 'signal' queue
+            signal_event = Event(EventType.SIGNAL_GENERATED, signal)
+            await self.event_bus.publish(signal_event, queue_name='signal')
+        else:
+            # Debug log for no signal (avoid spam)
             self.logger.debug(
-                f"Candle closed: {candle.symbol} @ {candle.close_time} "
-                f"close={candle.close}"
+                f"No signal generated for {candle.symbol} {candle.interval}"
             )
 
-            # Check if strategy is configured
-            if not self.strategy:
-                self.logger.warning("No strategy configured, skipping analysis")
-                return
-
-            # Analyze candle for trading signal
-            signal: Optional[Signal] = await self.strategy.analyze(candle)
-
-            if signal:
-                self.logger.info(
-                    f"Signal generated: {signal.signal_type.value} {signal.symbol} "
-                    f"@ {signal.entry_price}"
-                )
-
-                # Publish signal to signal queue
-                await self.event_bus.publish(
-                    Event(
-                        event_type=EventType.SIGNAL_GENERATED,
-                        data=signal,
-                        source='TradingEngine'
-                    ),
-                    queue_name='signal'
-                )
-            else:
-                self.logger.debug(f"No signal for {candle.symbol}")
-
-        except Exception as e:
-            self.logger.error(
-                f"Error in candle handler: {e}",
-                exc_info=True
-            )
-            # Don't re-raise - isolated error handling
-
-    async def _on_signal(self, event: Event) -> None:
+    async def _on_signal_generated(self, event: Event) -> None:
         """
-        Handle SIGNAL_GENERATED event: Convert signal to order.
+        Handle generated signal - validate and execute order.
 
-        Pipeline Stage: Strategy → OrderManager
+        This is the critical trading logic that:
+        1. Validates signal with RiskManager
+        2. Calculates position size
+        3. Executes market order with TP/SL
 
         Args:
-            event: Event with signal data
-                event.data: Signal instance
-                event.source: 'TradingEngine' or 'Strategy'
-
-        Process Flow:
-            1. Extract signal from event
-            2. Log signal details (INFO level)
-            3. Check if order_manager is configured
-            4. Call order_manager.create_order_from_signal(signal)
-            5. If order created, publish ORDER_PLACED
-            6. Handle errors without crashing
-
-        Error Handling:
-            - OrderManager None: Log warning, skip order creation
-            - create_order error: Log error, continue
-            - Publish error: Logged by EventBus
-
-        Critical for Trading:
-            - Signal queue ensures all signals processed
-            - Order queue ensures order events never drop
-            - Errors logged for post-analysis
-
-        Example:
-            ```python
-            # Incoming event
-            event = Event(
-                event_type=EventType.SIGNAL_GENERATED,
-                data=Signal(
-                    signal_type=SignalType.LONG_ENTRY,
-                    symbol='BTCUSDT',
-                    entry_price=50000,
-                    ...
-                ),
-                source='TradingEngine'
-            )
-
-            # Handler processes → order_manager.create_order() → order
-            # Publishes ORDER_PLACED to order queue
-            ```
-
-        Notes:
-            - OrderManager interface: async create_order_from_signal(signal) -> Optional[Order]
-            - Order None if risk management rejects (future)
-            - Publish to 'order' queue (critical priority, never drops)
+            event: Event containing Signal data
         """
-        try:
-            signal: Signal = event.data
-            self.logger.info(
-                f"Processing signal: {signal.signal_type.value} {signal.symbol} "
-                f"entry={signal.entry_price} sl={signal.stop_loss} tp={signal.take_profit}"
-            )
+        # Step 1: Extract signal from event data
+        signal: Signal = event.data
 
-            # Check if order manager is configured
-            if not self.order_manager:
+        self.logger.info(
+            f"Processing signal: {signal.signal_type.value} for {signal.symbol}"
+        )
+
+        try:
+            # Step 2: Get current position from OrderManager
+            current_position = self.order_manager.get_position(signal.symbol)
+
+            # Step 3: Validate signal with RiskManager
+            is_valid = self.risk_manager.validate_risk(signal, current_position)
+
+            if not is_valid:
                 self.logger.warning(
-                    "No order manager configured, skipping order creation"
+                    f"Signal rejected by risk validation: {signal.signal_type.value}"
                 )
                 return
 
-            # Future implementation:
-            # order = await self.order_manager.create_order_from_signal(signal)
-            # if order:
-            #     await self.event_bus.publish(
-            #         Event(EventType.ORDER_PLACED, order, source='TradingEngine'),
-            #         queue_name='order'
-            #     )
+            # Step 4: Get account balance
+            account_balance = self.order_manager.get_account_balance()
 
-            # Placeholder: Just log the signal processing
-            self.logger.info(
-                f"Signal processed (order manager integration pending): {signal.symbol}"
+            if account_balance <= 0:
+                self.logger.error(
+                    f"Invalid account balance: {account_balance}, cannot execute signal"
+                )
+                return
+
+            # Step 5: Calculate position size using RiskManager
+            quantity = self.risk_manager.calculate_position_size(
+                account_balance=account_balance,
+                entry_price=signal.entry_price,
+                stop_loss_price=signal.stop_loss,
+                leverage=self.config_manager.trading_config.leverage,
+                symbol_info=None  # OrderManager will handle rounding internally
             )
+
+            # Step 6: Execute signal via OrderManager
+            # Returns (entry_order, [tp_order, sl_order])
+            entry_order, tpsl_orders = self.order_manager.execute_signal(
+                signal=signal,
+                quantity=quantity
+            )
+
+            # Step 7: Log successful trade execution
+            self.logger.info(
+                f"✅ Trade executed successfully: "
+                f"Order ID={entry_order.order_id}, "
+                f"Quantity={entry_order.quantity}, "
+                f"TP/SL={len(tpsl_orders)}/2 orders"
+            )
+
+            # Step 8: Publish ORDER_FILLED event
+            order_event = Event(EventType.ORDER_FILLED, entry_order)
+            await self.event_bus.publish(order_event, queue_name='order')
 
         except Exception as e:
+            # Step 9: Catch and log execution errors without crashing
             self.logger.error(
-                f"Error in signal handler: {e}",
+                f"Failed to execute signal for {signal.symbol}: {e}",
                 exc_info=True
             )
-            # Don't re-raise - isolated error handling
+            # Don't re-raise - system should continue running
 
     async def _on_order_filled(self, event: Event) -> None:
         """
-        Handle ORDER_FILLED event: Update position tracking.
+        Handle order fill notification.
 
-        Pipeline Stage: Exchange → Position Management
-
-        Args:
-            event: Event with order data
-                event.data: Order instance (filled status)
-                event.source: 'Exchange' or 'OrderManager'
-
-        Process Flow:
-            1. Extract order from event
-            2. Log order fill details (INFO level)
-            3. Update position tracking (future implementation)
-            4. Calculate P&L if position closed
-            5. Handle errors without crashing
-
-        Error Handling:
-            - Position tracking error: Log error, continue
-            - P&L calculation error: Log error, continue
-            - All errors isolated (don't crash engine)
-
-        Future Implementation:
-            - Position.open() for new positions
-            - Position.update() for partial fills
-            - Position.close() for exits
-            - P&L calculation and tracking
-
-        Example:
-            ```python
-            # Incoming event
-            event = Event(
-                event_type=EventType.ORDER_FILLED,
-                data=Order(
-                    order_id='123',
-                    symbol='BTCUSDT',
-                    filled_quantity=1.0,
-                    ...
-                ),
-                source='Exchange'
-            )
-
-            # Handler processes → update position state
-            ```
-
-        Notes:
-            - Order queue ensures all fills processed
-            - Position tracking critical for risk management
-            - P&L tracking critical for performance analysis
-            - Placeholder implementation for now
-        """
-        try:
-            order = event.data
-            self.logger.info(
-                f"Order filled: {order.order_id} {order.symbol} "
-                f"qty={getattr(order, 'filled_quantity', 'N/A')}"
-            )
-
-            # Future implementation:
-            # - Update position tracking
-            # - Calculate P&L if position closed
-            # - Publish POSITION_OPENED or POSITION_CLOSED events
-            # - Update risk management state
-
-        except Exception as e:
-            self.logger.error(
-                f"Error in order filled handler: {e}",
-                exc_info=True
-            )
-            # Don't re-raise - isolated error handling
-
-    def set_data_collector(self, collector: BinanceDataCollector) -> None:
-        """
-        Inject DataCollector component for market data streaming.
+        Logs order fills for tracking and monitoring.
+        In future iterations, will update position tracking.
 
         Args:
-            collector: Configured BinanceDataCollector instance
-
-        Notes:
-            - Must be called before run()
-            - Collector should have symbols/intervals configured
-            - Collector's on_candle_callback will publish CANDLE_CLOSED
-
-        Example:
-            ```python
-            collector = BinanceDataCollector(
-                api_key=key,
-                api_secret=secret,
-                symbols=['BTCUSDT'],
-                intervals=['1h'],
-                on_candle_callback=lambda candle: ...
-            )
-            engine.set_data_collector(collector)
-            ```
+            event: Event containing Order data
         """
-        self.data_collector = collector
-        self.logger.info("DataCollector injected")
+        # Step 1: Extract order from event data
+        order: Order = event.data
 
-    def set_strategy(self, strategy: Any) -> None:
-        """
-        Inject Strategy component for signal generation.
+        # Step 2: Log order fill confirmation
+        self.logger.info(
+            f"Order filled: ID={order.order_id}, "
+            f"Symbol={order.symbol}, "
+            f"Side={order.side.value}, "
+            f"Quantity={order.quantity}, "
+            f"Price={order.price}"
+        )
 
-        Args:
-            strategy: Strategy instance with analyze() method
-
-        Interface Required:
-            async def analyze(self, candle: Candle) -> Optional[Signal]
-
-        Notes:
-            - Strategy can be None (dry-run mode)
-            - Strategy errors isolated in _on_candle_closed
-
-        Example:
-            ```python
-            from src.strategies.ict_strategy import ICTStrategy
-            strategy = ICTStrategy(config)
-            engine.set_strategy(strategy)
-            ```
-        """
-        self.strategy = strategy
-        self.logger.info(f"Strategy injected: {type(strategy).__name__}")
-
-    def set_order_manager(self, manager: OrderManager) -> None:
-        """
-        Inject OrderManager component for order execution.
-
-        Args:
-            manager: Configured OrderManager instance
-
-        Notes:
-            - OrderManager can be None (analysis-only mode)
-            - OrderManager errors isolated in _on_signal
-
-        Example:
-            ```python
-            from src.execution.order_manager import OrderManager
-            manager = OrderManager(exchange_client)
-            engine.set_order_manager(manager)
-            ```
-        """
-        self.order_manager = manager
-        self.logger.info("OrderManager injected")
+        # Step 3: Update position tracking (future enhancement)
+        # For now, OrderManager.get_position() queries Binance API
+        # Future: Maintain local position state for faster access
 
     async def run(self) -> None:
         """
         Start the trading engine and run until interrupted.
 
-        Main application entry point that:
-        1. Starts EventBus processors (3 queues)
-        2. Starts DataCollector streaming (if configured)
-        3. Runs until KeyboardInterrupt
-        4. Triggers graceful shutdown
+        Main runtime loop that:
+        1. Sets _running flag to True
+        2. Starts EventBus processors (3 queues)
+        3. Starts DataCollector streaming
+        4. Runs until interrupted
+        5. Triggers graceful shutdown
 
         Process Flow:
-            1. Log startup message
-            2. Validate required components
+            1. Set _running = True
+            2. Log startup message
             3. Start EventBus and DataCollector concurrently
             4. Block until KeyboardInterrupt or component failure
-            5. Trigger shutdown() on interrupt
-            6. Ensure shutdown() called in finally block
+            5. Trigger shutdown() in finally block
 
         Error Handling:
             - KeyboardInterrupt: Graceful shutdown
             - Component failure: Log error, trigger shutdown
             - asyncio.gather with return_exceptions=True
 
-        Component Requirements:
-            - EventBus: Always required (created in __init__)
-            - DataCollector: Optional (None → no data, analysis only)
-            - Strategy: Optional (None → no signals)
-            - OrderManager: Optional (None → signals only)
-
         Example:
             ```python
-            engine = TradingEngine(config)
-            engine.set_data_collector(collector)
-            engine.set_strategy(strategy)
-
-            try:
-                await engine.run()
-            except KeyboardInterrupt:
-                print("Shutdown complete")
+            engine = TradingEngine()
+            engine.set_components(...)
+            await engine.run()  # Blocks until interrupted
             ```
 
         Notes:
             - Blocks until stopped (main loop)
-            - Safe to call multiple times (idempotent)
             - Always calls shutdown() (even on errors)
-            - EventBus processors run continuously
+            - EventBus and DataCollector run concurrently
         """
+        self._running = True
         self.logger.info("Starting TradingEngine")
 
         try:
@@ -521,7 +400,7 @@ class TradingEngine:
                 )
             ]
 
-            # Add DataCollector if configured
+            # Add DataCollector (should always be configured)
             if self.data_collector:
                 tasks.append(
                     asyncio.create_task(
@@ -530,17 +409,13 @@ class TradingEngine:
                     )
                 )
                 self.logger.info("DataCollector streaming enabled")
-            else:
-                self.logger.warning(
-                    "No DataCollector configured - analysis only mode"
-                )
 
             # Run until interrupted
             # return_exceptions=True prevents one task error from cancelling others
             await asyncio.gather(*tasks, return_exceptions=True)
 
-        except KeyboardInterrupt:
-            self.logger.info("Shutdown requested (KeyboardInterrupt)")
+        except asyncio.CancelledError:
+            self.logger.info("Shutdown requested (CancelledError)")
 
         except Exception as e:
             self.logger.error(f"Unexpected error in run(): {e}", exc_info=True)
@@ -593,6 +468,11 @@ class TradingEngine:
             - Blocks until shutdown complete
             - Order events MUST be processed (critical)
         """
+        # Idempotency check - safe to call multiple times
+        if not self._running:
+            return
+
+        self._running = False
         self.logger.info("Shutting down TradingEngine")
 
         try:
