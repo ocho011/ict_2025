@@ -1,7 +1,8 @@
 """
-Unit tests for TradingEngine orchestrator (Subtask 4.5)
+Unit tests for TradingEngine orchestrator (Subtask 4.5 - Updated for Phase 1 & 2)
 
-Tests component integration, event handlers, and lifecycle management.
+Tests component integration, event handlers, and lifecycle management with
+Separation of Concerns pattern.
 """
 
 import asyncio
@@ -17,68 +18,124 @@ from src.models.event import Event, EventType
 from src.models.signal import Signal, SignalType
 
 
+@pytest.fixture
+def trading_engine():
+    """Create TradingEngine with mocked components."""
+    engine = TradingEngine()
+
+    # Mock all required components
+    engine.event_bus = Mock()
+    engine.event_bus.subscribe = Mock()
+    engine.event_bus.publish = AsyncMock()
+    engine.event_bus.start = AsyncMock()
+    engine.event_bus.shutdown = AsyncMock()
+
+    engine.data_collector = Mock()
+    engine.data_collector.start_streaming = AsyncMock()
+    engine.data_collector.stop = AsyncMock()
+
+    engine.strategy = AsyncMock()
+
+    engine.order_manager = Mock()
+    engine.order_manager.get_position = Mock(return_value=None)
+    engine.order_manager.get_account_balance = Mock(return_value=1000.0)
+    engine.order_manager.execute_signal = Mock(return_value=(Mock(order_id='TEST123', quantity=0.1), []))
+
+    engine.risk_manager = Mock()
+    engine.risk_manager.validate_risk = Mock(return_value=True)
+    engine.risk_manager.calculate_position_size = Mock(return_value=0.1)
+
+    engine.config_manager = Mock()
+    engine.config_manager.trading_config = Mock(leverage=10)
+
+    engine.logger = Mock()
+
+    return engine
+
+
 class TestTradingEngineInit:
     """Test TradingEngine initialization and setup."""
 
-    def test_init_creates_eventbus(self):
-        """Verify __init__ creates EventBus instance."""
-        config = {'environment': 'testnet', 'log_level': 'DEBUG'}
-        engine = TradingEngine(config)
+    def test_init_creates_empty_components(self):
+        """Verify __init__ creates placeholders for components."""
+        engine = TradingEngine()
 
-        assert engine.event_bus is not None
-        assert engine.config == config
+        assert engine.event_bus is None
         assert engine.data_collector is None
         assert engine.strategy is None
         assert engine.order_manager is None
+        assert engine.risk_manager is None
+        assert engine.config_manager is None
+        assert engine._running is False
 
-    def test_init_registers_handlers(self):
-        """Verify _setup_handlers() subscribes all event types."""
-        engine = TradingEngine({})
+    def test_set_components_injects_all_dependencies(self):
+        """Verify set_components() injects all required components."""
+        engine = TradingEngine()
 
-        # Verify handlers subscribed
-        candle_handlers = engine.event_bus._get_handlers(EventType.CANDLE_CLOSED)
-        signal_handlers = engine.event_bus._get_handlers(EventType.SIGNAL_GENERATED)
-        order_handlers = engine.event_bus._get_handlers(EventType.ORDER_FILLED)
-
-        assert len(candle_handlers) == 1
-        assert len(signal_handlers) == 1
-        assert len(order_handlers) == 1
-
-        # Verify correct methods subscribed
-        assert candle_handlers[0].__name__ == '_on_candle_closed'
-        assert signal_handlers[0].__name__ == '_on_signal'
-        assert order_handlers[0].__name__ == '_on_order_filled'
-
-    def test_component_injection(self):
-        """Verify set_*() methods inject components correctly."""
-        engine = TradingEngine({})
-
-        # Mock components
+        # Create mocks
+        mock_event_bus = Mock()
+        mock_event_bus.subscribe = Mock()
         mock_collector = Mock()
         mock_strategy = Mock()
-        mock_manager = Mock()
+        mock_order_manager = Mock()
+        mock_risk_manager = Mock()
+        mock_config_manager = Mock()
 
         # Inject components
-        engine.set_data_collector(mock_collector)
-        engine.set_strategy(mock_strategy)
-        engine.set_order_manager(mock_manager)
+        engine.set_components(
+            event_bus=mock_event_bus,
+            data_collector=mock_collector,
+            strategy=mock_strategy,
+            order_manager=mock_order_manager,
+            risk_manager=mock_risk_manager,
+            config_manager=mock_config_manager
+        )
 
         # Verify injection
+        assert engine.event_bus is mock_event_bus
         assert engine.data_collector is mock_collector
         assert engine.strategy is mock_strategy
-        assert engine.order_manager is mock_manager
+        assert engine.order_manager is mock_order_manager
+        assert engine.risk_manager is mock_risk_manager
+        assert engine.config_manager is mock_config_manager
+
+    def test_set_components_registers_handlers(self):
+        """Verify set_components() registers event handlers."""
+        engine = TradingEngine()
+
+        # Create mock EventBus
+        mock_event_bus = Mock()
+        mock_event_bus.subscribe = Mock()
+
+        # Inject components
+        engine.set_components(
+            event_bus=mock_event_bus,
+            data_collector=Mock(),
+            strategy=Mock(),
+            order_manager=Mock(),
+            risk_manager=Mock(),
+            config_manager=Mock()
+        )
+
+        # Verify handlers subscribed
+        assert mock_event_bus.subscribe.call_count == 3
+
+        # Verify correct event types registered
+        subscribe_calls = mock_event_bus.subscribe.call_args_list
+        event_types = [call[0][0] for call in subscribe_calls]
+
+        assert EventType.CANDLE_CLOSED in event_types
+        assert EventType.SIGNAL_GENERATED in event_types
+        assert EventType.ORDER_FILLED in event_types
 
 
 class TestEventHandlers:
     """Test event handler methods."""
 
     @pytest.mark.asyncio
-    async def test_on_candle_closed_calls_strategy(self):
+    async def test_on_candle_closed_calls_strategy(self, trading_engine):
         """Verify _on_candle_closed() calls strategy.analyze()."""
-        engine = TradingEngine({})
-
-        # Mock strategy
-        mock_strategy = AsyncMock()
+        # Mock strategy to return signal
         mock_signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
             symbol='BTCUSDT',
@@ -88,8 +145,7 @@ class TestEventHandlers:
             strategy_name='test',
             timestamp=datetime.now(timezone.utc)
         )
-        mock_strategy.analyze.return_value = mock_signal
-        engine.set_strategy(mock_strategy)
+        trading_engine.strategy.analyze.return_value = mock_signal
 
         # Create candle event
         candle = Candle(
@@ -103,21 +159,18 @@ class TestEventHandlers:
             close=50000.0,
             volume=100.0,
         )
-        event = Event(EventType.CANDLE_CLOSED, candle, source='test')
+        event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler
-        await engine._on_candle_closed(event)
+        await trading_engine._on_candle_closed(event)
 
         # Verify strategy called
-        mock_strategy.analyze.assert_called_once_with(candle)
+        trading_engine.strategy.analyze.assert_called_once_with(candle)
 
     @pytest.mark.asyncio
-    async def test_on_candle_closed_publishes_signal(self):
+    async def test_on_candle_closed_publishes_signal(self, trading_engine):
         """Verify signal published to signal queue when returned."""
-        engine = TradingEngine({})
-
-        # Mock strategy
-        mock_strategy = AsyncMock()
+        # Mock strategy to return signal
         mock_signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
             symbol='BTCUSDT',
@@ -127,11 +180,7 @@ class TestEventHandlers:
             strategy_name='test',
             timestamp=datetime.now(timezone.utc)
         )
-        mock_strategy.analyze.return_value = mock_signal
-        engine.set_strategy(mock_strategy)
-
-        # Mock event_bus.publish
-        engine.event_bus.publish = AsyncMock()
+        trading_engine.strategy.analyze.return_value = mock_signal
 
         # Create candle event
         candle = Candle(
@@ -145,14 +194,14 @@ class TestEventHandlers:
             close=50000.0,
             volume=100.0,
         )
-        event = Event(EventType.CANDLE_CLOSED, candle, source='test')
+        event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler
-        await engine._on_candle_closed(event)
+        await trading_engine._on_candle_closed(event)
 
         # Verify signal published
-        engine.event_bus.publish.assert_called_once()
-        call_args = engine.event_bus.publish.call_args
+        trading_engine.event_bus.publish.assert_called_once()
+        call_args = trading_engine.event_bus.publish.call_args
 
         # Check event type and queue
         published_event = call_args[0][0]
@@ -163,40 +212,10 @@ class TestEventHandlers:
         assert queue_name == 'signal'
 
     @pytest.mark.asyncio
-    async def test_on_candle_closed_handles_no_strategy(self, caplog):
-        """Verify graceful handling when strategy is None."""
-        engine = TradingEngine({})
-
-        # No strategy set (None)
-        candle = Candle(
-            symbol='BTCUSDT',
-            interval='1h',
-            open_time=datetime.now(timezone.utc),
-            close_time=datetime.now(timezone.utc),
-            open=50000.0,
-            high=51000.0,
-            low=49000.0,
-            close=50500.0,
-            volume=100.0,
-        )
-        event = Event(EventType.CANDLE_CLOSED, candle, source='test')
-
-        # Call handler
-        with caplog.at_level(logging.WARNING):
-            await engine._on_candle_closed(event)
-
-        # Verify warning logged
-        assert "No strategy configured" in caplog.text
-
-    @pytest.mark.asyncio
-    async def test_on_candle_closed_handles_no_signal(self, caplog):
+    async def test_on_candle_closed_handles_no_signal(self, trading_engine):
         """Verify graceful handling when strategy returns None."""
-        engine = TradingEngine({'log_level': 'DEBUG'})
-
         # Mock strategy returning None (no signal)
-        mock_strategy = AsyncMock()
-        mock_strategy.analyze.return_value = None
-        engine.set_strategy(mock_strategy)
+        trading_engine.strategy.analyze.return_value = None
 
         candle = Candle(
             symbol='BTCUSDT',
@@ -209,20 +228,17 @@ class TestEventHandlers:
             close=50500.0,
             volume=100.0,
         )
-        event = Event(EventType.CANDLE_CLOSED, candle, source='test')
+        event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler
-        with caplog.at_level(logging.DEBUG):
-            await engine._on_candle_closed(event)
+        await trading_engine._on_candle_closed(event)
 
-        # Verify "No signal" logged
-        assert "No signal for" in caplog.text
+        # Verify no signal published
+        trading_engine.event_bus.publish.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_on_signal_logs_signal(self, caplog):
-        """Verify _on_signal() logs signal details."""
-        engine = TradingEngine({})
-
+    async def test_on_signal_generated_validates_and_executes(self, trading_engine):
+        """Verify _on_signal_generated() validates and executes signal."""
         signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
             symbol='ETHUSDT',
@@ -232,22 +248,23 @@ class TestEventHandlers:
             strategy_name='test',
             timestamp=datetime.now(timezone.utc)
         )
-        event = Event(EventType.SIGNAL_GENERATED, signal, source='test')
+        event = Event(EventType.SIGNAL_GENERATED, signal)
 
-        with caplog.at_level(logging.INFO):
-            await engine._on_signal(event)
+        # Call handler
+        await trading_engine._on_signal_generated(event)
 
-        # Verify signal logged
-        assert "Processing signal" in caplog.text
-        assert "ETHUSDT" in caplog.text
-        assert "3000" in caplog.text
+        # Verify risk validation called
+        trading_engine.risk_manager.validate_risk.assert_called_once()
+
+        # Verify order execution called
+        trading_engine.order_manager.execute_signal.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_on_signal_handles_no_order_manager(self, caplog):
-        """Verify graceful handling when order_manager is None."""
-        engine = TradingEngine({})
+    async def test_on_signal_generated_rejects_invalid_signals(self, trading_engine):
+        """Verify signal rejected when risk validation fails."""
+        # Mock risk manager to reject signal
+        trading_engine.risk_manager.validate_risk.return_value = False
 
-        # No order manager set
         signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
             symbol='BTCUSDT',
@@ -257,44 +274,38 @@ class TestEventHandlers:
             strategy_name='test',
             timestamp=datetime.now(timezone.utc)
         )
-        event = Event(EventType.SIGNAL_GENERATED, signal, source='test')
+        event = Event(EventType.SIGNAL_GENERATED, signal)
 
-        with caplog.at_level(logging.WARNING):
-            await engine._on_signal(event)
+        # Call handler
+        await trading_engine._on_signal_generated(event)
 
-        # Verify warning logged
-        assert "No order manager configured" in caplog.text
+        # Verify order NOT executed
+        trading_engine.order_manager.execute_signal.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_on_order_filled_logs_order(self, caplog):
+    async def test_on_order_filled_logs_order(self, trading_engine):
         """Verify _on_order_filled() logs order details."""
-        engine = TradingEngine({})
-
         # Mock order
         mock_order = Mock()
         mock_order.order_id = 'ORDER123'
         mock_order.symbol = 'BTCUSDT'
-        mock_order.filled_quantity = 1.5
+        mock_order.side = Mock(value='BUY')
+        mock_order.quantity = 1.5
+        mock_order.price = 50000.0
 
-        event = Event(EventType.ORDER_FILLED, mock_order, source='test')
+        event = Event(EventType.ORDER_FILLED, mock_order)
 
-        with caplog.at_level(logging.INFO):
-            await engine._on_order_filled(event)
+        # Call handler
+        await trading_engine._on_order_filled(event)
 
-        # Verify order logged
-        assert "Order filled" in caplog.text
-        assert "ORDER123" in caplog.text
-        assert "BTCUSDT" in caplog.text
+        # Verify logger called with order info
+        assert trading_engine.logger.info.called
 
     @pytest.mark.asyncio
-    async def test_handler_errors_isolated(self, caplog):
+    async def test_handler_errors_isolated(self, trading_engine):
         """Verify handler exceptions don't crash engine."""
-        engine = TradingEngine({})
-
         # Mock strategy that raises exception
-        mock_strategy = AsyncMock()
-        mock_strategy.analyze.side_effect = RuntimeError("Strategy error")
-        engine.set_strategy(mock_strategy)
+        trading_engine.strategy.analyze.side_effect = RuntimeError("Strategy error")
 
         candle = Candle(
             symbol='BTCUSDT',
@@ -307,158 +318,88 @@ class TestEventHandlers:
             close=50500.0,
             volume=100.0,
         )
-        event = Event(EventType.CANDLE_CLOSED, candle, source='test')
+        event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler - should not raise
-        with caplog.at_level(logging.ERROR):
-            await engine._on_candle_closed(event)
+        await trading_engine._on_candle_closed(event)
 
         # Verify error logged
-        assert "Error in candle handler" in caplog.text
-        assert "Strategy error" in caplog.text
+        assert trading_engine.logger.error.called
 
 
 class TestLifecycle:
     """Test run() and shutdown() lifecycle methods."""
 
     @pytest.mark.asyncio
-    async def test_run_starts_eventbus(self):
-        """Verify run() starts EventBus."""
-        engine = TradingEngine({})
+    async def test_run_starts_eventbus_and_collector(self, trading_engine):
+        """Verify run() starts EventBus and DataCollector."""
+        # Mock EventBus.start() to return quickly
+        async def quick_complete():
+            await asyncio.sleep(0.01)
 
-        # Mock EventBus.start() to not block
-        async def mock_start():
-            await asyncio.sleep(0.1)
+        trading_engine.event_bus.start.side_effect = quick_complete
+        trading_engine.data_collector.start_streaming.side_effect = quick_complete
 
-        engine.event_bus.start = AsyncMock(side_effect=mock_start)
-        engine.event_bus.shutdown = AsyncMock()
-
-        # Run with short timeout
-        run_task = asyncio.create_task(engine.run())
+        # Run with timeout
+        run_task = asyncio.create_task(trading_engine.run())
         await asyncio.sleep(0.05)
 
-        # Trigger shutdown
+        # Cancel
         run_task.cancel()
-
         try:
             await run_task
         except asyncio.CancelledError:
             pass
 
-        # Verify EventBus.start() was called
-        engine.event_bus.start.assert_called_once()
+        # Verify components started
+        trading_engine.event_bus.start.assert_called_once()
+        trading_engine.data_collector.start_streaming.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_starts_data_collector(self):
-        """Verify run() starts DataCollector if configured."""
-        engine = TradingEngine({})
-
-        # Mock components
-        mock_collector = Mock()
-        mock_collector.start_streaming = AsyncMock()
-
-        async def mock_start():
-            await asyncio.sleep(0.1)
-
-        engine.event_bus.start = AsyncMock(side_effect=mock_start)
-        engine.event_bus.shutdown = AsyncMock()
-        engine.set_data_collector(mock_collector)
-
-        # Run with short timeout
-        run_task = asyncio.create_task(engine.run())
-        await asyncio.sleep(0.05)
-
-        # Trigger shutdown
-        run_task.cancel()
-
-        try:
-            await run_task
-        except asyncio.CancelledError:
-            pass
-
-        # Verify DataCollector.start_streaming() was called
-        mock_collector.start_streaming.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_shutdown_stops_components(self):
+    async def test_shutdown_stops_components(self, trading_engine):
         """Verify shutdown() stops all components gracefully."""
-        engine = TradingEngine({})
-
-        # Mock components
-        mock_collector = Mock()
-        mock_collector.stop = AsyncMock()
-        engine.event_bus.shutdown = AsyncMock()
-        engine.set_data_collector(mock_collector)
+        # Set _running to True (simulating running state)
+        trading_engine._running = True
 
         # Call shutdown
-        await engine.shutdown()
+        await trading_engine.shutdown()
 
         # Verify components stopped
-        mock_collector.stop.assert_called_once()
-        engine.event_bus.shutdown.assert_called_once_with(timeout=10.0)
+        trading_engine.data_collector.stop.assert_called_once()
+        trading_engine.event_bus.shutdown.assert_called_once_with(timeout=10.0)
+
+        # Verify _running flag set to False
+        assert trading_engine._running is False
 
     @pytest.mark.asyncio
-    async def test_keyboard_interrupt_triggers_shutdown(self, caplog):
-        """Verify run() cleanup ensures shutdown is called."""
-        engine = TradingEngine({})
+    async def test_shutdown_is_idempotent(self, trading_engine):
+        """Verify shutdown can be called multiple times safely."""
+        trading_engine._running = True
 
-        # Mock EventBus.start() to return quickly
-        engine.event_bus.start = AsyncMock()
-        engine.event_bus.shutdown = AsyncMock()
+        # Call shutdown twice
+        await trading_engine.shutdown()
+        await trading_engine.shutdown()
 
-        # Mock data_collector to simulate a quick shutdown
-        mock_collector = Mock()
-        mock_collector.start_streaming = AsyncMock()
-        mock_collector.stop = AsyncMock()
-        engine.set_data_collector(mock_collector)
-
-        # Create a task that will complete quickly
-        async def quick_run():
-            tasks = [
-                asyncio.create_task(engine.event_bus.start(), name='eventbus'),
-                asyncio.create_task(mock_collector.start_streaming(), name='datacollector')
-            ]
-            # Simulate quick completion
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Test run logic with cleanup
-        async def test_run():
-            with caplog.at_level(logging.INFO):
-                try:
-                    await quick_run()
-                except Exception:
-                    pass
-                finally:
-                    await engine.shutdown()
-
-        # Execute and verify shutdown is called
-        await test_run()
-
-        # Verify shutdown was called
-        engine.event_bus.shutdown.assert_called_once_with(timeout=10.0)
-        assert "Shutting down TradingEngine" in caplog.text
+        # Verify components only stopped once
+        assert trading_engine.data_collector.stop.call_count == 1
+        assert trading_engine.event_bus.shutdown.call_count == 1
 
 
 class TestIntegration:
     """End-to-end integration tests."""
 
     @pytest.mark.asyncio
-    async def test_full_pipeline_candle_to_signal(self):
-        """Integration: Candle → Strategy → Signal → Event."""
-        engine = TradingEngine({})
-
+    async def test_full_pipeline_candle_to_order(self, trading_engine):
+        """Integration: Candle → Strategy → Signal → RiskManager → Order → Event."""
         # Track published events
         published_events = []
 
         async def capture_publish(event, queue_name='data'):
             published_events.append((event, queue_name))
 
-        engine.event_bus.publish = capture_publish
+        trading_engine.event_bus.publish = capture_publish
 
-        # Mock strategy
-        mock_strategy = AsyncMock()
+        # Mock strategy to return signal
         expected_signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
             symbol='BTCUSDT',
@@ -468,8 +409,11 @@ class TestIntegration:
             strategy_name='test',
             timestamp=datetime.now(timezone.utc)
         )
-        mock_strategy.analyze.return_value = expected_signal
-        engine.set_strategy(mock_strategy)
+        trading_engine.strategy.analyze.return_value = expected_signal
+
+        # Mock order execution
+        mock_order = Mock(order_id='ORDER123', quantity=0.1)
+        trading_engine.order_manager.execute_signal.return_value = (mock_order, [])
 
         # Create candle and trigger handler
         candle = Candle(
@@ -483,18 +427,33 @@ class TestIntegration:
             close=50000.0,
             volume=100.0,
         )
-        candle_event = Event(EventType.CANDLE_CLOSED, candle, source='test')
+        candle_event = Event(EventType.CANDLE_CLOSED, candle)
 
-        # Process candle
-        await engine._on_candle_closed(candle_event)
+        # Process candle → signal
+        await trading_engine._on_candle_closed(candle_event)
 
-        # Verify pipeline
+        # Verify signal published
         assert len(published_events) == 1
         signal_event, queue = published_events[0]
-
         assert signal_event.event_type == EventType.SIGNAL_GENERATED
         assert signal_event.data == expected_signal
         assert queue == 'signal'
 
+        # Process signal → order
+        await trading_engine._on_signal_generated(signal_event)
+
+        # Verify order published
+        assert len(published_events) == 2
+        order_event, queue = published_events[1]
+        assert order_event.event_type == EventType.ORDER_FILLED
+        assert order_event.data == mock_order
+        assert queue == 'order'
+
         # Verify strategy was called
-        mock_strategy.analyze.assert_called_once_with(candle)
+        trading_engine.strategy.analyze.assert_called_once_with(candle)
+
+        # Verify risk validation was called
+        trading_engine.risk_manager.validate_risk.assert_called_once()
+
+        # Verify order execution was called
+        trading_engine.order_manager.execute_signal.assert_called_once()
