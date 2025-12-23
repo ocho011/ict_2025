@@ -108,7 +108,11 @@ class ConfigManager:
     """
 
     def __init__(self, config_dir: str = "configs"):
-        self.config_dir = Path(config_dir)
+        # Find project root (parent of src directory)
+        # This ensures configs/ is found regardless of working directory
+        project_root = Path(__file__).parent.parent.parent
+        self.config_dir = project_root / config_dir
+
         self._api_config = None
         self._trading_config = None
         self._logging_config = None
