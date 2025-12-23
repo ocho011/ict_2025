@@ -401,15 +401,28 @@ class TradingBot:
         """
         Graceful shutdown - cleanup all components.
 
-        Implemented in Subtask 10.4.
-
         This method:
         1. Sets _running flag to False
         2. Stops DataCollector (closes WebSocket)
         3. Stops EventBus (drains queues and stops workers)
         4. Logs shutdown completion
         """
-        pass
+        # Step 1: Idempotency check
+        if not self._running:
+            return
+
+        # Step 2: Set flag
+        self._running = False
+        self.logger.info("Shutting down...")
+
+        # Step 3: Stop DataCollector with timeout
+        await self.data_collector.stop(timeout=5.0)
+
+        # Step 4: Stop EventBus with timeout
+        await self.event_bus.shutdown(timeout=5.0)
+
+        # Step 5: Completion log
+        self.logger.info("Shutdown complete")
 
 
 def main() -> None:
