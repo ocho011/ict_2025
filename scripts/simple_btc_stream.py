@@ -51,7 +51,7 @@ async def main():
         api_key="DUMMY_KEY",
         api_secret="DUMMY_SECRET",
         symbols=["ZECUSDT"],
-        intervals=["1m"],
+        intervals=["1m", "5m", "1h"],
         is_testnet=False,
         on_candle_callback=print_candle_info
     )
