@@ -10,6 +10,7 @@ The strategy generates signals based on the crossover of fast and slow SMAs:
 - Death Cross (fast SMA crosses below slow SMA) → SHORT entry
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -101,6 +102,9 @@ class MockSMACrossoverStrategy(BaseStrategy):
         """
         super().__init__(symbol, config)
 
+        # Logger for strategy status
+        self.logger = logging.getLogger(__name__)
+
         # SMA periods
         self.fast_period: int = config.get('fast_period', 10)
         self.slow_period: int = config.get('slow_period', 20)
@@ -187,6 +191,11 @@ class MockSMACrossoverStrategy(BaseStrategy):
 
         # Step 3: Check buffer has enough data
         if len(self.candle_buffer) < self.slow_period:
+            # Log buffer warm-up progress
+            self.logger.info(
+                f"📊 Buffer warming up: {len(self.candle_buffer)}/{self.slow_period} "
+                f"candles collected for {candle.symbol} {candle.interval}"
+            )
             return None
 
         # Step 4: Extract close prices for SMA calculation
@@ -199,6 +208,11 @@ class MockSMACrossoverStrategy(BaseStrategy):
         # Step 6: Calculate previous SMAs (for crossover detection)
         # Need at least slow_period + 1 candles for previous calculation
         if len(self.candle_buffer) < self.slow_period + 1:
+            self.logger.info(
+                f"📈 SMA ready, waiting for crossover detection data: "
+                f"{len(self.candle_buffer)}/{self.slow_period + 1} candles "
+                f"for {candle.symbol} {candle.interval}"
+            )
             return None
 
         previous_fast_sma = np.mean(close_prices[-(self.fast_period + 1):-1])

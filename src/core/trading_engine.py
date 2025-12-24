@@ -244,9 +244,10 @@ class TradingEngine:
             signal_event = Event(EventType.SIGNAL_GENERATED, signal)
             await self.event_bus.publish(signal_event, queue_name='signal')
         else:
-            # Debug log for no signal (avoid spam)
-            self.logger.debug(
-                f"No signal generated for {candle.symbol} {candle.interval}"
+            # Info log for no signal (shows strategy is working)
+            self.logger.info(
+                f"✓ No signal: {candle.symbol} {candle.interval} "
+                f"(strategy conditions not met)"
             )
 
     async def _on_signal_generated(self, event: Event) -> None:
