@@ -205,10 +205,14 @@ class TradingBot:
         This method bridges the WebSocket data stream to the EventBus by:
         1. Determining event type based on candle.is_closed
         2. Creating an Event wrapper
-        3. Publishing the Event to the EventBus 'data' queue (non-blocking)
+        3. Publishing the Event to the EventBus 'data' queue (thread-safe)
 
         Args:
             candle: Candle data from WebSocket stream
+
+        Note:
+            This is called from WebSocket thread, so we need thread-safe async scheduling.
+            Using asyncio.run_coroutine_threadsafe() to schedule coroutine in event loop.
         """
         # Determine event type based on candle state
         event_type = EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
@@ -216,11 +220,17 @@ class TradingBot:
         # Create Event wrapper
         event = Event(event_type, candle)
 
-        # Publish to EventBus asynchronously (non-blocking)
-        # Using create_task to avoid blocking the WebSocket thread
-        asyncio.create_task(
-            self.event_bus.publish(event, queue_name='data')
-        )
+        # Publish to EventBus asynchronously (thread-safe)
+        # WebSocket callbacks run in different thread, so we need run_coroutine_threadsafe
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.run_coroutine_threadsafe(
+                self.event_bus.publish(event, queue_name='data'),
+                loop
+            )
+        except RuntimeError:
+            # No running loop yet - system is shutting down or not started
+            pass
 
         # Debug logging for closed candles only (avoid spam from updates)
         if candle.is_closed:
