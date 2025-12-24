@@ -232,12 +232,20 @@ class TradingBot:
             # No running loop yet - system is shutting down or not started
             pass
 
-        # Debug logging for closed candles only (avoid spam from updates)
+        # Log candle events (closed candles at INFO level for visibility)
         if candle.is_closed:
-            self.logger.debug(
-                f"Candle closed: {candle.symbol} {candle.interval} "
-                f"@ {candle.close} (published to EventBus)"
+            self.logger.info(
+                f"📊 Candle closed: {candle.symbol} {candle.interval} "
+                f"@ {candle.close} → EventBus"
             )
+        else:
+            # Log first update per minute to show connection is alive
+            # This provides heartbeat without log spam
+            if candle.open_time.second < 5:  # Log once per minute in first 5 seconds
+                self.logger.info(
+                    f"🔄 Live data: {candle.symbol} {candle.interval} "
+                    f"@ {candle.close}"
+                )
 
     async def run(self) -> None:
         """
