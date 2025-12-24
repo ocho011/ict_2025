@@ -804,24 +804,28 @@ class TestBinanceDataCollectorMessageParsing:
         collector._handle_kline_message(None, valid_kline_message)
 
     def test_non_kline_message_ignored_with_warning(self, collector):
-        """Test non-kline messages are ignored with warning log."""
+        """Test non-kline messages are ignored with debug log."""
         message = {'e': '24hrTicker', 's': 'BTCUSDT'}
 
-        with patch.object(collector.logger, 'warning') as mock_warning:
+        with patch.object(collector.logger, 'debug') as mock_debug:
             collector._handle_kline_message(None, message)
 
-            # Verify warning logged
-            mock_warning.assert_called_once()
-            assert '24hrTicker' in str(mock_warning.call_args)
+            # Verify debug logged (non-kline events logged as debug, not warning)
+            mock_debug.assert_called_once()
+            assert '24hrTicker' in str(mock_debug.call_args)
 
     def test_missing_event_type(self, collector):
-        """Test message without 'e' field triggers warning."""
+        """Test message without 'e' field is silently ignored (no logging)."""
         message = {'k': {'s': 'BTCUSDT'}}
 
-        with patch.object(collector.logger, 'warning') as mock_warning:
+        # Missing event_type (None) should be silently ignored (WebSocket init messages)
+        with patch.object(collector.logger, 'warning') as mock_warning, \
+             patch.object(collector.logger, 'debug') as mock_debug:
             collector._handle_kline_message(None, message)
 
-            mock_warning.assert_called_once()
+            # Neither warning nor debug should be called for None event_type
+            mock_warning.assert_not_called()
+            mock_debug.assert_not_called()
 
     def test_missing_kline_data_logged_as_error(self, collector):
         """Test missing 'k' key logs error."""

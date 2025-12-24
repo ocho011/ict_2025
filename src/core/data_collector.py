@@ -206,9 +206,13 @@ class BinanceDataCollector:
             # Step 1: Validate message type
             event_type = message.get('e')
             if event_type != 'kline':
-                self.logger.warning(
-                    f"Received non-kline message: type='{event_type}'"
-                )
+                # WebSocket initialization messages (subscription confirmations, etc.)
+                # are expected and can be safely ignored without logging
+                if event_type is not None:
+                    # Only log if it's an actual event type we don't recognize
+                    self.logger.debug(
+                        f"Received non-kline message: type='{event_type}'"
+                    )
                 return
 
             # Step 2: Extract kline data
