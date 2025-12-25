@@ -98,31 +98,32 @@ class RequestWeightTracker:
 
 class OrderExecutionManager:
     """
-    Binance Futures 주문 실행 관리자.
+    Binance Futures order execution manager.
 
-    Market 주문 실행, TP/SL 자동 배치, 포지션 관리, 레버리지 설정 등을 담당합니다.
+    Handles market order execution, automatic TP/SL placement, position management,
+    and leverage configuration.
 
     Attributes:
-        client (UMFutures): Binance UMFutures REST API 클라이언트
-        logger (logging.Logger): 로거 인스턴스
-        _open_orders (Dict[str, List[Order]]): 오픈 주문 추적 (심볼별)
+        client (UMFutures): Binance UMFutures REST API client
+        logger (logging.Logger): Logger instance
+        _open_orders (Dict[str, List[Order]]): Open orders tracking per symbol
 
     Example:
-        >>> # 환경변수 사용 (권장)
+        >>> # Using environment variables (recommended)
         >>> manager = OrderExecutionManager(is_testnet=True)
 
-        >>> # 직접 키 제공
+        >>> # Providing keys directly
         >>> manager = OrderExecutionManager(
         ...     api_key='your_key',
         ...     api_secret='your_secret',
         ...     is_testnet=False
         ... )
 
-        >>> # 레버리지 설정
+        >>> # Set leverage
         >>> manager.set_leverage('BTCUSDT', 10)
         True
 
-        >>> # 마진 타입 설정
+        >>> # Set margin type
         >>> manager.set_margin_type('BTCUSDT', 'ISOLATED')
         True
     """
@@ -134,38 +135,38 @@ class OrderExecutionManager:
         is_testnet: bool = True
     ) -> None:
         """
-        OrderExecutionManager 초기화.
+        Initialize OrderExecutionManager.
 
-        API 키는 환경변수(BINANCE_API_KEY, BINANCE_API_SECRET)에서 자동으로 로드되며,
-        파라미터로 전달하여 override할 수 있습니다.
+        API keys are automatically loaded from environment variables
+        (BINANCE_API_KEY, BINANCE_API_SECRET) and can be overridden via parameters.
 
         Args:
-            api_key: Binance API 키 (None이면 환경변수 BINANCE_API_KEY 사용)
-            api_secret: Binance API 시크릿 (None이면 환경변수 BINANCE_API_SECRET 사용)
-            is_testnet: Testnet 사용 여부 (기본값: True)
+            api_key: Binance API key (uses BINANCE_API_KEY env var if None)
+            api_secret: Binance API secret (uses BINANCE_API_SECRET env var if None)
+            is_testnet: Whether to use testnet (default: True)
 
         Raises:
-            ValueError: API 키 또는 시크릿이 제공되지 않은 경우
+            ValueError: If API key or secret is not provided
 
         Example:
-            >>> # 환경변수 사용
+            >>> # Using environment variables
             >>> import os
             >>> os.environ['BINANCE_API_KEY'] = 'your_key'
             >>> os.environ['BINANCE_API_SECRET'] = 'your_secret'
             >>> manager = OrderExecutionManager(is_testnet=True)
 
-            >>> # 직접 키 제공 (테스트 용도)
+            >>> # Providing keys directly (for testing)
             >>> manager = OrderExecutionManager(
             ...     api_key='test_key',
             ...     api_secret='test_secret',
             ...     is_testnet=True
             ... )
         """
-        # API 키 로딩 (환경변수 우선, 파라미터로 override 가능)
+        # Load API keys (environment variables with parameter override)
         api_key_value = api_key or os.getenv('BINANCE_API_KEY')
         api_secret_value = api_secret or os.getenv('BINANCE_API_SECRET')
 
-        # 필수 검증
+        # Validate required credentials
         if not api_key_value or not api_secret_value:
             raise ValueError(
                 "API credentials required. "
@@ -173,14 +174,14 @@ class OrderExecutionManager:
                 "or pass api_key and api_secret parameters."
             )
 
-        # Base URL 선택
+        # Select base URL
         base_url = (
             "https://testnet.binancefuture.com"
             if is_testnet
             else "https://fapi.binance.com"
         )
 
-        # UMFutures 클라이언트 초기화 (Task 6.6: enable weight tracking)
+        # Initialize UMFutures client with weight tracking enabled
         self.client = UMFutures(
             key=api_key_value,
             secret=api_secret_value,
@@ -188,7 +189,7 @@ class OrderExecutionManager:
             show_limit_usage=True  # Enable weight usage tracking in headers
         )
 
-        # 로거 설정
+        # Configure logger
         self.logger = logging.getLogger(__name__)
         if not self.logger.handlers:
             handler = logging.StreamHandler()
@@ -199,36 +200,36 @@ class OrderExecutionManager:
             self.logger.addHandler(handler)
             self.logger.setLevel(logging.INFO)
 
-        # 상태 초기화
+        # Initialize state tracking
         self._open_orders: Dict[str, List[Order]] = {}
 
-        # Exchange info cache (Task 6.5)
+        # Exchange info cache with 24h TTL
         self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
         self._cache_timestamp: Optional[datetime] = None
 
-        # Task 6.6: Initialize audit logger and weight tracker
+        # Initialize audit logger and weight tracker
         self.audit_logger = AuditLogger(log_dir='logs/audit')
         self.weight_tracker = RequestWeightTracker()
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def set_leverage(self, symbol: str, leverage: int) -> bool:
         """
-        심볼의 레버리지 설정.
+        Set leverage for a symbol.
 
-        Binance Futures는 심볼별로 레버리지를 설정할 수 있으며,
-        1x부터 125x까지 지원합니다 (심볼에 따라 다름).
+        Binance Futures allows symbol-specific leverage configuration,
+        supporting 1x to 125x (varies by symbol).
 
         Args:
-            symbol: 거래 쌍 (예: 'BTCUSDT', 'ETHUSDT')
-            leverage: 레버리지 배수 (1-125)
+            symbol: Trading pair (e.g., 'BTCUSDT', 'ETHUSDT')
+            leverage: Leverage multiplier (1-125)
 
         Returns:
-            성공 여부 (True: 성공, False: 실패)
+            Success status (True: success, False: failure)
 
         Note:
-            - Hedge Mode에서는 LONG과 SHORT 포지션이 동일한 레버리지를 사용합니다.
-            - 레버리지 변경은 오픈 포지션이 없을 때 권장됩니다.
-            - Task 6.6: Retry logic with exponential backoff on transient failures
+            - In Hedge Mode, LONG and SHORT positions use the same leverage
+            - Leverage changes are recommended when no open positions exist
+            - Implements retry logic with exponential backoff on transient failures
 
         Example:
             >>> manager.set_leverage('BTCUSDT', 10)
@@ -237,22 +238,22 @@ class OrderExecutionManager:
             >>> manager.set_leverage('ETHUSDT', 20)
             True
 
-            >>> # 잘못된 레버리지 (API가 거부)
+            >>> # Invalid leverage (API will reject)
             >>> manager.set_leverage('BTCUSDT', 200)
             False
         """
         try:
-            # Binance API 호출
+            # Call Binance API
             response = self.client.change_leverage(
                 symbol=symbol,
                 leverage=leverage
             )
 
-            # Task 6.6: Update weight tracker from response headers
+            # Update weight tracker from response headers
             if hasattr(response, 'headers'):
                 self.weight_tracker.update_from_response(response.headers)
 
-            # Task 6.6: Audit log success
+            # Audit log success
             self.audit_logger.log_event(
                 event_type=AuditEventType.LEVERAGE_SET,
                 operation="set_leverage",
@@ -260,12 +261,12 @@ class OrderExecutionManager:
                 response={'leverage': leverage, 'status': 'success'}
             )
 
-            # 성공 로깅
+            # Log success
             self.logger.info(f"Leverage set to {leverage}x for {symbol}")
             return True
 
         except ClientError as e:
-            # Task 6.6: Audit log error
+            # Audit log API error
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_leverage",
@@ -277,7 +278,7 @@ class OrderExecutionManager:
                 }
             )
 
-            # Binance API 오류 (4xx)
+            # Binance API error (4xx status codes)
             self.logger.error(
                 f"Failed to set leverage for {symbol}: "
                 f"code={e.error_code}, msg={e.error_message}"
@@ -285,7 +286,7 @@ class OrderExecutionManager:
             return False
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_leverage",
@@ -303,7 +304,7 @@ class OrderExecutionManager:
             return False
 
         except Exception as e:
-            # 예상치 못한 오류
+            # Unexpected errors
             self.logger.error(
                 f"Unexpected error setting leverage for {symbol}: {e}"
             )
@@ -316,49 +317,49 @@ class OrderExecutionManager:
         margin_type: str = 'ISOLATED'
     ) -> bool:
         """
-        마진 타입 설정 (ISOLATED 또는 CROSSED).
+        Set margin type (ISOLATED or CROSSED).
 
-        - ISOLATED: 포지션별로 독립적인 마진 사용
-        - CROSSED: 계좌 전체 잔고를 마진으로 사용
+        - ISOLATED: Independent margin per position
+        - CROSSED: Use entire account balance as margin
 
         Args:
-            symbol: 거래 쌍 (예: 'BTCUSDT')
-            margin_type: 'ISOLATED' 또는 'CROSSED' (기본값: 'ISOLATED')
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            margin_type: 'ISOLATED' or 'CROSSED' (default: 'ISOLATED')
 
         Returns:
-            성공 여부 (True: 성공, False: 실패)
+            Success status (True: success, False: failure)
 
         Note:
-            - 이미 설정된 마진 타입으로 변경 시도 시 "No need to change" 에러는 무시됩니다.
-            - Hedge Mode에서는 LONG과 SHORT 포지션이 동일한 마진 타입을 사용합니다.
-            - ISOLATED 마진에서는 LONG과 SHORT가 독립적인 마진을 가집니다.
-            - Task 6.6: Retry logic with exponential backoff on transient failures
+            - "No need to change" errors are silently ignored when already set
+            - In Hedge Mode, LONG and SHORT positions use the same margin type
+            - With ISOLATED margin, LONG and SHORT have independent margins
+            - Implements retry logic with exponential backoff on transient failures
 
         Example:
-            >>> # ISOLATED 마진 설정 (권장)
+            >>> # Set ISOLATED margin (recommended)
             >>> manager.set_margin_type('BTCUSDT', 'ISOLATED')
             True
 
-            >>> # CROSSED 마진 설정
+            >>> # Set CROSSED margin
             >>> manager.set_margin_type('ETHUSDT', 'CROSSED')
             True
 
-            >>> # 이미 설정된 경우 (여전히 True 반환)
+            >>> # Already set (still returns True)
             >>> manager.set_margin_type('BTCUSDT', 'ISOLATED')
             True
         """
         try:
-            # Binance API 호출
+            # Call Binance API
             response = self.client.change_margin_type(
                 symbol=symbol,
                 marginType=margin_type
             )
 
-            # Task 6.6: Update weight tracker
+            # Update weight tracker from response headers
             if hasattr(response, 'headers'):
                 self.weight_tracker.update_from_response(response.headers)
 
-            # Task 6.6: Audit log success
+            # Audit log success
             self.audit_logger.log_event(
                 event_type=AuditEventType.MARGIN_TYPE_SET,
                 operation="set_margin_type",
@@ -366,19 +367,19 @@ class OrderExecutionManager:
                 response={'margin_type': margin_type, 'status': 'success'}
             )
 
-            # 성공 로깅
+            # Log success
             self.logger.info(f"Margin type set to {margin_type} for {symbol}")
             return True
 
         except ClientError as e:
-            # "No need to change" 에러는 성공으로 간주
+            # Treat "No need to change" error as success
             if 'No need to change margin type' in e.error_message:
                 self.logger.debug(
                     f"Margin type already set to {margin_type} for {symbol}"
                 )
                 return True
 
-            # Task 6.6: Audit log error
+            # Audit log API error
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_margin_type",
@@ -390,7 +391,7 @@ class OrderExecutionManager:
                 }
             )
 
-            # 다른 ClientError는 실패
+            # Other ClientErrors are failures
             self.logger.error(
                 f"Failed to set margin type for {symbol}: "
                 f"code={e.error_code}, msg={e.error_message}"
@@ -398,7 +399,7 @@ class OrderExecutionManager:
             return False
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_margin_type",
@@ -416,7 +417,7 @@ class OrderExecutionManager:
             return False
 
         except Exception as e:
-            # 예상치 못한 오류
+            # Unexpected errors
             self.logger.error(
                 f"Unexpected error setting margin type for {symbol}: {e}"
             )
@@ -507,19 +508,19 @@ class OrderExecutionManager:
         self.logger.info("Fetching exchange information from Binance")
 
         try:
-            # 1. Call Binance API
+            # Call Binance API to fetch exchange info
             response = self.client.exchange_info()
 
-            # Task 6.6: Update weight tracker
+            # Update weight tracker from response headers
             if hasattr(response, 'headers'):
                 self.weight_tracker.update_from_response(response.headers)
 
-            # 2. Parse symbols and extract tick sizes
+            # Parse symbols and extract tick sizes
             symbols_parsed = 0
             for symbol_data in response['symbols']:
                 symbol = symbol_data['symbol']
 
-                # Find PRICE_FILTER
+                # Find PRICE_FILTER in symbol filters
                 price_filter = None
                 for filter_item in symbol_data['filters']:
                     if filter_item['filterType'] == 'PRICE_FILTER':
@@ -535,7 +536,7 @@ class OrderExecutionManager:
                     }
                     symbols_parsed += 1
 
-            # 3. Update cache timestamp
+            # Update cache timestamp
             self._cache_timestamp = datetime.now()
 
             self.logger.info(
@@ -543,7 +544,7 @@ class OrderExecutionManager:
             )
 
         except ClientError as e:
-            # Task 6.6: Audit log error
+            # Audit log API error
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="_refresh_exchange_info",
@@ -560,7 +561,7 @@ class OrderExecutionManager:
             )
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="_refresh_exchange_info",
@@ -944,7 +945,7 @@ class OrderExecutionManager:
         Note:
             TP/SL placement failures are logged but don't raise exceptions.
             Entry order must succeed; TP/SL failures result in partial execution.
-            Task 6.6: Retry logic with exponential backoff on transient failures.
+            Implements retry logic with exponential backoff on transient failures.
 
         Example:
             >>> signal = Signal(
@@ -962,22 +963,21 @@ class OrderExecutionManager:
             Entry ID: 123456789
             TP/SL placed: 2
         """
-        # 1. Validate inputs
+        # Validate inputs
         if quantity <= 0:
             raise ValidationError(f"Quantity must be > 0, got {quantity}")
 
-        # 2. Determine order side from signal type
+        # Determine order side from signal type
         side = self._determine_order_side(signal)
 
-        # 3. Log order intent
+        # Log order intent
         self.logger.info(
             f"Executing {signal.signal_type.value} signal: "
             f"{signal.symbol} {side.value} {quantity} "
             f"(strategy: {signal.strategy_name})"
         )
 
-        # 4-6. Place market entry order (existing logic from 6.2)
-        # Prepare order data for audit logging
+        # Prepare order parameters for market entry order
         order_params = {
             'symbol': signal.symbol,
             'side': side.value,
@@ -987,9 +987,10 @@ class OrderExecutionManager:
         }
 
         try:
+            # Submit market order to Binance
             response = self.client.new_order(**order_params)
 
-            # Task 6.6: Update weight tracker
+            # Update weight tracker from response headers
             if hasattr(response, 'headers'):
                 self.weight_tracker.update_from_response(response.headers)
 
@@ -1000,7 +1001,7 @@ class OrderExecutionManager:
                 side=side
             )
 
-            # Task 6.6: Audit log successful order
+            # Audit log successful order placement
             self.audit_logger.log_order_placed(
                 symbol=signal.symbol,
                 order_data=order_params,
@@ -1020,7 +1021,7 @@ class OrderExecutionManager:
             )
 
         except ClientError as e:
-            # Task 6.6: Audit log order rejection
+            # Audit log order rejection
             self.audit_logger.log_order_rejected(
                 symbol=signal.symbol,
                 order_data=order_params,
@@ -1041,7 +1042,7 @@ class OrderExecutionManager:
             ) from e
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="execute_signal",
@@ -1070,29 +1071,29 @@ class OrderExecutionManager:
                 f"Failed to execute order: {e}"
             ) from e
 
-        # 7. Check if TP/SL orders are needed
+        # Check if TP/SL orders are needed
         tpsl_orders: list[Order] = []
 
         # Only place TP/SL for entry signals (not for close signals)
         if signal.signal_type in (SignalType.LONG_ENTRY, SignalType.SHORT_ENTRY):
-            # 8a. Determine TP/SL side (opposite of entry side)
-            # For LONG_ENTRY: entry is BUY → TP/SL are SELL
-            # For SHORT_ENTRY: entry is SELL → TP/SL are BUY
+            # Determine TP/SL side (opposite of entry side)
+            # LONG_ENTRY: entry is BUY → TP/SL are SELL
+            # SHORT_ENTRY: entry is SELL → TP/SL are BUY
             tpsl_side = (
                 OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
             )
 
-            # 8b. Place TP order
+            # Place TP order
             tp_order = self._place_tp_order(signal, tpsl_side)
             if tp_order:
                 tpsl_orders.append(tp_order)
 
-            # 8c. Place SL order
+            # Place SL order
             sl_order = self._place_sl_order(signal, tpsl_side)
             if sl_order:
                 tpsl_orders.append(sl_order)
 
-            # 8e. Log TP/SL summary
+            # Log TP/SL placement summary
             self.logger.info(
                 f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed"
             )
@@ -1103,7 +1104,7 @@ class OrderExecutionManager:
                     f"only {len(tpsl_orders)}/2 exit orders placed"
                 )
 
-        # 9. Return entry order and TP/SL orders
+        # Return entry order and TP/SL orders
         return (entry_order, tpsl_orders)
 
     def get_position(self, symbol: str) -> Optional[Position]:
