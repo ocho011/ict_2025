@@ -117,7 +117,8 @@ class TradingEngine:
         strategy: BaseStrategy,
         order_manager: OrderExecutionManager,
         risk_manager: RiskManager,
-        config_manager: ConfigManager
+        config_manager: ConfigManager,
+        trading_bot: 'TradingBot'
     ) -> None:
         """
         Inject all required components in one call.
@@ -134,6 +135,7 @@ class TradingEngine:
             order_manager: OrderExecutionManager for order execution
             risk_manager: RiskManager for validation and position sizing
             config_manager: ConfigManager for trading configuration
+            trading_bot: TradingBot instance for event loop reference
 
         Notes:
             - Must be called before run()
@@ -160,6 +162,7 @@ class TradingEngine:
         self.order_manager = order_manager
         self.risk_manager = risk_manager
         self.config_manager = config_manager
+        self.trading_bot = trading_bot
 
         # Setup handlers AFTER all components available
         self._setup_event_handlers()
@@ -388,6 +391,11 @@ class TradingEngine:
             - Always calls shutdown() (even on errors)
             - EventBus and DataCollector run concurrently
         """
+        # Capture event loop and pass to TradingBot
+        loop = asyncio.get_running_loop()
+        self.trading_bot.set_event_loop(loop)
+        self.logger.debug(f"Event loop passed to TradingBot: {loop}")
+
         self._running = True
         self.logger.info("Starting TradingEngine")
 

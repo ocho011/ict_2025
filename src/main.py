@@ -32,6 +32,16 @@ from src.models.event import Event, EventType
 from src.models.candle import Candle
 from src.models.signal import Signal
 from src.models.order import Order
+from enum import Enum, auto
+
+
+class LifecycleState(Enum):
+    """Trading bot lifecycle states for event handling control."""
+    INITIALIZING = auto()  # __init__ phase
+    STARTING = auto()      # initialize() in progress
+    RUNNING = auto()       # Fully operational
+    STOPPING = auto()      # shutdown() in progress
+    STOPPED = auto()       # Shutdown complete
 
 
 class TradingBot:
@@ -75,6 +85,11 @@ class TradingBot:
         # State management
         self._running: bool = False
 
+        # Event loop reference and lifecycle state
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._lifecycle_state: LifecycleState = LifecycleState.INITIALIZING
+        self._event_drop_count: int = 0  # Monitor rejected events
+
     def initialize(self) -> None:
         """
         Initialize all trading bot components in correct dependency order.
@@ -100,6 +115,9 @@ class TradingBot:
             - Logs comprehensive startup information
             - Fails fast on configuration errors
         """
+        # Transition to STARTING state
+        self._lifecycle_state = LifecycleState.STARTING
+
         # Step 1: Load configurations
         self.config_manager = ConfigManager()
         api_config = self.config_manager.api_config
@@ -180,7 +198,8 @@ class TradingBot:
             strategy=self.strategy,
             order_manager=self.order_manager,
             risk_manager=self.risk_manager,
-            config_manager=self.config_manager
+            config_manager=self.config_manager,
+            trading_bot=self
         )
 
         # Step 10: Configure leverage
@@ -197,54 +216,108 @@ class TradingBot:
             )
 
         self.logger.info("✅ All components initialized successfully")
+        self.logger.debug(f"Lifecycle state: {self._lifecycle_state.name}")
+
+    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """
+        Set event loop reference from TradingEngine.
+
+        Called by TradingEngine.run() to provide the main thread's event loop
+        reference for thread-safe event publishing from WebSocket callbacks.
+
+        Args:
+            loop: Event loop from asyncio.get_running_loop()
+        """
+        self._event_loop = loop
+        self._lifecycle_state = LifecycleState.RUNNING
+
+        self.logger.info(
+            f"✅ Event loop registered, lifecycle state: {self._lifecycle_state.name}"
+        )
 
     def _on_candle_received(self, candle: Candle) -> None:
         """
         Callback from BinanceDataCollector on every candle update.
 
-        This method bridges the WebSocket data stream to the EventBus by:
-        1. Determining event type based on candle.is_closed
-        2. Creating an Event wrapper
-        3. Publishing the Event to the EventBus 'data' queue (thread-safe)
+        Bridges WebSocket thread to EventBus using stored event loop reference.
 
         Args:
             candle: Candle data from WebSocket stream
 
-        Note:
-            This is called from WebSocket thread, so we need thread-safe async scheduling.
-            Using asyncio.run_coroutine_threadsafe() to schedule coroutine in event loop.
+        Thread Safety:
+            Called from WebSocket thread. Uses stored event loop reference
+            with asyncio.run_coroutine_threadsafe() to schedule coroutine
+            in main thread's event loop.
+
+        State Handling:
+            - RUNNING: Accept and publish event
+            - STARTING/STOPPING: Reject with debug log (expected)
+            - INITIALIZING/STOPPED: Reject with warning (unexpected)
         """
-        # Determine event type based on candle state
+
+        # Step 1: Check lifecycle state
+        if self._lifecycle_state != LifecycleState.RUNNING:
+            self._event_drop_count += 1
+
+            # Log level depends on whether rejection is expected
+            if self._lifecycle_state in (LifecycleState.STARTING, LifecycleState.STOPPING):
+                self.logger.debug(
+                    f"Event rejected (state={self._lifecycle_state.name}): "
+                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                    f"Drops: {self._event_drop_count}"
+                )
+            else:
+                self.logger.warning(
+                    f"Event rejected in unexpected state ({self._lifecycle_state.name}): "
+                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                    f"Drops: {self._event_drop_count}"
+                )
+            return
+
+        # Step 2: Verify event loop is available
+        if self._event_loop is None:
+            self._event_drop_count += 1
+            self.logger.error(
+                f"Event loop not set! Cannot publish: "
+                f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                f"Drops: {self._event_drop_count}"
+            )
+            return
+
+        # Step 3: Determine event type
         event_type = EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
 
-        # Create Event wrapper
+        # Step 4: Create Event wrapper
         event = Event(event_type, candle)
 
-        # Publish to EventBus asynchronously (thread-safe)
-        # WebSocket callbacks run in different thread, so we need run_coroutine_threadsafe
+        # Step 5: Publish to EventBus (thread-safe)
         try:
-            loop = asyncio.get_running_loop()
             asyncio.run_coroutine_threadsafe(
                 self.event_bus.publish(event, queue_name='data'),
-                loop
+                self._event_loop
             )
-        except RuntimeError:
-            # No running loop yet - system is shutting down or not started
-            pass
 
-        # Log candle events (closed candles at INFO level for visibility)
+        except Exception as e:
+            self._event_drop_count += 1
+            self.logger.error(
+                f"Failed to publish event: {e} | "
+                f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                f"Drops: {self._event_drop_count}",
+                exc_info=True
+            )
+            return
+
+        # Step 6: Log success
         if candle.is_closed:
             self.logger.info(
                 f"📊 Candle closed: {candle.symbol} {candle.interval} "
                 f"@ {candle.close} → EventBus"
             )
         else:
-            # Log first update per minute to show connection is alive
-            # This provides heartbeat without log spam
-            if candle.open_time.second < 5:  # Log once per minute in first 5 seconds
+            # Heartbeat: log first update per minute
+            if candle.open_time.second < 5:
                 self.logger.info(
-                    f"🔄 Live data: {candle.symbol} {candle.interval} "
-                    f"@ {candle.close}"
+                    f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
                 )
 
     async def run(self) -> None:
@@ -271,9 +344,20 @@ class TradingBot:
         4. Stops EventBus (drains queues and stops workers)
         5. Logs shutdown completion
         """
-        self.logger.info("Initiating shutdown...")
+        # Transition to STOPPING state
+        self._lifecycle_state = LifecycleState.STOPPING
+        self.logger.info(f"Initiating shutdown (state={self._lifecycle_state.name})...")
+
         await self.trading_engine.shutdown()
-        self.logger.info("Shutdown complete")
+
+        # Transition to STOPPED state
+        self._lifecycle_state = LifecycleState.STOPPED
+
+        # Log final statistics
+        self.logger.info(
+            f"Shutdown complete (state={self._lifecycle_state.name}). "
+            f"Total events dropped: {self._event_drop_count}"
+        )
 
 
 def main() -> None:
