@@ -96,6 +96,75 @@ ict_2025/
 └── README.md          # This file
 ```
 
+## 📊 Logging
+
+All execution logs are automatically saved to the `logs/` directory for review and debugging.
+
+### Log Files
+
+1. **`logs/trading.log`** - Main application log
+   - Contains ALL logs (DEBUG level and above)
+   - Rotates at 10MB (keeps 5 backup files)
+   - Includes:
+     - Session start/end markers with system info
+     - Component initialization
+     - Data collection events
+     - Strategy execution
+     - Order management
+     - Error traces
+
+2. **`logs/trades.log`** - Trade-specific log
+   - JSON-formatted trade events only
+   - Daily rotation (keeps 30 days)
+   - Includes:
+     - Signal generation
+     - Order placement
+     - Order fills
+     - Position updates
+
+3. **`logs/audit/`** - Audit trail directory
+   - Detailed audit logs for compliance
+
+### Log Format
+
+**Console output**: Simple, readable format
+```
+2025-12-25 15:30:45 | INFO     | src.main           | 🚀 TRADING BOT SESSION START
+```
+
+**File logs**: Detailed format with line numbers
+```
+2025-12-25 15:30:45 | INFO     | src.main:398 | 🚀 TRADING BOT SESSION START
+2025-12-25 15:30:45 | INFO     | src.main:400 | Session Start Time: 2025-12-25 15:30:45
+2025-12-25 15:30:45 | INFO     | src.main:401 | Python Version: 3.11.5
+2025-12-25 15:30:45 | INFO     | src.main:402 | Platform: Darwin 24.6.0
+```
+
+### Configuration
+
+Logging settings in `configs/trading_config.ini`:
+```ini
+[logging]
+log_level = INFO      # DEBUG, INFO, WARNING, ERROR, CRITICAL
+log_dir = logs       # Directory for log files
+```
+
+### Reviewing Logs
+
+```bash
+# View real-time logs
+tail -f logs/trading.log
+
+# View recent session
+tail -100 logs/trading.log
+
+# Search for errors
+grep "ERROR" logs/trading.log
+
+# View trade events (JSON format)
+tail -f logs/trades.log | jq '.'
+```
+
 ## ⚙️ Configuration
 
 ### API Configuration (`configs/api_keys.ini`)

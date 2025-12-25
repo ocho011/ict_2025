@@ -8,6 +8,7 @@ including data collection, strategy execution, risk management, and order execut
 import asyncio
 import signal
 import sys
+import os
 import logging
 from pathlib import Path
 from datetime import datetime
@@ -365,31 +366,68 @@ def main() -> None:
     Application entry point with signal handling.
 
     This function:
-    1. Creates TradingBot instance
-    2. Initializes all components
-    3. Sets up signal handlers for graceful shutdown
-    4. Runs the trading system in asyncio event loop
-    5. Handles errors and cleanup
+    1. Logs session start with system information
+    2. Creates TradingBot instance
+    3. Initializes all components
+    4. Sets up signal handlers for graceful shutdown
+    5. Runs the trading system in asyncio event loop
+    6. Handles errors and cleanup
+    7. Logs session end with summary
     """
+    import platform
+    from datetime import datetime
+
+    # Record session start time
+    session_start = datetime.now()
+
     bot = TradingBot()
 
     # Setup signal handlers for graceful shutdown
-    def signal_handler(sig, frame):
+    def signal_handler(_sig, _frame):
         asyncio.create_task(bot.shutdown())
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        # Initialize all components
+        # Initialize all components (this sets up logging)
         bot.initialize()
+
+        # Log session start with system information AFTER logger is initialized
+        logger = logging.getLogger(__name__)
+        logger.info("=" * 80)
+        logger.info("🚀 TRADING BOT SESSION START")
+        logger.info("=" * 80)
+        logger.info(f"Session Start Time: {session_start.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"Python Version: {platform.python_version()}")
+        logger.info(f"Platform: {platform.system()} {platform.release()}")
+        logger.info(f"Working Directory: {os.getcwd()}")
+        logger.info("=" * 80)
 
         # Run trading system
         asyncio.run(bot.run())
 
+    except KeyboardInterrupt:
+        logger = logging.getLogger(__name__)
+        logger.info("Received keyboard interrupt (Ctrl+C)")
+
     except Exception as e:
-        logging.error(f"Fatal error: {e}", exc_info=True)
+        logger = logging.getLogger(__name__)
+        logger.error(f"Fatal error: {e}", exc_info=True)
         sys.exit(1)
+
+    finally:
+        # Log session end summary
+        session_end = datetime.now()
+        session_duration = session_end - session_start
+
+        logger = logging.getLogger(__name__)
+        logger.info("=" * 80)
+        logger.info("🛑 TRADING BOT SESSION END")
+        logger.info("=" * 80)
+        logger.info(f"Session End Time: {session_end.strftime('%Y-%m-%d %H:%M:%S')}")
+        logger.info(f"Session Duration: {session_duration}")
+        logger.info("=" * 80)
 
 
 if __name__ == '__main__':
