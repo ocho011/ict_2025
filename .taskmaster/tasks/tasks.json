@@ -727,7 +727,7 @@
           "8",
           "9"
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -748,9 +748,10 @@
               1
             ],
             "details": "Implement event wiring logic:\n1. Subscribe CANDLE_CLOSED events to _on_candle_closed handler\n2. Subscribe SIGNAL_GENERATED events to _on_signal_generated handler\n3. Subscribe ORDER_FILLED events to _on_order_filled handler\n4. Implement _on_candle_received callback that creates Event from Candle and publishes to 'data' queue\n5. Use asyncio.create_task for non-blocking event publishing\n6. Ensure proper event type differentiation (CANDLE_CLOSED vs CANDLE_UPDATE based on is_closed flag)\n7. Add debug logging for event flow tracing",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test event subscription registration, mock candle callback and verify Event is published to correct queue, verify async task creation doesn't block, test with both closed and unclosed candles",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-21T09:06:52.022Z"
           },
           {
             "id": 3,
@@ -760,9 +761,10 @@
               2
             ],
             "details": "Implement the three critical event handlers:\n\n_on_candle_closed:\n1. Extract candle from event data\n2. Call strategy.analyze(candle) to generate signal\n3. Publish SIGNAL_GENERATED event if signal exists\n4. Add debug logging for candle processing\n\n_on_signal_generated:\n1. Extract signal from event data\n2. Get current position from OrderManager\n3. Validate signal with RiskManager\n4. Get account balance and calculate position size using RiskManager\n5. Execute signal via OrderManager (entry + TP/SL orders)\n6. Log trade execution with TradingLogger\n7. Catch and log execution errors without crashing\n\n_on_order_filled:\n1. Extract order from event data\n2. Log order fill confirmation\n3. Update internal position tracking if needed",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Mock strategy.analyze() to return test signals, verify risk validation is called, test position size calculation with known values, mock order execution and verify correct parameters, test error handling when execution fails, verify trade logging occurs",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-21T09:16:59.979Z"
           },
           {
             "id": 4,
@@ -772,9 +774,10 @@
               1
             ],
             "details": "Implement graceful shutdown mechanism:\n1. Add _running flag to track bot state\n2. Implement async shutdown() method that:\n   - Sets _running to False\n   - Logs shutdown initiation\n   - Stops data_collector (closes WebSocket)\n   - Stops event_bus (drains queues and stops workers)\n   - Logs shutdown completion\n3. Handle asyncio.CancelledError in run() method\n4. Ensure shutdown is idempotent (safe to call multiple times)\n5. Add timeout handling for cleanup operations\n6. Register signal handlers in main() for clean termination",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test shutdown() method stops all components, verify _running flag is set correctly, test with SIGINT signal (Ctrl+C simulation), verify no resource leaks or hanging tasks, test shutdown during active trading, verify logs show clean shutdown sequence",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-23T13:19:57.591Z"
           },
           {
             "id": 5,
@@ -786,22 +789,23 @@
               4
             ],
             "details": "Implement main entry point:\n1. Create main() function as entry point\n2. Instantiate TradingBot\n3. Create and configure asyncio event loop\n4. Register SIGINT and SIGTERM signal handlers that trigger shutdown()\n5. Implement run() method that:\n   - Sets _running to True\n   - Uses asyncio.gather to run EventBus and DataCollector concurrently\n   - Catches CancelledError for graceful shutdown\n   - Ensures shutdown() is called in finally block\n6. Call bot.initialize() in try block\n7. Run event loop with loop.run_until_complete(bot.run())\n8. Handle KeyboardInterrupt gracefully (no stack trace)\n9. Catch all other exceptions, log with logging.error, exit with code 1\n10. Close event loop in finally block\n11. Add __name__ == '__main__' guard",
-            "status": "pending",
+            "status": "done",
             "testStrategy": "Test main() executes without errors, verify signal handlers are registered, test KeyboardInterrupt handling (no traceback), test fatal error handling and exit code 1, verify event loop is properly closed, integration test: run full bot against testnet for 1 minute then Ctrl+C",
-            "parentId": "undefined"
+            "parentId": "undefined",
+            "updatedAt": "2025-12-23T18:27:38.566Z"
           }
         ],
         "complexity": 6,
         "recommendedSubtasks": 5,
         "expansionPrompt": "Break down into: 1) Implement TradingBot class with component initialization sequence, 2) Implement event handler setup connecting all modules via EventBus, 3) Implement signal processing flow from candle to order execution, 4) Implement graceful shutdown with signal handlers (SIGINT/SIGTERM) and resource cleanup, 5) Implement main() entry point with asyncio event loop management and error handling",
-        "updatedAt": "2025-12-21T08:04:47.301Z"
+        "updatedAt": "2025-12-23T18:27:38.566Z"
       }
     ],
     "metadata": {
       "version": "1.0.0",
-      "lastModified": "2025-12-21T08:04:47.301Z",
+      "lastModified": "2025-12-23T18:27:38.567Z",
       "taskCount": 10,
-      "completedCount": 9,
+      "completedCount": 10,
       "tags": [
         "master"
       ]

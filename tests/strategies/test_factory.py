@@ -6,7 +6,7 @@ including validation, error handling, and extensibility.
 """
 
 import pytest
-from src.strategies import StrategyFactory, BaseStrategy, MockSMACrossoverStrategy
+from src.strategies import StrategyFactory, BaseStrategy, MockSMACrossoverStrategy, AlwaysSignalStrategy
 
 
 class TestStrategyFactoryCreation:
@@ -65,6 +65,31 @@ class TestStrategyFactoryCreation:
         # Should be instance of both concrete class and abstract base
         assert isinstance(strategy, BaseStrategy)
         assert isinstance(strategy, MockSMACrossoverStrategy)
+
+    def test_create_always_signal_strategy_default_config(self):
+        """Test factory creates AlwaysSignalStrategy with default config."""
+        strategy = StrategyFactory.create(
+            name='always_signal',
+            symbol='BTCUSDT',
+            config={}
+        )
+
+        assert isinstance(strategy, AlwaysSignalStrategy)
+        assert isinstance(strategy, BaseStrategy)
+        assert strategy.symbol == 'BTCUSDT'
+        # Verify default config values
+        assert strategy.signal_mode == 'ALTERNATE'
+        assert strategy.risk_reward_ratio == 2.0
+        assert strategy.stop_loss_percent == 0.02
+
+    def test_create_always_signal_strategy_long_only(self):
+        """Test factory creates AlwaysSignalStrategy in LONG mode."""
+        config = {'signal_type': 'LONG'}
+
+        strategy = StrategyFactory.create('always_signal', 'ETHUSDT', config)
+
+        assert strategy.symbol == 'ETHUSDT'
+        assert strategy.signal_mode == 'LONG'
 
 
 class TestStrategyFactoryValidation:
@@ -130,12 +155,15 @@ class TestStrategyFactoryIntrospection:
         """Test list_strategies returns all registered strategies."""
         strategies = StrategyFactory.list_strategies()
 
-        # Should contain at least the mock strategy
+        # Should contain registered strategies
         assert 'mock_sma' in strategies
+        assert 'always_signal' in strategies
+        assert len(strategies) >= 2
 
     def test_is_registered_returns_true_for_registered_strategy(self):
         """Test is_registered returns True for registered strategy."""
         assert StrategyFactory.is_registered('mock_sma') is True
+        assert StrategyFactory.is_registered('always_signal') is True
 
     def test_is_registered_returns_false_for_unregistered_strategy(self):
         """Test is_registered returns False for unregistered strategy."""

@@ -7,6 +7,7 @@ of trading strategies for the automated trading system.
 Exports:
     BaseStrategy: Abstract base class defining strategy interface
     MockSMACrossoverStrategy: SMA crossover strategy for testing
+    AlwaysSignalStrategy: Test strategy that always generates signals
     StrategyFactory: Factory for creating strategy instances
 """
 
@@ -14,6 +15,7 @@ from typing import Dict, Type, List
 
 from src.strategies.base import BaseStrategy
 from src.strategies.mock_strategy import MockSMACrossoverStrategy
+from src.strategies.always_signal import AlwaysSignalStrategy
 
 
 class StrategyFactory:
@@ -47,6 +49,7 @@ class StrategyFactory:
 
     _strategies: Dict[str, Type[BaseStrategy]] = {
         'mock_sma': MockSMACrossoverStrategy,
+        'always_signal': AlwaysSignalStrategy,  # Test strategy for pipeline verification
         # Future ICT strategies:
         # 'ict_fvg': ICTFVGStrategy,
         # 'ict_ob': ICTOrderBlockStrategy,
@@ -177,4 +180,4 @@ class StrategyFactory:
         cls._strategies[name] = strategy_class
 
 
-__all__ = ['BaseStrategy', 'MockSMACrossoverStrategy', 'StrategyFactory']
+__all__ = ['BaseStrategy', 'MockSMACrossoverStrategy', 'AlwaysSignalStrategy', 'StrategyFactory']
