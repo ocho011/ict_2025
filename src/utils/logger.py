@@ -96,8 +96,7 @@ class TradingLogger:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
         console_format = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)-20s | %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
+            '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'
         )
         console_handler.setFormatter(console_format)
         root_logger.addHandler(console_handler)
