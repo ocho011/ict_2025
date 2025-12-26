@@ -467,6 +467,88 @@ class BinanceDataCollector:
             )
             raise ConnectionError(f"REST API request failed: {e}")
 
+    def backfill_all(self, limit: int = 100) -> bool:
+        """
+        Backfill historical candles for all symbol/interval pairs.
+
+        Fetches historical data for each configured symbol/interval combination
+        to populate buffers before starting real-time streaming. This enables
+        strategies to analyze immediately without waiting for real-time data
+        accumulation.
+
+        Args:
+            limit: Number of historical candles to fetch per pair (1-1000).
+                  Default is 100. 0 means no backfilling.
+
+        Returns:
+            bool: True if all pairs backfilled successfully, False if any failed
+
+        Behavior:
+            - Iterates through all symbols and intervals
+            - Calls get_historical_candles() for each pair
+            - Buffers are automatically populated by get_historical_candles()
+            - Partial failures are logged but don't stop execution
+            - Returns summary of success/failure counts
+
+        Example:
+            >>> collector = BinanceDataCollector(...)
+            >>> success = collector.backfill_all(limit=200)
+            >>> if success:
+            ...     print("All pairs backfilled successfully")
+            >>> else:
+            ...     print("Some pairs failed to backfill")
+
+        Note:
+            - Should be called BEFORE start_streaming()
+            - Each pair fetches independently (no parallelization)
+            - Failed pairs will rely on real-time data only
+        """
+        # Skip if limit is 0
+        if limit == 0:
+            self.logger.info("Backfill disabled (limit=0), skipping historical data fetch")
+            return True
+
+        # Validate limit
+        if limit < 0 or limit > 1000:
+            self.logger.error(f"Invalid backfill limit: {limit}. Must be 0-1000.")
+            return False
+
+        self.logger.info(f"Starting backfill: {len(self.symbols)} symbols × {len(self.intervals)} intervals = {len(self.symbols) * len(self.intervals)} pairs")
+
+        success_count = 0
+        failed_pairs = []
+        total_pairs = len(self.symbols) * len(self.intervals)
+
+        # Iterate all symbol/interval combinations
+        for symbol in self.symbols:
+            for interval in self.intervals:
+                try:
+                    # Fetch historical candles (automatically adds to buffer)
+                    candles = self.get_historical_candles(symbol, interval, limit)
+                    success_count += 1
+                    self.logger.info(
+                        f"✅ Backfilled {symbol} {interval}: {len(candles)} candles loaded"
+                    )
+                except Exception as e:
+                    # Log failure but continue with other pairs
+                    failed_pairs.append(f"{symbol}_{interval}")
+                    self.logger.error(
+                        f"❌ Failed to backfill {symbol} {interval}: {e}"
+                    )
+
+        # Summary logging
+        if success_count == total_pairs:
+            self.logger.info(
+                f"✅ Backfill complete: {success_count}/{total_pairs} pairs successful"
+            )
+            return True
+        else:
+            self.logger.warning(
+                f"⚠️ Partial backfill: {success_count}/{total_pairs} pairs successful "
+                f"(failed: {', '.join(failed_pairs)})"
+            )
+            return False
+
     def _get_buffer_key(self, symbol: str, interval: str) -> str:
         """
         Generate standardized buffer key for symbol/interval pair.

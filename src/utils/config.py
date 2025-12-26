@@ -33,6 +33,7 @@ class TradingConfig:
         - max_risk_per_trade: 0 < value ≤ 0.1 (0-10%)
         - take_profit_ratio: must be positive
         - stop_loss_percent: 0 < value ≤ 0.5 (0-50%)
+        - backfill_limit: 0-1000 (0 = no backfilling)
         - symbol: must end with 'USDT'
         - intervals: must be valid Binance interval formats
           (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w)
@@ -44,6 +45,7 @@ class TradingConfig:
     max_risk_per_trade: float
     take_profit_ratio: float
     stop_loss_percent: float
+    backfill_limit: int = 100  # Default 100 candles
 
     def __post_init__(self):
         # Validation
@@ -65,6 +67,12 @@ class TradingConfig:
         if self.stop_loss_percent <= 0 or self.stop_loss_percent > 0.5:
             raise ConfigurationError(
                 f"Stop loss percent must be 0-50%, got {self.stop_loss_percent}"
+            )
+
+        # Validate backfill_limit
+        if self.backfill_limit < 0 or self.backfill_limit > 1000:
+            raise ConfigurationError(
+                f"Backfill limit must be 0-1000, got {self.backfill_limit}"
             )
 
         # Validate symbol format
@@ -224,7 +232,8 @@ class ConfigManager:
             leverage=trading.getint("leverage", 1),
             max_risk_per_trade=trading.getfloat("max_risk_per_trade", 0.01),
             take_profit_ratio=trading.getfloat("take_profit_ratio", 2.0),
-            stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02)
+            stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
+            backfill_limit=trading.getint("backfill_limit", 100)
         )
 
     def validate(self) -> bool:

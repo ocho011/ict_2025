@@ -95,12 +95,13 @@ class TradingBot:
         """
         Initialize all trading bot components in correct dependency order.
 
-        10-Step Initialization Sequence:
+        11-Step Initialization Sequence:
             1. ConfigManager - Load all configurations
             2. Validate - Ensure config is valid before proceeding
             3. TradingLogger - Setup logging infrastructure
             4. Startup Banner - Log environment information
             5. BinanceDataCollector - WebSocket client with callback
+            5.5. Backfill Historical Data - Pre-populate candle buffers
             6. OrderExecutionManager - Order execution interface
             7. RiskManager - Risk validation and position sizing
             8. StrategyFactory - Create strategy instance
@@ -157,6 +158,21 @@ class TradingBot:
             is_testnet=api_config.is_testnet,
             on_candle_callback=self._on_candle_received  # Bridge to EventBus (Subtask 10.2)
         )
+
+        # Step 5.5: Backfill historical candles (if enabled)
+        if trading_config.backfill_limit > 0:
+            self.logger.info(
+                f"Backfilling {trading_config.backfill_limit} historical candles..."
+            )
+            backfill_success = self.data_collector.backfill_all(
+                limit=trading_config.backfill_limit
+            )
+            if backfill_success:
+                self.logger.info("✅ Historical data backfill completed successfully")
+            else:
+                self.logger.warning("⚠️ Some pairs failed to backfill (will use real-time data only)")
+        else:
+            self.logger.info("Backfilling disabled (backfill_limit=0)")
 
         # Step 6: Initialize OrderExecutionManager
         self.logger.info("Initializing OrderExecutionManager...")
