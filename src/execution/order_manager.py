@@ -706,19 +706,34 @@ class OrderExecutionManager:
             >>> assert order.status == OrderStatus.FILLED
         """
         try:
+            # Handle Binance API response structure
+            # Response can be either:
+            # 1. Dict with 'data' field: {'limit_usage': {...}, 'data': {...}}
+            # 2. Dict directly: {...}
+            if isinstance(response, dict) and 'data' in response:
+                # Response wrapped in 'data' field
+                order_data = response['data']
+            elif isinstance(response, dict):
+                # Direct dict response
+                order_data = response
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected order response type: {type(response).__name__}"
+                )
+
             # Extract required fields
-            order_id = str(response["orderId"])
-            status_str = response["status"]
+            order_id = str(order_data["orderId"])
+            status_str = order_data["status"]
 
             # For MARKET orders: origQty is filled quantity
             # For STOP/TP orders: origQty may be "0" when using closePosition
-            quantity = float(response.get("origQty", "0"))
+            quantity = float(order_data.get("origQty", "0"))
 
             # Parse execution price (avgPrice for market orders)
-            avg_price = float(response.get("avgPrice", "0"))
+            avg_price = float(order_data.get("avgPrice", "0"))
 
             # Convert timestamp (milliseconds → datetime)
-            timestamp_ms = response["updateTime"]
+            timestamp_ms = order_data["updateTime"]
             timestamp = datetime.fromtimestamp(
                 timestamp_ms / 1000,
                 tz=timezone.utc
@@ -728,13 +743,13 @@ class OrderExecutionManager:
             status = OrderStatus[status_str]  # Raises KeyError if invalid
 
             # Determine order type from response
-            order_type_str = response.get("type", "MARKET")
+            order_type_str = order_data.get("type", "MARKET")
             order_type = OrderType[order_type_str]
 
             # Extract stop price for STOP/TP orders
             stop_price = None
-            if "stopPrice" in response and response["stopPrice"]:
-                stop_price = float(response["stopPrice"])
+            if "stopPrice" in order_data and order_data["stopPrice"]:
+                stop_price = float(order_data["stopPrice"])
 
             # Create Order object
             return Order(
@@ -745,7 +760,7 @@ class OrderExecutionManager:
                 price=avg_price if avg_price > 0 else None,
                 stop_price=stop_price,
                 order_id=order_id,
-                client_order_id=response.get("clientOrderId"),
+                client_order_id=order_data.get("clientOrderId"),
                 status=status,
                 timestamp=timestamp
             )
@@ -1143,12 +1158,34 @@ class OrderExecutionManager:
             response = self.client.get_position_risk(symbol=symbol)
 
             # 4. Parse response
-            if not response or len(response) == 0:
+            if not response:
                 self.logger.warning(f"No position data returned for {symbol}")
                 return None
 
-            position_data = response[0]  # First element
-            position_amt = float(position_data["positionAmt"])
+            # Handle Binance API response structure
+            # Response can be either:
+            # 1. Dict with 'data' field: {'limit_usage': {...}, 'data': [...]}
+            # 2. List directly: [...]
+            if isinstance(response, dict) and 'data' in response:
+                # Extract position list from 'data' field
+                position_list = response['data']
+                if not position_list or len(position_list) == 0:
+                    self.logger.info(f"No active position for {symbol} (empty data)")
+                    return None
+                position_data = position_list[0]  # First element
+            elif isinstance(response, list):
+                # Direct list response
+                if len(response) == 0:
+                    self.logger.info(f"No active position for {symbol} (empty list)")
+                    return None
+                position_data = response[0]
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected response type: {type(response).__name__}"
+                )
+
+            # Extract position amount
+            position_amt = float(position_data.get("positionAmt", 0))
 
             # 5. Check if position exists
             if position_amt == 0:
@@ -1161,7 +1198,7 @@ class OrderExecutionManager:
 
             # 7. Extract required fields
             entry_price = float(position_data["entryPrice"])
-            leverage = int(position_data["leverage"])
+            leverage = int(position_data.get("leverage", 1))  # Default to 1x if not provided
             unrealized_pnl = float(position_data["unRealizedProfit"])
 
             # 8. Extract optional liquidation price
@@ -1226,13 +1263,27 @@ class OrderExecutionManager:
             # 2. Call Binance API
             response = self.client.account()
 
-            # 3. Extract assets array
-            if "assets" not in response:
+            # 3. Extract account data
+            # Handle Binance API response structure (similar to position API)
+            if isinstance(response, dict) and 'data' in response:
+                # Response wrapped in 'data' field
+                account_data = response['data']
+            elif isinstance(response, dict):
+                # Direct dict response
+                account_data = response
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected account response type: {type(response).__name__}"
+                )
+
+            # 4. Extract assets array
+            if "assets" not in account_data:
+                self.logger.error(f"Account data keys: {list(account_data.keys())}")
                 raise OrderExecutionError("Account response missing 'assets' field")
 
-            assets = response["assets"]
+            assets = account_data["assets"]
 
-            # 4. Find USDT balance
+            # 5. Find USDT balance
             usdt_balance = None
 
             for asset in assets:
@@ -1245,7 +1296,7 @@ class OrderExecutionManager:
                 self.logger.warning("USDT not found in account assets, returning 0.0")
                 return 0.0
 
-            # 5. Log and return
+            # 6. Log and return
             self.logger.info(f"USDT balance: {usdt_balance:.2f}")
             return usdt_balance
 
