@@ -40,6 +40,41 @@
 
 ## 🔄 완료된 리팩토링
 
+### 2025-12-26: 로그 디렉토리 표준화
+
+**대상 파일**: `src/utils/logger.py`
+
+**문제점**:
+- 실행 위치에 따라 로그 파일 생성 위치가 달라짐
+- PyCharm 실행: `src/logs/`
+- 터미널/백그라운드 실행: `logs/`
+- 소스 코드 디렉토리에 런타임 데이터 혼재
+
+**해결 방법**:
+```python
+# 프로젝트 루트 자동 탐지
+project_root = Path(__file__).resolve().parent.parent.parent
+default_log_dir = project_root / 'logs'
+
+# 상대 경로를 프로젝트 루트 기준으로 해석
+if not self.log_dir.is_absolute():
+    self.log_dir = project_root / self.log_dir
+```
+
+**결과**:
+- ✅ 실행 위치에 관계없이 항상 `/project_root/logs/`에 로그 저장
+- ✅ 소스 코드와 런타임 데이터 명확히 분리
+- ✅ Python 프로젝트 베스트 프랙티스 준수
+
+**영향**:
+- `logs/trading.log`: 일반 로그
+- `logs/trades.log`: 거래 전용 로그
+- `logs/audit/`: 감사 로그
+
+**관련 커밋**: (다음 커밋 예정)
+
+---
+
 ### 2025-12-25: 계정 파싱 버그 수정
 
 **대상 파일**: `src/execution/order_manager.py`

@@ -59,7 +59,19 @@ class TradingLogger:
             OSError: If log directory creation fails
         """
         self.log_level = config.get('log_level', 'INFO')
-        self.log_dir = Path(config.get('log_dir', 'logs'))
+
+        # Always use project root's logs/ directory for consistency
+        # regardless of execution location (PyCharm, terminal, background)
+        project_root = Path(__file__).resolve().parent.parent.parent
+        default_log_dir = project_root / 'logs'
+
+        # If config specifies log_dir, interpret as relative to project root
+        # unless it's an absolute path
+        config_log_dir = config.get('log_dir', str(default_log_dir))
+        self.log_dir = Path(config_log_dir)
+        if not self.log_dir.is_absolute():
+            self.log_dir = project_root / self.log_dir
+
         self.log_dir.mkdir(exist_ok=True)
         self._setup_logging()
 
