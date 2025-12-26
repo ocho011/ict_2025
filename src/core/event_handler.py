@@ -37,22 +37,23 @@ class EventBus:
 
         Attributes:
             _subscribers: Maps EventType to list of handler functions
-            _queues: Three priority queues (data, signal, order)
+            _queues: Three priority queues (data, signal, order) - created in start()
             logger: Logger instance for debug/error tracking
             _running: Lifecycle flag for processor control
             _drop_count: Counter for dropped events per queue (monitoring)
             _processor_tasks: List of processor task references for cancellation
+
+        Notes:
+            - Queues are created lazily in start() to ensure proper event loop binding
+            - Creating queues in __init__ causes "attached to different loop" errors
         """
         # Subscriber registry: EventType → List[Callable]
         # defaultdict automatically creates empty list for new EventTypes
         self._subscribers: Dict[EventType, List[Callable]] = defaultdict(list)
 
-        # Three priority queues with different capacities
-        self._queues: Dict[str, asyncio.Queue] = {
-            'data': asyncio.Queue(maxsize=1000),    # High throughput, can drop
-            'signal': asyncio.Queue(maxsize=100),   # Medium priority, must process
-            'order': asyncio.Queue(maxsize=50)      # Critical, never drop
-        }
+        # Three priority queues - will be created in start() with proper event loop
+        # Creating them here causes RuntimeError when event loop changes
+        self._queues: Dict[str, asyncio.Queue] = {}
 
         # Logger for debugging subscription events
         self.logger = logging.getLogger(__name__)
@@ -70,10 +71,7 @@ class EventBus:
             'order': 0
         }
 
-        self.logger.debug(
-            "EventBus initialized with queues: "
-            f"data(1000), signal(100), order(50)"
-        )
+        self.logger.debug("EventBus initialized (queues will be created in start())")
 
     def subscribe(self, event_type: EventType, handler: Callable) -> None:
         """
@@ -196,7 +194,14 @@ class EventBus:
             - Signal/order timeouts indicate system overload (needs investigation)
             - Monitor drop_count via get_queue_stats() for operational alerts
         """
-        # 1. Validate queue name
+        # 1. Validate queues are initialized
+        if not self._queues:
+            raise RuntimeError(
+                "EventBus queues not initialized. "
+                "Call start() before publishing events."
+            )
+
+        # 2. Validate queue name
         if queue_name not in self._queues:
             raise ValueError(
                 f"Invalid queue_name '{queue_name}'. "
@@ -205,7 +210,7 @@ class EventBus:
 
         queue = self._queues[queue_name]
 
-        # 2. Define timeout strategy per queue type
+        # 3. Define timeout strategy per queue type
         timeout_map = {
             'data': 1.0,    # Drop quickly for high-frequency data
             'signal': 5.0,  # Wait longer for important signals
@@ -213,7 +218,7 @@ class EventBus:
         }
         timeout = timeout_map[queue_name]
 
-        # 3. Attempt to publish with timeout
+        # 4. Attempt to publish with timeout
         try:
             if timeout is None:
                 # Order queue: block indefinitely, never drop
@@ -234,7 +239,7 @@ class EventBus:
                 )
 
         except asyncio.TimeoutError:
-            # 4. Handle timeout based on queue criticality
+            # 5. Handle timeout based on queue criticality
             if queue_name == 'data':
                 # Data queue: drop is acceptable, log and continue
                 self._drop_count[queue_name] += 1
@@ -413,10 +418,11 @@ class EventBus:
         prevent single task failure from crashing the entire EventBus.
 
         Process Flow:
-            1. Set _running flag to True
-            2. Create 3 processor tasks with descriptive names
-            3. Store task references in _processor_tasks
-            4. Wait for all tasks with gather (blocks until stop())
+            1. Create queues with current event loop (if not already created)
+            2. Set _running flag to True
+            3. Create 3 processor tasks with descriptive names
+            4. Store task references in _processor_tasks
+            5. Wait for all tasks with gather (blocks until stop())
 
         Error Handling:
             - return_exceptions=True logs task errors without propagating
@@ -445,7 +451,20 @@ class EventBus:
             - Must call stop() to exit (or KeyboardInterrupt)
             - Use shutdown() for graceful cleanup with pending events
             - Task names aid debugging in asyncio task list
+            - Queues created here to ensure proper event loop binding
         """
+        # Create queues with current event loop (prevents "different loop" errors)
+        if not self._queues:
+            self._queues = {
+                'data': asyncio.Queue(maxsize=1000),    # High throughput, can drop
+                'signal': asyncio.Queue(maxsize=100),   # Medium priority, must process
+                'order': asyncio.Queue(maxsize=50)      # Critical, never drop
+            }
+            self.logger.debug(
+                "Created queues with current event loop: "
+                f"data(1000), signal(100), order(50)"
+            )
+
         self._running = True
         self.logger.info("Starting EventBus processors")
 
