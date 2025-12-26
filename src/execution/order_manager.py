@@ -515,9 +515,29 @@ class OrderExecutionManager:
             if hasattr(response, 'headers'):
                 self.weight_tracker.update_from_response(response.headers)
 
+            # Handle Binance API response structure
+            # Response can be either:
+            # 1. Dict with 'data' field: {'limit_usage': {...}, 'data': {'symbols': [...]}}
+            # 2. Dict directly: {'symbols': [...]}
+            if isinstance(response, dict) and 'data' in response:
+                # Response wrapped in 'data' field
+                exchange_data = response['data']
+            elif isinstance(response, dict):
+                # Direct dict response
+                exchange_data = response
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected exchange info response type: {type(response).__name__}"
+                )
+
+            # Validate symbols field exists
+            if 'symbols' not in exchange_data:
+                self.logger.error(f"Exchange info keys: {list(exchange_data.keys())}")
+                raise OrderExecutionError("Exchange info response missing 'symbols' field")
+
             # Parse symbols and extract tick sizes
             symbols_parsed = 0
-            for symbol_data in response['symbols']:
+            for symbol_data in exchange_data['symbols']:
                 symbol = symbol_data['symbol']
 
                 # Find PRICE_FILTER in symbol filters
