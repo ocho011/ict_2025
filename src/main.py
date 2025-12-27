@@ -200,12 +200,15 @@ class TradingBot:
 
         # Step 7: Initialize RiskManager
         self.logger.info("Initializing RiskManager...")
-        self.risk_manager = RiskManager({
-            'max_risk_per_trade': trading_config.max_risk_per_trade,
-            'default_leverage': trading_config.leverage,
-            'max_leverage': 20,  # Hard limit
-            'max_position_size_percent': 0.1  # 10% of account
-        })
+        self.risk_manager = RiskManager(
+            config={
+                'max_risk_per_trade': trading_config.max_risk_per_trade,
+                'default_leverage': trading_config.leverage,
+                'max_leverage': 20,  # Hard limit
+                'max_position_size_percent': 0.1  # 10% of account
+            },
+            audit_logger=self.order_manager.audit_logger  # Share audit logger instance
+        )
 
         # Step 8: Create strategy instance via StrategyFactory
         self.logger.info(f"Creating strategy: {trading_config.strategy}...")
@@ -224,7 +227,9 @@ class TradingBot:
         self.event_bus = EventBus()
 
         self.logger.info("Initializing TradingEngine...")
-        self.trading_engine = TradingEngine()
+        self.trading_engine = TradingEngine(
+            audit_logger=self.order_manager.audit_logger  # Share audit logger instance
+        )
         self.trading_engine.set_components(
             event_bus=self.event_bus,
             data_collector=self.data_collector,

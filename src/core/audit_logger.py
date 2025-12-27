@@ -14,16 +14,34 @@ from enum import Enum
 
 class AuditEventType(Enum):
     """Types of audit events that can be logged."""
+    # Order events
     ORDER_PLACED = "order_placed"
     ORDER_REJECTED = "order_rejected"
     ORDER_CANCELLED = "order_cancelled"
+
+    # Query events
     POSITION_QUERY = "position_query"
     BALANCE_QUERY = "balance_query"
+
+    # Configuration events
     LEVERAGE_SET = "leverage_set"
     MARGIN_TYPE_SET = "margin_type_set"
+
+    # Error events
     API_ERROR = "api_error"
     RETRY_ATTEMPT = "retry_attempt"
     RATE_LIMIT = "rate_limit"
+
+    # Risk management events
+    RISK_VALIDATION = "risk_validation"
+    RISK_REJECTION = "risk_rejection"
+    POSITION_SIZE_CALCULATED = "position_size_calculated"
+    POSITION_SIZE_CAPPED = "position_size_capped"
+
+    # Trading flow events
+    SIGNAL_PROCESSING = "signal_processing"
+    TRADE_EXECUTED = "trade_executed"
+    TRADE_EXECUTION_FAILED = "trade_execution_failed"
 
 
 class AuditLogger:
@@ -53,7 +71,14 @@ class AuditLogger:
             log_dir: Directory for audit log files (default: logs/audit)
                     Daily log files are created in this directory.
         """
+        # Always use project root's logs directory for consistency
+        project_root = Path(__file__).resolve().parent.parent.parent
+        
+        # If log_dir is relative, make it relative to project root
         self.log_dir = Path(log_dir)
+        if not self.log_dir.is_absolute():
+            self.log_dir = project_root / self.log_dir
+            
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # Create daily log file

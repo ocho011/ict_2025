@@ -10,7 +10,10 @@ Coordinates:
 
 import asyncio
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.audit_logger import AuditLogger
 
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
@@ -58,7 +61,7 @@ class TradingEngine:
         - _on_order_filled: Order → Position update (future)
     """
 
-    def __init__(self) -> None:
+    def __init__(self, audit_logger: Optional['AuditLogger'] = None) -> None:
         """
         Initialize TradingEngine with minimal setup.
 
@@ -66,8 +69,12 @@ class TradingEngine:
         This allows for better testability and clear separation between
         bootstrap (TradingBot) and execution (TradingEngine).
 
+        Args:
+            audit_logger: Optional AuditLogger instance for structured logging
+
         Attributes:
             logger: Logger instance for engine events
+            audit_logger: AuditLogger instance for audit trail
             event_bus: Optional[EventBus] (injected via set_components)
             data_collector: Optional[BinanceDataCollector] (injected via set_components)
             strategy: Optional[BaseStrategy] (injected via set_components)
@@ -78,12 +85,13 @@ class TradingEngine:
 
         Process Flow:
             1. Create logger
-            2. Set component placeholders to None
-            3. Wait for set_components() call
+            2. Setup audit logger
+            3. Set component placeholders to None
+            4. Wait for set_components() call
 
         Example:
             ```python
-            engine = TradingEngine()
+            engine = TradingEngine(audit_logger=audit_logger)
             engine.set_components(
                 event_bus=event_bus,
                 data_collector=collector,
@@ -96,6 +104,13 @@ class TradingEngine:
             ```
         """
         self.logger = logging.getLogger(__name__)
+
+        # Setup audit logger
+        if audit_logger is not None:
+            self.audit_logger = audit_logger
+        else:
+            from src.core.audit_logger import AuditLogger
+            self.audit_logger = AuditLogger()
 
         # Components (injected via set_components)
         self.event_bus: Optional[EventBus] = None
@@ -345,6 +360,27 @@ class TradingEngine:
                 f"SL: {signal.stop_loss})"
             )
 
+            # Audit log: signal generated from candle analysis
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.SIGNAL_PROCESSING,
+                    operation="candle_analysis",
+                    symbol=candle.symbol,
+                    additional_data={
+                        'interval': candle.interval,
+                        'close_price': candle.close,
+                        'signal_generated': True,
+                        'signal_type': signal.signal_type.value,
+                        'entry_price': signal.entry_price,
+                        'take_profit': signal.take_profit,
+                        'stop_loss': signal.stop_loss,
+                        'strategy_name': signal.strategy_name
+                    }
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             # Create event and publish to 'signal' queue
             signal_event = Event(EventType.SIGNAL_GENERATED, signal)
             await self.event_bus.publish(signal_event, queue_name='signal')
@@ -385,6 +421,23 @@ class TradingEngine:
                 self.logger.warning(
                     f"Signal rejected by risk validation: {signal.signal_type.value}"
                 )
+
+                # Audit log: risk rejection
+                try:
+                    from src.core.audit_logger import AuditEventType
+                    self.audit_logger.log_event(
+                        event_type=AuditEventType.RISK_REJECTION,
+                        operation="signal_execution",
+                        symbol=signal.symbol,
+                        order_data={
+                            'signal_type': signal.signal_type.value,
+                            'entry_price': signal.entry_price
+                        },
+                        error={'reason': 'risk_validation_failed'}
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Audit logging failed: {e}")
+
                 return
 
             # Step 4: Get account balance
@@ -420,6 +473,27 @@ class TradingEngine:
                 f"TP/SL={len(tpsl_orders)}/2 orders"
             )
 
+            # Audit log: trade executed successfully
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.TRADE_EXECUTED,
+                    operation="execute_trade",
+                    symbol=signal.symbol,
+                    order_data={
+                        'signal_type': signal.signal_type.value,
+                        'entry_price': signal.entry_price,
+                        'quantity': quantity,
+                        'leverage': self.config_manager.trading_config.leverage
+                    },
+                    response={
+                        'entry_order_id': entry_order.order_id,
+                        'tpsl_count': len(tpsl_orders)
+                    }
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             # Step 8: Publish ORDER_FILLED event
             order_event = Event(EventType.ORDER_FILLED, entry_order)
             await self.event_bus.publish(order_event, queue_name='order')
@@ -430,6 +504,26 @@ class TradingEngine:
                 f"Failed to execute signal for {signal.symbol}: {e}",
                 exc_info=True
             )
+
+            # Audit log: trade execution failed
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.TRADE_EXECUTION_FAILED,
+                    operation="execute_trade",
+                    symbol=signal.symbol,
+                    order_data={
+                        'signal_type': signal.signal_type.value,
+                        'entry_price': signal.entry_price
+                    },
+                    error={
+                        'error_type': type(e).__name__,
+                        'error_message': str(e)
+                    }
+                )
+            except Exception:
+                pass  # Exception context already logged
+
             # Don't re-raise - system should continue running
 
     async def _on_order_filled(self, event: Event) -> None:
@@ -453,6 +547,24 @@ class TradingEngine:
             f"Quantity={order.quantity}, "
             f"Price={order.price}"
         )
+
+        # Audit log: order filled confirmation
+        try:
+            from src.core.audit_logger import AuditEventType
+            self.audit_logger.log_event(
+                event_type=AuditEventType.ORDER_PLACED,  # Reuse existing event type
+                operation="order_confirmation",
+                symbol=order.symbol,
+                response={
+                    'order_id': order.order_id,
+                    'side': order.side.value,
+                    'quantity': order.quantity,
+                    'price': order.price,
+                    'order_type': order.order_type.value
+                }
+            )
+        except Exception as e:
+            self.logger.warning(f"Audit logging failed: {e}")
 
         # Step 3: Update position tracking (future enhancement)
         # For now, OrderManager.get_position() queries Binance API

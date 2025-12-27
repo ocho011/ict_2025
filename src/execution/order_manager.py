@@ -854,6 +854,24 @@ class OrderExecutionManager:
                 f"stopPrice={stop_price_str}"
             )
 
+            # Audit log: TP order placed successfully
+            try:
+                self.audit_logger.log_order_placed(
+                    symbol=signal.symbol,
+                    order_data={
+                        'order_type': 'TAKE_PROFIT_MARKET',
+                        'side': side.value,
+                        'stop_price': signal.take_profit,
+                        'close_position': True
+                    },
+                    response={
+                        'order_id': order.order_id,
+                        'status': order.status.value
+                    }
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             return order
 
         except ClientError as e:
@@ -862,6 +880,24 @@ class OrderExecutionManager:
                 f"TP order rejected: code={e.error_code}, "
                 f"msg={e.error_message}"
             )
+
+            # Audit log: TP order rejected
+            try:
+                self.audit_logger.log_order_rejected(
+                    symbol=signal.symbol,
+                    order_data={
+                        'order_type': 'TAKE_PROFIT_MARKET',
+                        'side': side.value,
+                        'stop_price': signal.take_profit
+                    },
+                    error={
+                        'error_code': e.error_code,
+                        'error_message': e.error_message
+                    }
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
         except Exception as e:
@@ -869,6 +905,22 @@ class OrderExecutionManager:
             self.logger.error(
                 f"TP order placement failed: {type(e).__name__}: {e}"
             )
+
+            # Audit log: API error during TP order placement
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="place_tp_order",
+                    symbol=signal.symbol,
+                    error={
+                        'error_type': type(e).__name__,
+                        'error_message': str(e)
+                    }
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
     def _place_sl_order(
@@ -931,6 +983,24 @@ class OrderExecutionManager:
                 f"stopPrice={stop_price_str}"
             )
 
+            # Audit log: SL order placed successfully
+            try:
+                self.audit_logger.log_order_placed(
+                    symbol=signal.symbol,
+                    order_data={
+                        'order_type': 'STOP_MARKET',
+                        'side': side.value,
+                        'stop_price': signal.stop_loss,
+                        'close_position': True
+                    },
+                    response={
+                        'order_id': order.order_id,
+                        'status': order.status.value
+                    }
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             return order
 
         except ClientError as e:
@@ -939,6 +1009,24 @@ class OrderExecutionManager:
                 f"SL order rejected: code={e.error_code}, "
                 f"msg={e.error_message}"
             )
+
+            # Audit log: SL order rejected
+            try:
+                self.audit_logger.log_order_rejected(
+                    symbol=signal.symbol,
+                    order_data={
+                        'order_type': 'STOP_MARKET',
+                        'side': side.value,
+                        'stop_price': signal.stop_loss
+                    },
+                    error={
+                        'error_code': e.error_code,
+                        'error_message': e.error_message
+                    }
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
         except Exception as e:
@@ -946,6 +1034,22 @@ class OrderExecutionManager:
             self.logger.error(
                 f"SL order placement failed: {type(e).__name__}: {e}"
             )
+
+            # Audit log: API error during SL order placement
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="place_sl_order",
+                    symbol=signal.symbol,
+                    error={
+                        'error_type': type(e).__name__,
+                        'error_message': str(e)
+                    }
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
@@ -1244,9 +1348,42 @@ class OrderExecutionManager:
                 f"PnL: {unrealized_pnl}"
             )
 
+            # Audit log: position query successful
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.POSITION_QUERY,
+                    operation="get_position",
+                    symbol=symbol,
+                    response={
+                        'has_position': True,
+                        'position_amt': quantity,
+                        'entry_price': entry_price,
+                        'side': side,
+                        'unrealized_pnl': unrealized_pnl
+                    }
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             return position
 
         except ClientError as e:
+            # Audit log: API error during position query
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="get_position",
+                    symbol=symbol,
+                    error={
+                        'error_code': e.error_code,
+                        'error_message': e.error_message
+                    }
+                )
+            except Exception:
+                pass  # Don't double-log
+
             # Handle Binance API errors
             if e.error_code == -1121:
                 raise ValidationError(f"Invalid symbol: {symbol}")
@@ -1257,6 +1394,21 @@ class OrderExecutionManager:
                     f"Position query failed: code={e.error_code}, msg={e.error_message}"
                 )
         except (KeyError, ValueError, TypeError) as e:
+            # Audit log: parsing error
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="get_position",
+                    symbol=symbol,
+                    error={
+                        'error_type': type(e).__name__,
+                        'error_message': str(e)
+                    }
+                )
+            except Exception:
+                pass  # Don't double-log
+
             raise OrderExecutionError(f"Failed to parse position data: {e}")
 
     def get_account_balance(self) -> float:
@@ -1318,6 +1470,18 @@ class OrderExecutionManager:
 
             # 6. Log and return
             self.logger.info(f"USDT balance: {usdt_balance:.2f}")
+
+            # Audit log: balance query successful
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.BALANCE_QUERY,
+                    operation="get_account_balance",
+                    response={'balance': usdt_balance}
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             return usdt_balance
 
         except ClientError as e:
@@ -1378,6 +1542,21 @@ class OrderExecutionManager:
                 # Unexpected response format
                 self.logger.warning(f"Unexpected response format: {response}")
                 cancelled_count = 0
+
+            # Audit log: order cancellation
+            try:
+                from src.core.audit_logger import AuditEventType
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.ORDER_CANCELLED,
+                    operation="cancel_all_orders",
+                    symbol=symbol,
+                    response={
+                        'cancelled_count': cancelled_count,
+                        'order_ids': [o.get('orderId') for o in response] if isinstance(response, list) else []
+                    }
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
 
             return cancelled_count
 
