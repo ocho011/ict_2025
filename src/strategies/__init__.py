@@ -47,6 +47,8 @@ class StrategyFactory:
         True
     """
 
+    # A central lookup table mapping string aliases to strategy classes. 
+    # Used by the factory to dynamically create instances from a given name.
     _strategies: Dict[str, Type[BaseStrategy]] = {
         'mock_sma': MockSMACrossoverStrategy,
         'always_signal': AlwaysSignalStrategy,  # Test strategy for pipeline verification

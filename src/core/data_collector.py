@@ -692,6 +692,94 @@ class BinanceDataCollector:
         )
         return sorted_candles
 
+    def get_all_buffered_candles(self) -> Dict[str, List[Candle]]:
+        """
+        Retrieve all buffered candles for all symbol/interval pairs.
+
+        Returns candles from ALL buffers, organized by symbol/interval.
+        Used for strategy initialization after backfill completes.
+
+        Returns:
+            Dict mapping '{SYMBOL}_{INTERVAL}' -> List[Candle]
+            Empty dict if no buffers exist
+            Candles sorted by open_time (oldest → newest) within each list
+
+        Behavior:
+            1. Iterate through all buffers in self._candle_buffers
+            2. For each buffer, convert deque to sorted list
+            3. Return dict with buffer_key -> candle_list mapping
+
+        Non-Destructive:
+            - Buffers remain intact after retrieval
+            - Returns copies, not references to internal deques
+
+        Example:
+            >>> # After backfill completes
+            >>> all_candles = collector.get_all_buffered_candles()
+            >>> print(all_candles.keys())
+            dict_keys(['BTCUSDT_1m', 'BTCUSDT_5m', 'ETHUSDT_1m'])
+            >>>
+            >>> # Use for strategy initialization
+            >>> for buffer_key, candles in all_candles.items():
+            ...     print(f"{buffer_key}: {len(candles)} candles")
+            BTCUSDT_1m: 100 candles
+            BTCUSDT_5m: 100 candles
+            ETHUSDT_1m: 100 candles
+
+        Usage Pattern:
+            ```python
+            # After backfill in TradingBot.initialize():
+            all_candles = self.data_collector.get_all_buffered_candles()
+
+            for buffer_key, candles in all_candles.items():
+                # Parse buffer_key to get symbol/interval
+                symbol, interval = buffer_key.rsplit('_', 1)
+
+                # Initialize strategy for this symbol
+                strategy = self.strategies.get(symbol)
+                if strategy:
+                    strategy.initialize_with_historical_data(candles)
+            ```
+
+        Thread Safety:
+            - Safe to call from any thread
+            - Concurrent buffer updates won't affect returned data
+
+        Notes:
+            - Typically called once after backfill, before streaming starts
+            - Keys use format '{SYMBOL}_{INTERVAL}' (e.g., 'BTCUSDT_1m')
+            - Empty buffers are included with empty lists
+            - Sorted within each list, but dict order depends on Python version
+        """
+        result = {}
+
+        # If no buffers exist, return empty dict
+        if not self._candle_buffers:
+            self.logger.debug("No buffers exist, returning empty dict")
+            return result
+
+        # Iterate through all buffers
+        for buffer_key, buffer in self._candle_buffers.items():
+            # Convert deque to list
+            candles = list(buffer)
+
+            # Sort by open_time (oldest → newest)
+            sorted_candles = sorted(candles, key=lambda c: c.open_time)
+
+            # Add to result dict
+            result[buffer_key] = sorted_candles
+
+            self.logger.debug(
+                f"Retrieved {len(sorted_candles)} candles from buffer {buffer_key}"
+            )
+
+        self.logger.info(
+            f"Retrieved candles from {len(result)} buffers, "
+            f"total {sum(len(candles) for candles in result.values())} candles"
+        )
+
+        return result
+
     async def stop(self, timeout: float = 5.0) -> None:
         """
         Gracefully stop data collection and cleanup resources.

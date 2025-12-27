@@ -169,10 +169,26 @@ class TradingBot:
             )
             if backfill_success:
                 self.logger.info("✅ Historical data backfill completed successfully")
+
+                # Step 5.6: Initialize strategy with historical data
+                self.logger.info("Initializing strategy with historical candles...")
+                historical_candles = self.data_collector.get_all_buffered_candles()
+
+                if historical_candles:
+                    # Note: trading_engine is not yet created, so we'll initialize after Step 9
+                    # Store historical_candles for later initialization
+                    self._historical_candles = historical_candles
+                    self.logger.info(
+                        f"Stored {sum(len(candles) for candles in historical_candles.values())} "
+                        f"candles from {len(historical_candles)} buffers for strategy initialization"
+                    )
+                else:
+                    self.logger.warning("No historical candles available after backfill")
             else:
                 self.logger.warning("⚠️ Some pairs failed to backfill (will use real-time data only)")
         else:
             self.logger.info("Backfilling disabled (backfill_limit=0)")
+            self._historical_candles = None  # No backfill data to initialize
 
         # Step 6: Initialize OrderExecutionManager
         self.logger.info("Initializing OrderExecutionManager...")
@@ -218,6 +234,16 @@ class TradingBot:
             config_manager=self.config_manager,
             trading_bot=self
         )
+
+        # Step 9.5: Initialize strategy with historical data (if available)
+        if hasattr(self, '_historical_candles') and self._historical_candles:
+            self.logger.info("Initializing strategy with backfilled historical data...")
+            self.trading_engine.initialize_strategy_with_historical_data(
+                self._historical_candles
+            )
+            self.logger.info("✅ Strategy initialized with historical data")
+        else:
+            self.logger.info("No historical data to initialize (backfill disabled or failed)")
 
         # Step 10: Configure leverage
 

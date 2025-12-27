@@ -169,6 +169,108 @@ class TradingEngine:
 
         self.logger.info("✅ TradingEngine components injected and handlers registered")
 
+    def initialize_strategy_with_historical_data(
+        self, historical_candles: dict
+    ) -> None:
+        """
+        Initialize strategy with historical candle data after backfill.
+
+        Called once during system startup after backfill completes, before
+        WebSocket streaming begins. Pre-populates strategy buffer so it can
+        analyze immediately when real-time trading starts.
+
+        Args:
+            historical_candles: Dict mapping buffer_key -> List[Candle]
+                               From DataCollector.get_all_buffered_candles()
+                               Format: {'{SYMBOL}_{INTERVAL}': [Candle, ...]}
+
+        Behavior:
+            1. Validates strategy is injected
+            2. Finds candles matching strategy's symbol
+            3. Calls strategy.initialize_with_historical_data()
+            4. Logs initialization status
+
+        Example:
+            ```python
+            # After backfill in TradingBot.initialize()
+            all_candles = self.data_collector.get_all_buffered_candles()
+            # all_candles = {'BTCUSDT_1m': [Candle, ...], 'BTCUSDT_5m': [Candle, ...]}
+
+            self.trading_engine.initialize_strategy_with_historical_data(all_candles)
+            # Strategy now has historical context before real-time trading
+            ```
+
+        Buffer Key Matching:
+            - Finds all buffers starting with strategy's symbol
+            - Initializes strategy with all matching intervals combined
+            - Or initializes with each interval separately (depends on implementation)
+
+        Error Handling:
+            - Logs warning if strategy not injected yet
+            - Logs warning if no matching candles found
+            - Logs error if initialization fails (but doesn't raise)
+            - System continues even if initialization fails
+
+        Notes:
+            - Called ONCE during startup (warmup phase)
+            - Must be called AFTER set_components()
+            - Must be called BEFORE start_streaming()
+            - Does NOT trigger signal generation
+        """
+        if not self.strategy:
+            self.logger.warning(
+                "[TradingEngine] Strategy not injected, skipping historical data initialization"
+            )
+            return
+
+        if not historical_candles:
+            self.logger.warning(
+                "[TradingEngine] No historical candles provided for initialization"
+            )
+            return
+
+        self.logger.info(
+            f"[TradingEngine] Initializing strategy '{self.strategy.__class__.__name__}' "
+            f"with historical data"
+        )
+
+        try:
+            # Find candles for this strategy's symbol
+            symbol = self.strategy.symbol
+            matching_candles = []
+
+            for buffer_key, candles in historical_candles.items():
+                # Check if buffer_key starts with strategy's symbol
+                # Buffer key format: '{SYMBOL}_{INTERVAL}'
+                if buffer_key.startswith(symbol):
+                    matching_candles.extend(candles)
+                    self.logger.debug(
+                        f"[TradingEngine] Found {len(candles)} candles in buffer {buffer_key}"
+                    )
+
+            if not matching_candles:
+                self.logger.warning(
+                    f"[TradingEngine] No historical candles found for symbol '{symbol}'"
+                )
+                return
+
+            # Sort all candles chronologically (since we combined multiple intervals)
+            matching_candles.sort(key=lambda c: c.open_time)
+
+            # Initialize strategy with historical data
+            self.strategy.initialize_with_historical_data(matching_candles)
+
+            self.logger.info(
+                f"[TradingEngine] ✅ Strategy initialization complete: "
+                f"{len(matching_candles)} total candles loaded for {symbol}"
+            )
+
+        except Exception as e:
+            self.logger.error(
+                f"[TradingEngine] ❌ Failed to initialize strategy with historical data: {e}",
+                exc_info=True
+            )
+
     def _setup_event_handlers(self) -> None:
         """
         Register event subscriptions with EventBus.

@@ -8,7 +8,8 @@ and defines abstract methods for signal generation and risk calculations.
 
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, List, Optional
+import logging
 
 from src.models.candle import Candle
 from src.models.signal import Signal
@@ -122,6 +123,98 @@ class BaseStrategy(ABC):
         self.config: dict = config
         self.candle_buffer: List[Candle] = []
         self.buffer_size: int = config.get('buffer_size', 100)
+        self._initialized: bool = False  # Track historical data initialization
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+    def initialize_with_historical_data(self, candles: List[Candle]) -> None:
+        """
+        Initialize strategy buffer with historical candle data.
+
+        Called once during system startup after backfilling completes.
+        Does NOT trigger signal generation - used only for warmup phase.
+
+        This method pre-populates the candle buffer with historical data
+        so strategies can analyze immediately when real-time trading begins,
+        rather than waiting for enough real-time candles to accumulate.
+
+        Args:
+            candles: List of historical candles in chronological order (oldest first)
+
+        Behavior:
+            1. Adds all candles to self.candle_buffer in chronological order
+            2. Trims buffer to self.buffer_size if historical data exceeds limit
+            3. Sets self._initialized = True to mark strategy as warmed up
+            4. Logs initialization progress
+
+        Buffer Management:
+            - If len(candles) <= buffer_size: All candles added
+            - If len(candles) > buffer_size: Only most recent buffer_size candles kept
+            - Maintains chronological order (oldest → newest)
+
+        Example:
+            >>> # After backfill, TradingEngine calls this for each strategy
+            >>> historical_candles = data_collector.get_candle_buffer('BTCUSDT', '1m')
+            >>> strategy.initialize_with_historical_data(historical_candles)
+            >>> # strategy.candle_buffer now contains 100 candles (if backfill_limit=100)
+            >>> # strategy._initialized = True
+            >>> # Strategy ready for real-time analysis
+
+        Usage Pattern:
+            ```python
+            # In TradingBot.initialize() after backfill completes:
+            if backfill_success:
+                for symbol in symbols:
+                    historical_candles = data_collector.get_candle_buffer(symbol, interval)
+                    strategy.initialize_with_historical_data(historical_candles)
+
+            # Now when first real-time candle arrives:
+            await strategy.analyze(candle)  # Buffer already has historical context
+            ```
+
+        Notes:
+            - Called ONCE during startup, before real-time streaming begins
+            - Does NOT call analyze() or generate signals - warmup only
+            - Subsequent real-time candles handled normally via analyze()
+            - If buffer already has data, it will be replaced (not appended)
+            - Thread-safe: Called from main thread before async event loop starts
+        """
+        if not candles:
+            self.logger.warning(
+                f"[{self.__class__.__name__}] No historical candles provided "
+                f"for {self.symbol}. Strategy will start with empty buffer."
+            )
+            self._initialized = True
+            return
+
+        self.logger.info(
+            f"[{self.__class__.__name__}] Initializing {self.symbol} buffer "
+            f"with {len(candles)} historical candles"
+        )
+
+        # Clear existing buffer (in case of re-initialization)
+        self.candle_buffer.clear()
+
+        # Add all candles in chronological order
+        for candle in candles:
+            self.candle_buffer.append(candle)
+
+        # Trim buffer to max size if needed (keep most recent candles)
+        if len(self.candle_buffer) > self.buffer_size:
+            # Remove oldest candles to fit buffer_size
+            excess = len(self.candle_buffer) - self.buffer_size
+            self.candle_buffer = self.candle_buffer[excess:]
+            self.logger.debug(
+                f"[{self.__class__.__name__}] Trimmed {excess} oldest candles "
+                f"to fit buffer_size={self.buffer_size}"
+            )
+
+        # Mark as initialized
+        self._initialized = True
+
+        self.logger.info(
+            f"[{self.__class__.__name__}] {self.symbol} initialization complete: "
+            f"{len(self.candle_buffer)} candles in buffer"
+        )
 
     def update_buffer(self, candle: Candle) -> None:
         """
