@@ -215,10 +215,11 @@ class TradingEngine:
             # Strategy now has historical context before real-time trading
             ```
 
-        Buffer Key Matching:
-            - Finds all buffers starting with strategy's symbol
-            - Initializes strategy with all matching intervals combined
-            - Or initializes with each interval separately (depends on implementation)
+        Buffer Key Matching (Single-Interval):
+            - Finds FIRST buffer starting with strategy's symbol
+            - Initializes strategy with THAT SINGLE interval only
+            - Prevents interval mixing which corrupts indicator calculations
+            - Foundation ready for multi-timeframe routing in Phase 2
 
         Error Handling:
             - Logs warning if strategy not injected yet
@@ -252,32 +253,30 @@ class TradingEngine:
         try:
             # Find candles for this strategy's symbol
             symbol = self.strategy.symbol
-            matching_candles = []
 
+            # Single-interval backward compatibility:
+            # Find first matching buffer key and use ONLY that interval
+            # This prevents interval mixing which would corrupt indicator calculations
             for buffer_key, candles in historical_candles.items():
                 # Check if buffer_key starts with strategy's symbol
                 # Buffer key format: '{SYMBOL}_{INTERVAL}'
                 if buffer_key.startswith(symbol):
-                    matching_candles.extend(candles)
-                    self.logger.debug(
-                        f"[TradingEngine] Found {len(candles)} candles in buffer {buffer_key}"
+                    self.logger.info(
+                        f"[TradingEngine] Initializing strategy with {len(candles)} candles "
+                        f"from {buffer_key}"
                     )
+                    # Initialize strategy with this interval's candles only
+                    self.strategy.initialize_with_historical_data(candles)
 
-            if not matching_candles:
-                self.logger.warning(
-                    f"[TradingEngine] No historical candles found for symbol '{symbol}'"
-                )
-                return
+                    self.logger.info(
+                        f"[TradingEngine] ✅ Strategy initialization complete: "
+                        f"{len(candles)} candles loaded from {buffer_key}"
+                    )
+                    return  # Use ONLY first interval, don't mix!
 
-            # Sort all candles chronologically (since we combined multiple intervals)
-            matching_candles.sort(key=lambda c: c.open_time)
-
-            # Initialize strategy with historical data
-            self.strategy.initialize_with_historical_data(matching_candles)
-
-            self.logger.info(
-                f"[TradingEngine] ✅ Strategy initialization complete: "
-                f"{len(matching_candles)} total candles loaded for {symbol}"
+            # No matching candles found
+            self.logger.warning(
+                f"[TradingEngine] No historical candles found for symbol '{symbol}'"
             )
 
         except Exception as e:

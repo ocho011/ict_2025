@@ -7,6 +7,7 @@ and defines abstract methods for signal generation and risk calculations.
 """
 
 from abc import ABC, abstractmethod
+from collections import deque
 from datetime import datetime
 from typing import Dict, List, Optional
 import logging
@@ -94,13 +95,14 @@ class BaseStrategy(ABC):
         Attributes:
             symbol: Trading pair this strategy analyzes
             config: Configuration dictionary for strategy parameters
-            candle_buffer: List of historical candles (FIFO order)
+            candle_buffer: Deque of historical candles (FIFO order with automatic eviction)
             buffer_size: Maximum number of candles to keep in buffer
 
         Buffer Management:
             - Buffer stores candles in chronological order (oldest → newest)
-            - When buffer exceeds buffer_size, oldest candle is removed (FIFO)
+            - When buffer exceeds buffer_size, oldest candle is automatically removed (FIFO)
             - Buffer persists across analyze() calls for indicator calculations
+            - Uses collections.deque with maxlen for O(1) append/evict operations
 
         Example:
             ```python
@@ -118,11 +120,12 @@ class BaseStrategy(ABC):
             - Subclasses should call super().__init__() first
             - Config dict allows flexible parameters per strategy
             - Buffer_size should accommodate longest indicator period
+            - Deque maxlen provides automatic FIFO without manual pop(0)
         """
         self.symbol: str = symbol
         self.config: dict = config
-        self.candle_buffer: List[Candle] = []
         self.buffer_size: int = config.get('buffer_size', 100)
+        self.candle_buffer: deque = deque(maxlen=self.buffer_size)
         self._initialized: bool = False  # Track historical data initialization
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -141,8 +144,8 @@ class BaseStrategy(ABC):
             candles: List of historical candles in chronological order (oldest first)
 
         Behavior:
-            1. Adds all candles to self.candle_buffer in chronological order
-            2. Trims buffer to self.buffer_size if historical data exceeds limit
+            1. Clears existing buffer
+            2. Adds most recent buffer_size candles (if more provided)
             3. Sets self._initialized = True to mark strategy as warmed up
             4. Logs initialization progress
 
@@ -150,12 +153,13 @@ class BaseStrategy(ABC):
             - If len(candles) <= buffer_size: All candles added
             - If len(candles) > buffer_size: Only most recent buffer_size candles kept
             - Maintains chronological order (oldest → newest)
+            - Deque maxlen automatically enforces size limit
 
         Example:
             >>> # After backfill, TradingEngine calls this for each strategy
             >>> historical_candles = data_collector.get_candle_buffer('BTCUSDT', '1m')
             >>> strategy.initialize_with_historical_data(historical_candles)
-            >>> # strategy.candle_buffer now contains 100 candles (if backfill_limit=100)
+            >>> # strategy.candle_buffer now contains up to buffer_size candles
             >>> # strategy._initialized = True
             >>> # Strategy ready for real-time analysis
 
@@ -194,19 +198,10 @@ class BaseStrategy(ABC):
         # Clear existing buffer (in case of re-initialization)
         self.candle_buffer.clear()
 
-        # Add all candles in chronological order
-        for candle in candles:
+        # Add candles respecting maxlen (keeps most recent)
+        # Slice to most recent buffer_size candles if more provided
+        for candle in candles[-self.buffer_size:]:
             self.candle_buffer.append(candle)
-
-        # Trim buffer to max size if needed (keep most recent candles)
-        if len(self.candle_buffer) > self.buffer_size:
-            # Remove oldest candles to fit buffer_size
-            excess = len(self.candle_buffer) - self.buffer_size
-            self.candle_buffer = self.candle_buffer[excess:]
-            self.logger.debug(
-                f"[{self.__class__.__name__}] Trimmed {excess} oldest candles "
-                f"to fit buffer_size={self.buffer_size}"
-            )
 
         # Mark as initialized
         self._initialized = True
@@ -218,11 +213,11 @@ class BaseStrategy(ABC):
 
     def update_buffer(self, candle: Candle) -> None:
         """
-        Add candle to buffer, maintaining max size via FIFO.
+        Add candle to buffer with automatic FIFO management.
 
-        This method manages the historical candle buffer by:
-        1. Appending new candle to end of list (newest)
-        2. Removing oldest candle if buffer exceeds max size
+        This method manages the historical candle buffer by appending
+        new candles. When the buffer reaches maxlen (buffer_size), 
+        the deque automatically removes the oldest candle.
 
         Buffer Order:
             buffer[0]  = oldest candle
@@ -230,8 +225,8 @@ class BaseStrategy(ABC):
 
         FIFO Behavior:
             When buffer is full (len == buffer_size):
-            - Append new candle to end
-            - Remove candle at index 0 (oldest)
+            - Append new candle to end: O(1)
+            - Oldest candle automatically removed: O(1)
             - Maintains chronological order
 
         Args:
@@ -239,9 +234,9 @@ class BaseStrategy(ABC):
 
         Example:
             ```python
-            # Initial: buffer_size=3, buffer = [c1, c2, c3]
+            # Initial: buffer_size=3, buffer = deque([c1, c2, c3], maxlen=3)
             strategy.update_buffer(c4)
-            # Result: buffer = [c2, c3, c4]  (c1 removed, c4 added)
+            # Result: buffer = deque([c2, c3, c4], maxlen=3) - c1 auto-removed
 
             # Buffer order after multiple updates:
             # buffer[0]  = oldest (c2)
@@ -250,9 +245,9 @@ class BaseStrategy(ABC):
             ```
 
         Performance:
-            - Time Complexity: O(n) for pop(0), O(1) for append
+            - Time Complexity: O(1) for both append and auto-evict
             - Space Complexity: O(buffer_size)
-            - Note: For large buffers (>1000), consider collections.deque
+            - Improvement: Previous List.pop(0) was O(n)
 
         Usage Pattern:
             ```python
@@ -272,11 +267,100 @@ class BaseStrategy(ABC):
             - Called automatically by most strategy implementations
             - Buffer persists across analyze() calls (not cleared)
             - No validation - assumes candles added in chronological order
-            - Oldest candle removed via pop(0) (list shift operation)
+            - Deque maxlen handles FIFO automatically (no manual pop needed)
         """
-        self.candle_buffer.append(candle)
-        if len(self.candle_buffer) > self.buffer_size:
-            self.candle_buffer.pop(0)  # Remove oldest candle
+        self.candle_buffer.append(candle)  # O(1) - maxlen handles FIFO  # Remove oldest candle
+
+    def get_latest_candles(self, count: int) -> List[Candle]:
+        """
+        Get the most recent N candles from buffer.
+
+        Retrieves the last `count` candles from the buffer in chronological
+        order. Useful for indicator calculations or pattern detection.
+
+        Args:
+            count: Number of candles to retrieve
+
+        Returns:
+            List of candles (newest last), empty if insufficient data
+
+        Example:
+            ```python
+            # Get last 20 candles for SMA calculation
+            recent = strategy.get_latest_candles(20)
+            if recent:
+                closes = [c.close for c in recent]
+                sma = sum(closes) / len(closes)
+            ```
+
+        Notes:
+            - Returns empty list if buffer has fewer than `count` candles
+            - Returned list maintains chronological order (oldest → newest)
+            - Does not modify buffer, read-only operation
+        """
+        if len(self.candle_buffer) < count:
+            return []
+        return list(self.candle_buffer)[-count:]
+
+    def get_buffer_size_current(self) -> int:
+        """
+        Get current number of candles in buffer.
+
+        Returns the actual number of candles currently stored, which may
+        be less than buffer_size during initial warmup phase.
+
+        Returns:
+            Current buffer length (0 to buffer_size)
+
+        Example:
+            ```python
+            current = strategy.get_buffer_size_current()
+            max_size = strategy.buffer_size
+            progress = (current / max_size) * 100
+            print(f"Buffer: {current}/{max_size} ({progress:.1f}%)")
+            ```
+
+        Notes:
+            - Returns 0 when buffer is empty
+            - Returns buffer_size when buffer is full
+            - Useful for monitoring warmup progress
+        """
+        return len(self.candle_buffer)
+
+    def is_buffer_ready(self, min_candles: int) -> bool:
+        """
+        Check if buffer has minimum required candles for analysis.
+
+        Validates that buffer contains at least `min_candles` for indicator
+        calculations. Common use in analyze() to ensure sufficient data.
+
+        Args:
+            min_candles: Minimum candles needed for analysis
+
+        Returns:
+            True if buffer has enough data, False otherwise
+
+        Example:
+            ```python
+            async def analyze(self, candle: Candle) -> Optional[Signal]:
+                self.update_buffer(candle)
+
+                # Check buffer readiness before analysis
+                if not self.is_buffer_ready(self.slow_period):
+                    return None  # Not enough data yet
+
+                # Proceed with calculations
+                closes = self.get_latest_candles(self.slow_period)
+                sma = calculate_sma(closes)
+                # ...
+            ```
+
+        Notes:
+            - Cleaner than `if len(self.candle_buffer) < min_candles`
+            - Consistent API across strategy implementations
+            - Foundation for MTF buffer ready checks
+        """
+        return len(self.candle_buffer) >= min_candles
 
     @abstractmethod
     async def analyze(self, candle: Candle) -> Optional[Signal]:

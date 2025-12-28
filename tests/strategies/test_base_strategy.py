@@ -8,6 +8,7 @@ Tests verify:
 - Concrete implementation compliance with interface
 """
 
+from collections import deque
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -165,7 +166,8 @@ class TestBaseStrategyInitialization:
         assert strategy.symbol == 'BTCUSDT'
         assert strategy.config == default_config
         assert strategy.buffer_size == 100  # Default value
-        assert strategy.candle_buffer == []
+        assert isinstance(strategy.candle_buffer, deque)
+        assert strategy.candle_buffer.maxlen == 100
         assert len(strategy.candle_buffer) == 0
 
     def test_initialization_with_custom_buffer_size(self, custom_config):
@@ -175,7 +177,9 @@ class TestBaseStrategyInitialization:
         assert strategy.symbol == 'ETHUSDT'
         assert strategy.config == custom_config
         assert strategy.buffer_size == 200  # Custom value
-        assert strategy.candle_buffer == []
+        assert isinstance(strategy.candle_buffer, deque)
+        assert strategy.candle_buffer.maxlen == 200
+        assert len(strategy.candle_buffer) == 0
 
     def test_config_stores_strategy_specific_parameters(self, custom_config):
         """Test that config dict stores strategy-specific parameters."""

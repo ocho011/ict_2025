@@ -162,7 +162,7 @@ class TestMockSMAInitialization:
         assert strategy.stop_loss_percent == 0.01
         assert strategy.buffer_size == 100
         assert strategy._last_signal_type is None
-        assert strategy.candle_buffer == []
+        assert len(strategy.candle_buffer) == 0
 
     def test_initialization_with_custom_config(self, custom_config):
         """Test initialization with custom configuration."""
