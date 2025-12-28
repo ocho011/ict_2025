@@ -20,6 +20,7 @@ from src.core.event_handler import EventBus
 from src.execution.order_manager import OrderExecutionManager
 from src.risk.manager import RiskManager
 from src.strategies.base import BaseStrategy
+from src.strategies.multi_timeframe import MultiTimeframeStrategy
 from src.utils.config import ConfigManager
 from src.models.candle import Candle
 from src.models.event import Event, EventType
@@ -215,11 +216,18 @@ class TradingEngine:
             # Strategy now has historical context before real-time trading
             ```
 
-        Buffer Key Matching (Single-Interval):
-            - Finds FIRST buffer starting with strategy's symbol
-            - Initializes strategy with THAT SINGLE interval only
-            - Prevents interval mixing which corrupts indicator calculations
-            - Foundation ready for multi-timeframe routing in Phase 2
+        Buffer Key Matching:
+            For MultiTimeframeStrategy:
+                - Detects MTF strategy via isinstance check
+                - Routes each interval to strategy.initialize_with_historical_data(interval, candles)
+                - All matching intervals initialized separately
+                - Example: BTCUSDT_1h → strategy.initialize('1h', candles_1h)
+
+            For Single-Interval Strategy (Backward Compatible):
+                - Finds FIRST buffer starting with strategy's symbol
+                - Initializes strategy with THAT SINGLE interval only
+                - Prevents interval mixing which corrupts indicator calculations
+                - Uses BaseStrategy.initialize_with_historical_data(candles)
 
         Error Handling:
             - Logs warning if strategy not injected yet
@@ -254,30 +262,67 @@ class TradingEngine:
             # Find candles for this strategy's symbol
             symbol = self.strategy.symbol
 
-            # Single-interval backward compatibility:
-            # Find first matching buffer key and use ONLY that interval
-            # This prevents interval mixing which would corrupt indicator calculations
-            for buffer_key, candles in historical_candles.items():
-                # Check if buffer_key starts with strategy's symbol
-                # Buffer key format: '{SYMBOL}_{INTERVAL}'
-                if buffer_key.startswith(symbol):
-                    self.logger.info(
-                        f"[TradingEngine] Initializing strategy with {len(candles)} candles "
-                        f"from {buffer_key}"
-                    )
-                    # Initialize strategy with this interval's candles only
-                    self.strategy.initialize_with_historical_data(candles)
+            # Check if this is a multi-timeframe strategy
+            if isinstance(self.strategy, MultiTimeframeStrategy):
+                # MTF Strategy: Route candles by interval
+                self.logger.info(
+                    f"[TradingEngine] Detected MultiTimeframeStrategy, "
+                    f"routing by interval for {symbol}"
+                )
 
-                    self.logger.info(
-                        f"[TradingEngine] ✅ Strategy initialization complete: "
-                        f"{len(candles)} candles loaded from {buffer_key}"
-                    )
-                    return  # Use ONLY first interval, don't mix!
+                initialized_count = 0
+                for buffer_key, candles in historical_candles.items():
+                    # Buffer key format: '{SYMBOL}_{INTERVAL}'
+                    if buffer_key.startswith(symbol):
+                        # Extract interval from buffer_key (e.g., 'BTCUSDT_1h' → '1h')
+                        parts = buffer_key.rsplit('_', 1)
+                        if len(parts) == 2:
+                            interval = parts[1]
 
-            # No matching candles found
-            self.logger.warning(
-                f"[TradingEngine] No historical candles found for symbol '{symbol}'"
-            )
+                            self.logger.info(
+                                f"[TradingEngine] Initializing {interval} buffer "
+                                f"with {len(candles)} candles"
+                            )
+
+                            # Initialize this specific interval
+                            self.strategy.initialize_with_historical_data(interval, candles)
+                            initialized_count += 1
+
+                if initialized_count > 0:
+                    self.logger.info(
+                        f"[TradingEngine] ✅ MTF Strategy initialization complete: "
+                        f"{initialized_count} intervals initialized for {symbol}"
+                    )
+                else:
+                    self.logger.warning(
+                        f"[TradingEngine] No historical candles found for MTF strategy '{symbol}'"
+                    )
+
+            else:
+                # Single-interval backward compatibility:
+                # Find first matching buffer key and use ONLY that interval
+                # This prevents interval mixing which would corrupt indicator calculations
+                for buffer_key, candles in historical_candles.items():
+                    # Check if buffer_key starts with strategy's symbol
+                    # Buffer key format: '{SYMBOL}_{INTERVAL}'
+                    if buffer_key.startswith(symbol):
+                        self.logger.info(
+                            f"[TradingEngine] Initializing single-interval strategy "
+                            f"with {len(candles)} candles from {buffer_key}"
+                        )
+                        # Initialize strategy with this interval's candles only
+                        self.strategy.initialize_with_historical_data(candles)
+
+                        self.logger.info(
+                            f"[TradingEngine] ✅ Strategy initialization complete: "
+                            f"{len(candles)} candles loaded from {buffer_key}"
+                        )
+                        return  # Use ONLY first interval, don't mix!
+
+                # No matching candles found
+                self.logger.warning(
+                    f"[TradingEngine] No historical candles found for symbol '{symbol}'"
+                )
 
         except Exception as e:
             self.logger.error(
