@@ -13,6 +13,19 @@ from src.core.event_handler import EventBus
 from src.models.event import Event, EventType
 
 
+@pytest.fixture
+def event_bus_with_queues():
+    """Create EventBus with queues initialized (without starting processors)."""
+    bus = EventBus()
+    # Initialize queues directly (mimics what start() does)
+    bus._queues = {
+        'data': asyncio.Queue(maxsize=1000),
+        'signal': asyncio.Queue(maxsize=100),
+        'order': asyncio.Queue(maxsize=50)
+    }
+    return bus
+
+
 class TestEventBusCore:
     """Test EventBus subscriber registry and routing."""
 
@@ -223,9 +236,9 @@ class TestEventBusLogging:
 class TestEventBusQueues:
     """Test EventBus multi-queue system (Subtask 4.2)."""
 
-    def test_queues_initialized_with_correct_sizes(self):
+    def test_queues_initialized_with_correct_sizes(self, event_bus_with_queues):
         """Verify all three queues created with correct maxsize."""
-        bus = EventBus()
+        bus = event_bus_with_queues
 
         stats = bus.get_queue_stats()
 
@@ -248,9 +261,9 @@ class TestEventBusQueues:
         assert stats['order']['drops'] == 0
 
     @pytest.mark.asyncio
-    async def test_data_queue_drops_events_when_full(self):
+    async def test_data_queue_drops_events_when_full(self, event_bus_with_queues):
         """Verify data queue drops events after timeout when full."""
-        bus = EventBus()
+        bus = event_bus_with_queues
 
         # Fill data queue to capacity (1000 events)
         for i in range(1000):
@@ -275,10 +288,10 @@ class TestEventBusQueues:
         assert stats_after['data']['size'] == 1000
 
     @pytest.mark.asyncio
-    async def test_signal_queue_raises_timeout_when_full(self):
+    async def test_signal_queue_raises_timeout_when_full(self, event_bus_with_queues):
         """Verify signal queue raises TimeoutError when full (no drops)."""
         import asyncio
-        bus = EventBus()
+        bus = event_bus_with_queues
 
         # Fill signal queue to capacity (100 events)
         for i in range(100):
@@ -300,10 +313,10 @@ class TestEventBusQueues:
         assert stats_after['signal']['drops'] == 0
 
     @pytest.mark.asyncio
-    async def test_order_queue_blocks_indefinitely_when_full(self):
+    async def test_order_queue_blocks_indefinitely_when_full(self, event_bus_with_queues):
         """Verify order queue blocks without timeout (never drops)."""
         import asyncio
-        bus = EventBus()
+        bus = event_bus_with_queues
 
         # Fill order queue to capacity (50 events)
         for i in range(50):
@@ -329,9 +342,9 @@ class TestEventBusQueues:
         assert stats_after['order']['drops'] == 0
 
     @pytest.mark.asyncio
-    async def test_publish_raises_valueerror_for_invalid_queue(self):
+    async def test_publish_raises_valueerror_for_invalid_queue(self, event_bus_with_queues):
         """Verify publish() validates queue_name parameter."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         event = Event(EventType.CANDLE_UPDATE, {}, source='test')
 
         with pytest.raises(ValueError) as exc_info:
@@ -343,9 +356,9 @@ class TestEventBusQueues:
         assert "order" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_get_queue_stats_reflects_current_state(self):
+    async def test_get_queue_stats_reflects_current_state(self, event_bus_with_queues):
         """Verify get_queue_stats() returns accurate real-time data."""
-        bus = EventBus()
+        bus = event_bus_with_queues
 
         # Initial state
         stats = bus.get_queue_stats()
@@ -384,9 +397,9 @@ class TestEventBusProcessors:
     """Test suite for Subtask 4.3: Async queue processors with error recovery."""
 
     @pytest.mark.asyncio
-    async def test_processor_executes_async_handler(self):
+    async def test_processor_executes_async_handler(self, event_bus_with_queues):
         """Verify processor correctly awaits async handlers."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         bus._running = True
 
         executed = []
@@ -413,9 +426,9 @@ class TestEventBusProcessors:
         assert executed[0] == {'test': 'data'}
 
     @pytest.mark.asyncio
-    async def test_processor_executes_sync_handler(self):
+    async def test_processor_executes_sync_handler(self, event_bus_with_queues):
         """Verify processor correctly calls sync handlers."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         bus._running = True
 
         executed = []
@@ -437,9 +450,9 @@ class TestEventBusProcessors:
         assert executed[0] == {'test': 'sync'}
 
     @pytest.mark.asyncio
-    async def test_processor_isolates_handler_errors(self):
+    async def test_processor_isolates_handler_errors(self, event_bus_with_queues):
         """Verify one handler error doesn't affect others."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         bus._running = True
 
         executed = []
@@ -473,9 +486,9 @@ class TestEventBusProcessors:
         assert 'handler_3' in executed
 
     @pytest.mark.asyncio
-    async def test_processor_continues_after_handler_error(self):
+    async def test_processor_continues_after_handler_error(self, event_bus_with_queues):
         """Verify processor processes multiple events despite errors."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         bus._running = True
 
         executed_count = [0]
@@ -500,9 +513,9 @@ class TestEventBusProcessors:
         assert executed_count[0] == 3
 
     @pytest.mark.asyncio
-    async def test_processor_handles_empty_queue_timeout(self):
+    async def test_processor_handles_empty_queue_timeout(self, event_bus_with_queues):
         """Verify processor continues when queue is empty (TimeoutError)."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         bus._running = True
 
         # Start processor on empty queue
@@ -519,9 +532,9 @@ class TestEventBusProcessors:
         await processor_task
 
     @pytest.mark.asyncio
-    async def test_processor_stops_when_running_false(self):
+    async def test_processor_stops_when_running_false(self, event_bus_with_queues):
         """Verify processor exits loop when _running flag set to False."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         bus._running = True
 
         processor_task = asyncio.create_task(bus._process_queue('data'))
@@ -538,9 +551,9 @@ class TestEventBusProcessors:
         assert not processor_task.cancelled()
 
     @pytest.mark.asyncio
-    async def test_handlers_execute_sequentially(self):
+    async def test_handlers_execute_sequentially(self, event_bus_with_queues):
         """Verify handlers execute in order, not parallel."""
-        bus = EventBus()
+        bus = event_bus_with_queues
         bus._running = True
 
         execution_order = []
