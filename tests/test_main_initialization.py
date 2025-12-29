@@ -81,7 +81,8 @@ class TestTradingBotInitialization:
             leverage=10,
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
-            stop_loss_percent=0.01
+            stop_loss_percent=0.01,
+            backfill_limit=100
         )
         config_instance.logging_config = Mock(
             log_level='INFO',
@@ -175,7 +176,8 @@ class TestTradingBotInitialization:
             leverage=10,
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
-            stop_loss_percent=0.01
+            stop_loss_percent=0.01,
+            backfill_limit=100
         )
         config_instance.logging_config = Mock()
         config_instance.logging_config.__dict__ = {
@@ -243,7 +245,8 @@ class TestTradingBotInitialization:
             leverage=10,
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
-            stop_loss_percent=0.01
+            stop_loss_percent=0.01,
+            backfill_limit=100
         )
         config_instance.logging_config = Mock()
         config_instance.logging_config.__dict__ = {}
@@ -296,7 +299,8 @@ class TestTradingBotInitialization:
             leverage=10,
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
-            stop_loss_percent=0.01
+            stop_loss_percent=0.01,
+            backfill_limit=100
         )
         config_instance.logging_config = Mock()
         config_instance.logging_config.__dict__ = {}
@@ -352,7 +356,8 @@ class TestTradingBotInitialization:
             leverage=15,
             max_risk_per_trade=0.02,
             take_profit_ratio=2.0,
-            stop_loss_percent=0.01
+            stop_loss_percent=0.01,
+            backfill_limit=100
         )
         config_instance.logging_config = Mock()
         config_instance.logging_config.__dict__ = {}
@@ -376,7 +381,7 @@ class TestTradingBotInitialization:
 
         # Verify RiskManager received correct config
         mock_risk_manager.assert_called_once()
-        risk_config = mock_risk_manager.call_args.args[0]
+        risk_config = mock_risk_manager.call_args.kwargs.get('config', mock_risk_manager.call_args.args[0] if mock_risk_manager.call_args.args else {})
         assert risk_config['max_risk_per_trade'] == 0.02
         assert risk_config['default_leverage'] == 15
         assert risk_config['max_leverage'] == 20
