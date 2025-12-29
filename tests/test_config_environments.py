@@ -2,6 +2,7 @@
 Test configuration loading with separate mainnet/testnet credentials
 """
 
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -175,11 +176,8 @@ api_secret = mainnet_secret_abc
         assert config.api_config.is_testnet is True
         assert config.api_config.api_key == "testnet_key_123"
 
-    def test_validation_warning_messages(self):
+    def test_validation_warning_messages(self, caplog):
         """Test that appropriate warnings are shown for testnet/mainnet"""
-        import io
-        import sys
-
         # Test testnet warning
         api_config = self.config_path / "api_keys.ini"
         api_config.write_text("""[binance]
@@ -196,22 +194,15 @@ api_secret = mainnet_secret_abc
 
         config = ConfigManager(config_dir=self.temp_dir)
 
-        # Capture stdout
-        captured_output = io.StringIO()
-        sys.stdout = captured_output
+        # Capture logging output
+        with caplog.at_level(logging.INFO):
+            config.validate()
 
-        config.validate()
+        # Check log messages
+        assert "TESTNET mode" in caplog.text
 
-        sys.stdout = sys.__stdout__
-        output = captured_output.getvalue()
-
-        assert "TESTNET mode" in output
-
-    def test_mainnet_production_warning(self):
+    def test_mainnet_production_warning(self, caplog):
         """Test that mainnet mode shows production warning"""
-        import io
-        import sys
-
         api_config = self.config_path / "api_keys.ini"
         api_config.write_text("""[binance]
 use_testnet = false
@@ -227,14 +218,10 @@ api_secret = mainnet_secret_abc
 
         config = ConfigManager(config_dir=self.temp_dir)
 
-        # Capture stdout
-        captured_output = io.StringIO()
-        sys.stdout = captured_output
+        # Capture logging output
+        with caplog.at_level(logging.WARNING):
+            config.validate()
 
-        config.validate()
-
-        sys.stdout = sys.__stdout__
-        output = captured_output.getvalue()
-
-        assert "PRODUCTION mode" in output
-        assert "real funds" in output.lower()
+        # Check log messages
+        assert "PRODUCTION mode" in caplog.text
+        assert "real funds" in caplog.text.lower()

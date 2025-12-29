@@ -270,7 +270,8 @@ class TestTradingLogger:
         config = {}  # No log_dir specified
         logger = TradingLogger(config)
 
-        assert logger.log_dir == Path('logs')
+        # Logger now returns absolute path, check directory name
+        assert logger.log_dir.name == 'logs'
 
         # Clean up default logs directory if created
         if Path('logs').exists() and not any(Path('logs').iterdir()):
