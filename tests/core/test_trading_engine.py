@@ -50,6 +50,10 @@ def trading_engine():
 
     engine.logger = Mock()
 
+    # Mock trading_bot (required by run() method)
+    engine.trading_bot = Mock()
+    engine.trading_bot.set_event_loop = Mock()
+
     return engine
 
 
@@ -80,6 +84,7 @@ class TestTradingEngineInit:
         mock_order_manager = Mock()
         mock_risk_manager = Mock()
         mock_config_manager = Mock()
+        mock_trading_bot = Mock()
 
         # Inject components
         engine.set_components(
@@ -88,7 +93,8 @@ class TestTradingEngineInit:
             strategy=mock_strategy,
             order_manager=mock_order_manager,
             risk_manager=mock_risk_manager,
-            config_manager=mock_config_manager
+            config_manager=mock_config_manager,
+            trading_bot=mock_trading_bot
         )
 
         # Verify injection
@@ -114,7 +120,8 @@ class TestTradingEngineInit:
             strategy=Mock(),
             order_manager=Mock(),
             risk_manager=Mock(),
-            config_manager=Mock()
+            config_manager=Mock(),
+            trading_bot=Mock()
         )
 
         # Verify handlers subscribed
