@@ -16,6 +16,7 @@ from typing import Dict, Type, List
 from src.strategies.base import BaseStrategy
 from src.strategies.mock_strategy import MockSMACrossoverStrategy
 from src.strategies.always_signal import AlwaysSignalStrategy
+from src.strategies.ict_strategy import ICTStrategy
 
 
 class StrategyFactory:
@@ -52,10 +53,7 @@ class StrategyFactory:
     _strategies: Dict[str, Type[BaseStrategy]] = {
         'mock_sma': MockSMACrossoverStrategy,
         'always_signal': AlwaysSignalStrategy,  # Test strategy for pipeline verification
-        # Future ICT strategies:
-        # 'ict_fvg': ICTFVGStrategy,
-        # 'ict_ob': ICTOrderBlockStrategy,
-        # 'ict_bos': ICTBreakOfStructureStrategy,
+        'ict_strategy': ICTStrategy,  # ICT Smart Money Concepts strategy
     }
 
     @classmethod
