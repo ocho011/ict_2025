@@ -14,10 +14,11 @@ from src.models.event import Event, EventType
 
 
 @pytest.fixture
-def event_bus_with_queues():
+async def event_bus_with_queues():
     """Create EventBus with queues initialized (without starting processors)."""
     bus = EventBus()
     # Initialize queues directly (mimics what start() does)
+    # Must be async to create queues in the test's event loop
     bus._queues = {
         'data': asyncio.Queue(maxsize=1000),
         'signal': asyncio.Queue(maxsize=100),
