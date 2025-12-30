@@ -113,33 +113,6 @@ class TestBinanceDataCollectorStop:
         data_collector.ws_client.stop.assert_called_once()
 
     @patch('src.core.data_collector.UMFuturesWebsocketClient')
-    async def test_stop_preserves_buffers(self, mock_ws_client, data_collector):
-        """Verify buffers remain accessible after stop()"""
-        # Add candle to buffer
-        candle = Candle(
-            symbol="BTCUSDT",
-            interval="1m",
-            open_time=datetime.now(timezone.utc),
-            close_time=datetime.now(timezone.utc),
-            open=50000.0,
-            high=50100.0,
-            low=49900.0,
-            close=50050.0,
-            volume=10.5,
-            is_closed=True
-        )
-        data_collector.add_candle_to_buffer(candle)
-
-        # Start and stop
-        await data_collector.start_streaming()
-        await data_collector.stop()
-
-        # Verify buffer is still accessible
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 1
-        assert buffer[0].close == 50050.0
-
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
     async def test_stop_timeout_handling(self, mock_ws_client, data_collector):
         """Verify timeout parameter works correctly"""
         # Start streaming
@@ -166,36 +139,6 @@ class TestBinanceDataCollectorStop:
         # Should complete without errors
         assert data_collector._running is False
         assert data_collector._is_connected is False
-
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
-    async def test_stop_logs_buffer_states(self, mock_ws_client, data_collector, caplog):
-        """Verify buffer states are logged during shutdown"""
-        import logging
-        caplog.set_level(logging.INFO)
-
-        # Add candles to buffer
-        for i in range(3):
-            candle = Candle(
-                symbol="BTCUSDT",
-                interval="1m",
-                open_time=datetime.now(timezone.utc),
-                close_time=datetime.now(timezone.utc),
-                open=50000.0 + i,
-                high=50100.0 + i,
-                low=49900.0 + i,
-                close=50050.0 + i,
-                volume=10.5,
-                is_closed=True
-            )
-            data_collector.add_candle_to_buffer(candle)
-
-        # Start and stop
-        await data_collector.start_streaming()
-        await data_collector.stop()
-
-        # Verify buffer state was logged
-        assert "Buffer states at shutdown" in caplog.text
-        assert "BTCUSDT_1m: 3 candles" in caplog.text
 
     @patch('src.core.data_collector.UMFuturesWebsocketClient')
     async def test_stop_handles_websocket_errors(self, mock_ws_client, data_collector):
@@ -295,7 +238,7 @@ class TestBinanceDataCollectorContextManager:
 
     @patch('src.core.data_collector.UMFuturesWebsocketClient')
     async def test_context_manager_full_lifecycle(self, mock_ws_client, data_collector):
-        """Integration: async with → start_streaming → use → cleanup"""
+        """Integration: async with → start_streaming → cleanup"""
         # Use async context manager
         async with data_collector as collector:
             # Verify we got the collector
@@ -305,28 +248,9 @@ class TestBinanceDataCollectorContextManager:
             await collector.start_streaming()
             assert collector.is_connected is True
 
-            # Add a candle
-            candle = Candle(
-                symbol="BTCUSDT",
-                interval="1m",
-                open_time=datetime.now(timezone.utc),
-                close_time=datetime.now(timezone.utc),
-                open=50000.0,
-                high=50100.0,
-                low=49900.0,
-                close=50050.0,
-                volume=10.5,
-                is_closed=True
-            )
-            collector.add_candle_to_buffer(candle)
-
         # After context exit, should be stopped
         assert data_collector.is_connected is False
         assert data_collector._running is False
-
-        # Buffer should still be accessible
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 1
 
 
 class TestBinanceDataCollectorLifecycleIntegration:
@@ -366,36 +290,6 @@ class TestBinanceDataCollectorLifecycleIntegration:
         assert data_collector._running is False
 
     @patch('src.core.data_collector.UMFuturesWebsocketClient')
-    async def test_stop_with_active_buffers(self, mock_ws_client, data_collector):
-        """Stop with candles in buffer, verify accessible afterward"""
-        # Start streaming
-        await data_collector.start_streaming()
-
-        # Add multiple candles
-        for i in range(5):
-            candle = Candle(
-                symbol="BTCUSDT",
-                interval="1m",
-                open_time=datetime.now(timezone.utc),
-                close_time=datetime.now(timezone.utc),
-                open=50000.0 + i * 10,
-                high=50100.0 + i * 10,
-                low=49900.0 + i * 10,
-                close=50050.0 + i * 10,
-                volume=10.5,
-                is_closed=True
-            )
-            data_collector.add_candle_to_buffer(candle)
-
-        # Stop
-        await data_collector.stop()
-
-        # Verify buffer still accessible
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 5
-        assert all(c.symbol == "BTCUSDT" for c in buffer)
-
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
     async def test_context_manager_usage_pattern(self, mock_ws_client, data_collector):
         """Real-world usage pattern with context manager"""
         collected_candles = []
@@ -417,7 +311,7 @@ class TestBinanceDataCollectorLifecycleIntegration:
         async with collector:
             await collector.start_streaming()
 
-            # Simulate receiving candles
+            # Simulate receiving candles via callback
             for i in range(3):
                 candle = Candle(
                     symbol="BTCUSDT",
@@ -431,7 +325,6 @@ class TestBinanceDataCollectorLifecycleIntegration:
                     volume=10.5,
                     is_closed=True
                 )
-                collector.add_candle_to_buffer(candle)
                 if collector.on_candle_callback:
                     collector.on_candle_callback(candle)
 
@@ -440,7 +333,3 @@ class TestBinanceDataCollectorLifecycleIntegration:
 
         # Verify callbacks were invoked
         assert len(collected_candles) == 3
-
-        # Verify buffer still accessible
-        buffer = collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 3

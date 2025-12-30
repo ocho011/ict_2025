@@ -159,44 +159,15 @@ class TradingBot:
             on_candle_callback=self._on_candle_received  # Bridge to EventBus (Subtask 10.2)
         )
 
-        # Step 5.5: Backfill historical candles (if enabled)
+        # Step 5.5: Store backfill limit for TradingEngine initialization
+        # Historical data fetching is now delegated to TradingEngine during strategy init
+        self._backfill_limit = trading_config.backfill_limit
         if trading_config.backfill_limit > 0:
             self.logger.info(
-                f"Backfilling {trading_config.backfill_limit} historical candles..."
+                f"Backfill configured: {trading_config.backfill_limit} candles per interval"
             )
-            backfill_success = self.data_collector.backfill_all(
-                limit=trading_config.backfill_limit
-            )
-
-            # Step 5.6: Retrieve buffered candles regardless of full/partial success
-            # This handles partial backfill scenarios where some pairs succeed
-            self.logger.info("Retrieving buffered historical candles...")
-            historical_candles = self.data_collector.get_all_buffered_candles()
-
-            if historical_candles:
-                # Store for strategy initialization after TradingEngine creation
-                self._historical_candles = historical_candles
-
-                total_candles = sum(len(candles) for candles in historical_candles.values())
-                buffer_count = len(historical_candles)
-
-                # Log appropriate message based on backfill success
-                if backfill_success:
-                    self.logger.info(
-                        f"✅ Full backfill successful: {total_candles} candles "
-                        f"from {buffer_count} buffers stored for strategy initialization"
-                    )
-                else:
-                    self.logger.warning(
-                        f"⚠️ Partial backfill: {total_candles} candles from {buffer_count} "
-                        f"successful buffers stored (some pairs failed but available data will be used)"
-                    )
-            else:
-                self.logger.warning("❌ No historical candles available - all backfill attempts failed")
-                self._historical_candles = None
         else:
             self.logger.info("Backfilling disabled (backfill_limit=0)")
-            self._historical_candles = None  # No backfill data to initialize
 
         # Step 6: Initialize OrderExecutionManager
         self.logger.info("Initializing OrderExecutionManager...")
@@ -257,15 +228,13 @@ class TradingBot:
             trading_bot=self
         )
 
-        # Step 9.5: Initialize strategy with historical data (if available)
-        if hasattr(self, '_historical_candles') and self._historical_candles:
-            self.logger.info("Initializing strategy with backfilled historical data...")
-            self.trading_engine.initialize_strategy_with_historical_data(
-                self._historical_candles
-            )
+        # Step 9.5: Initialize strategy with historical data (if backfill enabled)
+        if self._backfill_limit > 0:
+            self.logger.info("Initializing strategy with historical data...")
+            self.trading_engine.initialize_strategy_with_backfill(limit=self._backfill_limit)
             self.logger.info("✅ Strategy initialized with historical data")
         else:
-            self.logger.info("No historical data to initialize (backfill disabled or failed)")
+            self.logger.info("No historical data to initialize (backfill disabled)")
 
         # Step 10: Configure leverage
 

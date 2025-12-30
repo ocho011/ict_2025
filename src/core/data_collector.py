@@ -8,9 +8,8 @@ historical data retrieval.
 
 from binance.um_futures import UMFutures
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
-from collections import deque
 from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional
+from typing import Callable, List, Optional
 import asyncio
 import logging
 
@@ -53,7 +52,6 @@ class BinanceDataCollector:
         MAINNET_BASE_URL: Binance Futures mainnet REST API endpoint
         TESTNET_WS_URL: Binance Futures testnet WebSocket endpoint
         MAINNET_WS_URL: Binance Futures mainnet WebSocket endpoint
-        DEFAULT_BUFFER_SIZE: Default maximum candles per buffer (500)
     """
 
     # Environment URLs
@@ -62,9 +60,6 @@ class BinanceDataCollector:
     TESTNET_WS_URL = "wss://stream.binancefuture.com"
     MAINNET_WS_URL = "wss://fstream.binance.com"
 
-    # Buffer Configuration
-    DEFAULT_BUFFER_SIZE = 500  # ~8.3 hours for 1m interval
-
     def __init__(
         self,
         api_key: str,
@@ -72,8 +67,7 @@ class BinanceDataCollector:
         symbols: List[str],
         intervals: List[str],
         is_testnet: bool = True,
-        on_candle_callback: Optional[Callable[[Candle], None]] = None,
-        buffer_size: int = DEFAULT_BUFFER_SIZE
+        on_candle_callback: Optional[Callable[[Candle], None]] = None
     ) -> None:
         """
         Initialize BinanceDataCollector.
@@ -86,8 +80,6 @@ class BinanceDataCollector:
             is_testnet: Use testnet (True) or mainnet (False). Default is True.
             on_candle_callback: Optional callback function invoked on each candle update.
                                Signature: callback(candle: Candle) -> None
-            buffer_size: Maximum number of candles to buffer per symbol/interval pair.
-                        Default is 500.
 
         Note:
             - Constructor does NOT start streaming. Call start_streaming() explicitly.
@@ -110,11 +102,6 @@ class BinanceDataCollector:
         self.symbols = [s.upper() for s in symbols]  # Normalize to uppercase
         self.intervals = intervals
         self.on_candle_callback = on_candle_callback
-        self.buffer_size = buffer_size
-
-        # Initialize candle buffers (lazy initialization per symbol/interval)
-        # Key format: '{SYMBOL}_{INTERVAL}' -> deque
-        self._candle_buffers: Dict[str, deque] = {}
 
         # Initialize REST client for historical data and account queries
         base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL
@@ -183,9 +170,8 @@ class BinanceDataCollector:
             3. Convert timestamps (ms → datetime)
             4. Convert prices/volume (str → float)
             5. Create Candle object (validates in __post_init__)
-            6. Add candle to buffer for historical access
-            7. Invoke user callback if configured
-            8. Log debug info on success
+            6. Invoke user callback if configured
+            7. Log debug info on success
 
         Error Handling:
             - JSONDecodeError: Invalid JSON string
@@ -236,9 +222,6 @@ class BinanceDataCollector:
                 volume=float(kline['v']),
                 is_closed=kline['x']
             )
-
-            # Step 5: Add candle to buffer
-            self.add_candle_to_buffer(candle)
 
             # Step 6: Invoke user callback if configured
             if self.on_candle_callback:
@@ -444,9 +427,6 @@ class BinanceDataCollector:
                 candle.interval = interval
                 candles.append(candle)
 
-                # Pre-populate buffer with historical data
-                self.add_candle_to_buffer(candle)
-
             # Log success with time range if candles exist
             if candles:
                 self.logger.info(
@@ -549,237 +529,6 @@ class BinanceDataCollector:
             )
             return False
 
-    def _get_buffer_key(self, symbol: str, interval: str) -> str:
-        """
-        Generate standardized buffer key for symbol/interval pair.
-
-        Args:
-            symbol: Trading pair (e.g., "BTCUSDT", "btcusdt")
-            interval: Timeframe (e.g., "1m", "5m", "1h")
-
-        Returns:
-            Standardized key: "{SYMBOL}_{INTERVAL}" (e.g., "BTCUSDT_1m")
-
-        Note:
-            - Symbol is automatically normalized to uppercase
-            - Interval is used as-is (already validated by Binance API)
-
-        Example:
-            >>> collector._get_buffer_key("btcusdt", "1m")
-            "BTCUSDT_1m"
-        """
-        return f"{symbol.upper()}_{interval}"
-
-    def add_candle_to_buffer(self, candle: Candle) -> None:
-        """
-        Add candle to appropriate buffer with automatic overflow handling.
-
-        Args:
-            candle: Candle object to buffer
-
-        Behavior:
-            1. Generate buffer key from candle.symbol and candle.interval
-            2. Create new queue if buffer doesn't exist for this pair
-            3. If buffer is full (size >= self.buffer_size):
-               - Remove oldest candle (FIFO)
-               - Add new candle
-            4. If buffer has space:
-               - Add new candle directly
-            5. Log buffer operation for debugging
-
-        Thread Safety:
-            - deque handles concurrent access safely for basic operations
-            - Thread-safe for append/popleft from different threads
-
-        Error Handling:
-            - Logs errors but does not raise exceptions
-            - Prevents buffer operation failures from stopping WebSocket
-
-        Example:
-            >>> candle = Candle(symbol="BTCUSDT", interval="1m", ...)
-            >>> collector.add_candle_to_buffer(candle)
-            # Candle added to _candle_buffers["BTCUSDT_1m"]
-        """
-        try:
-            # Generate buffer key
-            key = self._get_buffer_key(candle.symbol, candle.interval)
-
-            # Create buffer if it doesn't exist
-            if key not in self._candle_buffers:
-                self._candle_buffers[key] = deque(maxlen=self.buffer_size)
-                self.logger.debug(f"Created new buffer for {key} (max size: {self.buffer_size})")
-
-            buffer = self._candle_buffers[key]
-
-            # deque with maxlen automatically removes oldest when full
-            # Log if we're about to overflow
-            if len(buffer) >= self.buffer_size:
-                oldest = buffer[0]  # Will be auto-removed
-                self.logger.debug(
-                    f"Buffer {key} full, will auto-remove oldest candle "
-                    f"@ {oldest.open_time.isoformat()}"
-                )
-
-            # Add new candle (deque auto-handles overflow with maxlen)
-            buffer.append(candle)
-            self.logger.debug(
-                f"Buffered candle: {key} @ {candle.open_time.isoformat()} "
-                f"(buffer size: {len(buffer)}/{self.buffer_size})"
-            )
-
-        except Exception as e:
-            # Catch any unexpected errors to prevent WebSocket disruption
-            self.logger.error(
-                f"Unexpected error adding candle to buffer: {e} | "
-                f"Candle: {candle.symbol} {candle.interval} @ {candle.open_time.isoformat()}",
-                exc_info=True
-            )
-
-    def get_candle_buffer(self, symbol: str, interval: str) -> List[Candle]:
-        """
-        Retrieve all candles from buffer without removing them.
-
-        Args:
-            symbol: Trading pair (e.g., "BTCUSDT")
-            interval: Timeframe (e.g., "1m", "5m")
-
-        Returns:
-            List of candles sorted by open_time (oldest to newest)
-            Empty list if buffer doesn't exist or is empty
-
-        Behavior:
-            1. Generate buffer key
-            2. If buffer doesn't exist → return []
-            3. If buffer exists but empty → return []
-            4. Extract all candles (non-destructive)
-            5. Sort by open_time ascending
-            6. Return as List[Candle]
-
-        Non-Destructive Read:
-            - Candles remain in buffer after retrieval
-            - Direct list conversion preserves buffer contents
-
-        Thread Safety:
-            - Safe for concurrent reads/writes
-            - Buffer state remains consistent
-
-        Example:
-            >>> candles = collector.get_candle_buffer("BTCUSDT", "1m")
-            >>> print(f"Retrieved {len(candles)} candles")
-            Retrieved 350 candles
-        """
-        key = self._get_buffer_key(symbol, interval)
-
-        # Return empty if buffer doesn't exist
-        if key not in self._candle_buffers:
-            self.logger.debug(f"Buffer {key} does not exist, returning empty list")
-            return []
-
-        buffer = self._candle_buffers[key]
-
-        # Return empty if buffer is empty
-        if len(buffer) == 0:
-            self.logger.debug(f"Buffer {key} is empty, returning empty list")
-            return []
-
-        # Convert deque to list (non-destructive, preserves buffer contents)
-        candles = list(buffer)
-
-        # Sort by open_time and return
-        sorted_candles = sorted(candles, key=lambda c: c.open_time)
-        self.logger.debug(
-            f"Retrieved {len(sorted_candles)} candles from buffer {key}"
-        )
-        return sorted_candles
-
-    def get_all_buffered_candles(self) -> Dict[str, List[Candle]]:
-        """
-        Retrieve all buffered candles for all symbol/interval pairs.
-
-        Returns candles from ALL buffers, organized by symbol/interval.
-        Used for strategy initialization after backfill completes.
-
-        Returns:
-            Dict mapping '{SYMBOL}_{INTERVAL}' -> List[Candle]
-            Empty dict if no buffers exist
-            Candles sorted by open_time (oldest → newest) within each list
-
-        Behavior:
-            1. Iterate through all buffers in self._candle_buffers
-            2. For each buffer, convert deque to sorted list
-            3. Return dict with buffer_key -> candle_list mapping
-
-        Non-Destructive:
-            - Buffers remain intact after retrieval
-            - Returns copies, not references to internal deques
-
-        Example:
-            >>> # After backfill completes
-            >>> all_candles = collector.get_all_buffered_candles()
-            >>> print(all_candles.keys())
-            dict_keys(['BTCUSDT_1m', 'BTCUSDT_5m', 'ETHUSDT_1m'])
-            >>>
-            >>> # Use for strategy initialization
-            >>> for buffer_key, candles in all_candles.items():
-            ...     print(f"{buffer_key}: {len(candles)} candles")
-            BTCUSDT_1m: 100 candles
-            BTCUSDT_5m: 100 candles
-            ETHUSDT_1m: 100 candles
-
-        Usage Pattern:
-            ```python
-            # After backfill in TradingBot.initialize():
-            all_candles = self.data_collector.get_all_buffered_candles()
-
-            for buffer_key, candles in all_candles.items():
-                # Parse buffer_key to get symbol/interval
-                symbol, interval = buffer_key.rsplit('_', 1)
-
-                # Initialize strategy for this symbol
-                strategy = self.strategies.get(symbol)
-                if strategy:
-                    strategy.initialize_with_historical_data(candles)
-            ```
-
-        Thread Safety:
-            - Safe to call from any thread
-            - Concurrent buffer updates won't affect returned data
-
-        Notes:
-            - Typically called once after backfill, before streaming starts
-            - Keys use format '{SYMBOL}_{INTERVAL}' (e.g., 'BTCUSDT_1m')
-            - Empty buffers are included with empty lists
-            - Sorted within each list, but dict order depends on Python version
-        """
-        result = {}
-
-        # If no buffers exist, return empty dict
-        if not self._candle_buffers:
-            self.logger.debug("No buffers exist, returning empty dict")
-            return result
-
-        # Iterate through all buffers
-        for buffer_key, buffer in self._candle_buffers.items():
-            # Convert deque to list
-            candles = list(buffer)
-
-            # Sort by open_time (oldest → newest)
-            sorted_candles = sorted(candles, key=lambda c: c.open_time)
-
-            # Add to result dict
-            result[buffer_key] = sorted_candles
-
-            self.logger.debug(
-                f"Retrieved {len(sorted_candles)} candles from buffer {buffer_key}"
-            )
-
-        self.logger.info(
-            f"Retrieved candles from {len(result)} buffers, "
-            f"total {sum(len(candles) for candles in result.values())} candles"
-        )
-
-        return result
-
     async def stop(self, timeout: float = 5.0) -> None:
         """
         Gracefully stop data collection and cleanup resources.
@@ -789,8 +538,7 @@ class BinanceDataCollector:
             2. Set state flags to prevent new operations
             3. Stop WebSocket client with timeout
             4. Close REST API client session
-            5. Log final buffer states (non-destructive)
-            6. Clear state flags
+            5. Clear state flags
 
         Args:
             timeout: Maximum time in seconds to wait for cleanup (default: 5.0)
@@ -800,7 +548,6 @@ class BinanceDataCollector:
 
         Note:
             - Method is idempotent - safe to call multiple times
-            - Buffers are preserved (use get_candle_buffer() to access)
             - Logs warnings if cleanup exceeds timeout
             - Does not raise exceptions on cleanup failures
 
@@ -843,19 +590,7 @@ class BinanceDataCollector:
             # But we log for completeness
             self.logger.debug("REST API client cleanup complete")
 
-            # Step 5: Log buffer states (non-destructive)
-            buffer_summary = []
-            for key, buffer in self._candle_buffers.items():
-                buffer_summary.append(f"{key}: {len(buffer)} candles")
-
-            if buffer_summary:
-                self.logger.info(
-                    f"Buffer states at shutdown: {', '.join(buffer_summary)}"
-                )
-            else:
-                self.logger.debug("No buffered candles at shutdown")
-
-            # Step 6: Final state
+            # Step 5: Final state
             self.logger.info("Graceful shutdown complete")
 
         except Exception as e:

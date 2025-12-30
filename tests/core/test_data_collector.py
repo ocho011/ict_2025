@@ -135,7 +135,6 @@ class TestBinanceDataCollectorInitialization:
 
         Validates:
         - is_testnet defaults to True
-        - buffer_size defaults to DEFAULT_BUFFER_SIZE (500)
         - on_candle_callback defaults to None
         """
         # Act
@@ -144,12 +143,11 @@ class TestBinanceDataCollectorInitialization:
             api_secret=mock_api_credentials['api_secret'],
             symbols=basic_config['symbols'],
             intervals=basic_config['intervals']
-            # Not providing: is_testnet, on_candle_callback, buffer_size
+            # Not providing: is_testnet, on_candle_callback
         )
 
         # Assert
         assert collector.is_testnet is True
-        assert collector.buffer_size == BinanceDataCollector.DEFAULT_BUFFER_SIZE
         assert collector.on_candle_callback is None
 
     @patch('src.core.data_collector.UMFutures')
@@ -159,14 +157,12 @@ class TestBinanceDataCollectorInitialization:
 
         Validates:
         - Configuration variables stored
-        - Candle buffers dictionary initialized (empty)
         - WebSocket client initialized to None
         - State management flags set correctly
         - Logger initialized
         """
         # Arrange
         test_callback = Mock()
-        test_buffer_size = 1000
 
         # Act
         collector = BinanceDataCollector(
@@ -175,19 +171,15 @@ class TestBinanceDataCollectorInitialization:
             symbols=basic_config['symbols'],
             intervals=basic_config['intervals'],
             is_testnet=True,
-            on_candle_callback=test_callback,
-            buffer_size=test_buffer_size
+            on_candle_callback=test_callback
         )
 
         # Assert configuration storage
         assert collector.symbols == ['BTCUSDT', 'ETHUSDT']
         assert collector.intervals == basic_config['intervals']
         assert collector.on_candle_callback == test_callback
-        assert collector.buffer_size == test_buffer_size
 
         # Assert internal state
-        assert isinstance(collector._candle_buffers, dict)
-        assert len(collector._candle_buffers) == 0  # Empty initially
         assert collector.ws_client is None  # Lazy initialization
 
         # Assert state flags
@@ -276,10 +268,6 @@ class TestBinanceDataCollectorURLConstants:
     def test_mainnet_ws_url(self):
         """Verify MAINNET_WS_URL constant value."""
         assert BinanceDataCollector.MAINNET_WS_URL == "wss://fstream.binance.com"
-
-    def test_default_buffer_size(self):
-        """Verify DEFAULT_BUFFER_SIZE constant value."""
-        assert BinanceDataCollector.DEFAULT_BUFFER_SIZE == 500
 
 
 class TestBinanceDataCollectorStreaming:
@@ -1401,393 +1389,3 @@ class TestBinanceDataCollectorHistoricalCandles:
         assert "Successfully retrieved 1 candles for BTCUSDT 1m" in caplog.text
 
 
-
-class TestBinanceDataCollectorBufferManagement:
-    """Test suite for candle buffer management (Task 3.5)"""
-
-    @pytest.fixture
-    def mock_api_credentials(self):
-        """Provide test API credentials"""
-        return {"api_key": "test_key", "api_secret": "test_secret"}
-
-    @pytest.fixture
-    @patch('src.core.data_collector.UMFutures')
-    def data_collector(self, mock_um_futures, mock_api_credentials):
-        """Create BinanceDataCollector instance for testing"""
-        return BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True
-        )
-
-    # =====================================================================
-    # Test Suite 1: Buffer Key Generation
-    # =====================================================================
-
-    def test_get_buffer_key_uppercase_normalization(self, data_collector):
-        """Verify symbol is normalized to uppercase"""
-        key_lower = data_collector._get_buffer_key("btcusdt", "1m")
-        key_upper = data_collector._get_buffer_key("BTCUSDT", "1m")
-        key_mixed = data_collector._get_buffer_key("BtcUsdT", "1m")
-
-        assert key_lower == "BTCUSDT_1m"
-        assert key_upper == "BTCUSDT_1m"
-        assert key_mixed == "BTCUSDT_1m"
-
-    def test_get_buffer_key_format(self, data_collector):
-        """Verify key format is consistent"""
-        key1 = data_collector._get_buffer_key("BTCUSDT", "1m")
-        key2 = data_collector._get_buffer_key("ETHUSDT", "5m")
-        key3 = data_collector._get_buffer_key("BNBUSDT", "1h")
-
-        assert key1 == "BTCUSDT_1m"
-        assert key2 == "ETHUSDT_5m"
-        assert key3 == "BNBUSDT_1h"
-        assert "_" in key1
-        assert "_" in key2
-        assert "_" in key3
-
-    def test_get_buffer_key_different_intervals(self, data_collector):
-        """Verify different intervals produce different keys"""
-        key_1m = data_collector._get_buffer_key("BTCUSDT", "1m")
-        key_5m = data_collector._get_buffer_key("BTCUSDT", "5m")
-        key_1h = data_collector._get_buffer_key("BTCUSDT", "1h")
-
-        assert key_1m != key_5m
-        assert key_5m != key_1h
-        assert key_1m != key_1h
-
-    # =====================================================================
-    # Test Suite 2: Add Candle to Buffer
-    # =====================================================================
-
-    def test_add_candle_creates_buffer_if_not_exists(self, data_collector):
-        """Verify buffer is created on first add"""
-        candle = Candle(
-            symbol="BTCUSDT",
-            interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 0),
-            close_time=datetime(2025, 1, 1, 0, 1),
-            open=50000.0,
-            high=50100.0,
-            low=49900.0,
-            close=50050.0,
-            volume=10.5,
-            is_closed=True
-        )
-
-        assert "BTCUSDT_1m" not in data_collector._candle_buffers
-        data_collector.add_candle_to_buffer(candle)
-        assert "BTCUSDT_1m" in data_collector._candle_buffers
-
-    def test_add_candle_multiple_to_same_buffer(self, data_collector):
-        """Verify multiple candles accumulate in buffer"""
-        for i in range(10):
-            candle = Candle(
-                symbol="BTCUSDT",
-                interval="1m",
-                open_time=datetime(2025, 1, 1, 0, i),
-                close_time=datetime(2025, 1, 1, 0, i + 1),
-                open=50000.0 + i,
-                high=50100.0 + i,
-                low=49900.0 + i,
-                close=50050.0 + i,
-                volume=10.5,
-                is_closed=True
-            )
-            data_collector.add_candle_to_buffer(candle)
-
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 10
-
-    def test_add_candle_overflow_removes_oldest(self):
-        """Verify FIFO behavior on buffer overflow"""
-        # Create collector with small buffer for testing
-        collector = BinanceDataCollector(
-            api_key="test_key",
-            api_secret="test_secret",
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-            buffer_size=3  # Small buffer for overflow testing
-        )
-
-        candle1 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 0),
-            close_time=datetime(2025, 1, 1, 0, 1),
-            open=50000.0, high=50100.0, low=49900.0, close=50050.0,
-            volume=10.5, is_closed=True
-        )
-        candle2 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 1),
-            close_time=datetime(2025, 1, 1, 0, 2),
-            open=50050.0, high=50150.0, low=49950.0, close=50100.0,
-            volume=11.0, is_closed=True
-        )
-        candle3 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 2),
-            close_time=datetime(2025, 1, 1, 0, 3),
-            open=50100.0, high=50200.0, low=50000.0, close=50150.0,
-            volume=12.0, is_closed=True
-        )
-        candle4 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 3),
-            close_time=datetime(2025, 1, 1, 0, 4),
-            open=50150.0, high=50250.0, low=50050.0, close=50200.0,
-            volume=13.0, is_closed=True
-        )
-
-        collector.add_candle_to_buffer(candle1)
-        collector.add_candle_to_buffer(candle2)
-        collector.add_candle_to_buffer(candle3)
-        collector.add_candle_to_buffer(candle4)  # Should remove candle1
-
-        buffer = collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 3
-        assert buffer[0] == candle2  # candle1 removed
-        assert buffer[1] == candle3
-        assert buffer[2] == candle4
-
-    def test_add_candle_separate_buffers_per_pair(self, data_collector):
-        """Verify different symbol/interval pairs use separate buffers"""
-        candle1 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 0),
-            close_time=datetime(2025, 1, 1, 0, 1),
-            open=50000.0, high=50100.0, low=49900.0, close=50050.0,
-            volume=10.5, is_closed=True
-        )
-        candle2 = Candle(
-            symbol="BTCUSDT", interval="5m",
-            open_time=datetime(2025, 1, 1, 0, 0),
-            close_time=datetime(2025, 1, 1, 0, 5),
-            open=50000.0, high=50200.0, low=49800.0, close=50100.0,
-            volume=50.0, is_closed=True
-        )
-        candle3 = Candle(
-            symbol="ETHUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 0),
-            close_time=datetime(2025, 1, 1, 0, 1),
-            open=3000.0, high=3010.0, low=2990.0, close=3005.0,
-            volume=15.5, is_closed=True
-        )
-
-        data_collector.add_candle_to_buffer(candle1)
-        data_collector.add_candle_to_buffer(candle2)
-        data_collector.add_candle_to_buffer(candle3)
-
-        assert len(data_collector._candle_buffers) == 3
-        assert "BTCUSDT_1m" in data_collector._candle_buffers
-        assert "BTCUSDT_5m" in data_collector._candle_buffers
-        assert "ETHUSDT_1m" in data_collector._candle_buffers
-
-    # =====================================================================
-    # Test Suite 3: Get Candle Buffer
-    # =====================================================================
-
-    def test_get_candle_buffer_nonexistent_returns_empty(self, data_collector):
-        """Verify empty list returned for non-existent buffer"""
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert buffer == []
-        assert isinstance(buffer, list)
-
-    def test_get_candle_buffer_empty_buffer_returns_empty(self, data_collector):
-        """Verify empty list returned for empty buffer"""
-        # Create empty buffer manually
-        from collections import deque
-        data_collector._candle_buffers["BTCUSDT_1m"] = deque(maxlen=500)
-
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert buffer == []
-        assert isinstance(buffer, list)
-
-    def test_get_candle_buffer_returns_sorted_by_time(self, data_collector):
-        """Verify candles are sorted by open_time"""
-        # Add candles in reverse chronological order
-        candle3 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 2),
-            close_time=datetime(2025, 1, 1, 0, 3),
-            open=50100.0, high=50200.0, low=50000.0, close=50150.0,
-            volume=12.0, is_closed=True
-        )
-        candle1 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 0),
-            close_time=datetime(2025, 1, 1, 0, 1),
-            open=50000.0, high=50100.0, low=49900.0, close=50050.0,
-            volume=10.5, is_closed=True
-        )
-        candle2 = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 1),
-            close_time=datetime(2025, 1, 1, 0, 2),
-            open=50050.0, high=50150.0, low=49950.0, close=50100.0,
-            volume=11.0, is_closed=True
-        )
-
-        data_collector.add_candle_to_buffer(candle3)
-        data_collector.add_candle_to_buffer(candle1)
-        data_collector.add_candle_to_buffer(candle2)
-
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 3
-        assert buffer[0].open_time < buffer[1].open_time < buffer[2].open_time
-        assert buffer[0] == candle1
-        assert buffer[1] == candle2
-        assert buffer[2] == candle3
-
-    def test_get_candle_buffer_nondestructive_read(self, data_collector):
-        """Verify candles remain in buffer after retrieval"""
-        candle = Candle(
-            symbol="BTCUSDT", interval="1m",
-            open_time=datetime(2025, 1, 1, 0, 0),
-            close_time=datetime(2025, 1, 1, 0, 1),
-            open=50000.0, high=50100.0, low=49900.0, close=50050.0,
-            volume=10.5, is_closed=True
-        )
-        data_collector.add_candle_to_buffer(candle)
-
-        buffer1 = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        buffer2 = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        buffer3 = data_collector.get_candle_buffer("BTCUSDT", "1m")
-
-        assert len(buffer1) == 1
-        assert len(buffer2) == 1  # Still there
-        assert len(buffer3) == 1  # Still there
-        assert buffer1[0] == buffer2[0] == buffer3[0]
-
-    def test_get_candle_buffer_multiple_candles(self, data_collector):
-        """Verify all candles are retrieved"""
-        candles = []
-        for i in range(20):
-            candle = Candle(
-                symbol="BTCUSDT", interval="1m",
-                open_time=datetime(2025, 1, 1, 0, i),
-                close_time=datetime(2025, 1, 1, 0, i + 1),
-                open=50000.0 + i * 10,
-                high=50100.0 + i * 10,
-                low=49900.0 + i * 10,
-                close=50050.0 + i * 10,
-                volume=10.5 + i,
-                is_closed=True
-            )
-            candles.append(candle)
-            data_collector.add_candle_to_buffer(candle)
-
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 20
-        assert buffer == candles  # Same order after sorting
-
-    # =====================================================================
-    # Test Suite 4: Integration Tests
-    # =====================================================================
-
-    def test_websocket_integration_auto_buffers(self, data_collector):
-        """Verify WebSocket candles are automatically buffered"""
-        # Simulate WebSocket message
-        message = {
-            'e': 'kline',
-            'k': {
-                's': 'BTCUSDT',
-                'i': '1m',
-                't': 1609459200000,  # 2021-01-01 00:00:00 UTC
-                'T': 1609459259999,  # 2021-01-01 00:00:59.999 UTC
-                'o': '50000.00',
-                'h': '50100.00',
-                'l': '49900.00',
-                'c': '50050.00',
-                'v': '10.5',
-                'x': True
-            }
-        }
-
-        # Handle message (should auto-buffer)
-        data_collector._handle_kline_message(None, message)
-
-        # Verify candle was buffered
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 1
-        assert buffer[0].symbol == "BTCUSDT"
-        assert buffer[0].interval == "1m"
-        assert buffer[0].close == 50050.0
-
-    def test_historical_data_prepopulates_buffer(self, data_collector):
-        """Verify historical data pre-populates buffer"""
-        # Mock REST API response
-        mock_klines = [
-            [
-                1609459200000,  # open_time
-                "50000.00",  # open
-                "50100.00",  # high
-                "49900.00",  # low
-                "50050.00",  # close
-                "10.5",  # volume
-                1609459259999,  # close_time
-                "502500.00",  # quote_volume
-                100,  # trades
-                "5.25",  # taker_buy_base
-                "251250.00",  # taker_buy_quote
-                "0"  # ignore
-            ],
-            [
-                1609459260000,
-                "50050.00",
-                "50150.00",
-                "49950.00",
-                "50100.00",
-                "11.0",
-                1609459319999,
-                "551000.00",
-                110,
-                "5.5",
-                "275500.00",
-                "0"
-            ]
-        ]
-
-        with patch.object(data_collector.rest_client, 'klines', return_value=mock_klines):
-            candles = data_collector.get_historical_candles("BTCUSDT", "1m", limit=2)
-
-        # Verify buffer was pre-populated
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 2
-        assert buffer == candles  # Same candles
-        assert buffer[0].close == 50050.0
-        assert buffer[1].close == 50100.0
-
-    def test_mixed_websocket_and_historical(self, data_collector):
-        """Verify buffer works with mixed historical + real-time data"""
-        # 1. Add historical data
-        mock_klines = [
-            [1609459200000, "50000.00", "50100.00", "49900.00", "50050.00",
-             "10.5", 1609459259999, "502500.00", 100, "5.25", "251250.00", "0"]
-        ]
-
-        with patch.object(data_collector.rest_client, 'klines', return_value=mock_klines):
-            data_collector.get_historical_candles("BTCUSDT", "1m", limit=1)
-
-        # 2. Add WebSocket data
-        message = {
-            'e': 'kline',
-            'k': {
-                's': 'BTCUSDT', 'i': '1m',
-                't': 1609459260000, 'T': 1609459319999,
-                'o': '50050.00', 'h': '50150.00', 'l': '49950.00',
-                'c': '50100.00', 'v': '11.0', 'x': True
-            }
-        }
-        data_collector._handle_kline_message(None, message)
-
-        # 3. Verify combined buffer
-        buffer = data_collector.get_candle_buffer("BTCUSDT", "1m")
-        assert len(buffer) == 2
-        assert buffer[0].close == 50050.0  # Historical
-        assert buffer[1].close == 50100.0  # WebSocket
-        assert buffer[0].open_time < buffer[1].open_time  # Sorted correctly
