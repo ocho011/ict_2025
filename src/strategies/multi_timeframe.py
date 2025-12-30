@@ -9,7 +9,6 @@ Medium Timeframe (MTF) structure detection, and Lower Timeframe (LTF) entry timi
 
 from abc import abstractmethod
 from collections import deque
-from datetime import datetime
 from typing import Dict, List, Optional
 
 from src.models.candle import Candle
@@ -91,12 +90,7 @@ class MultiTimeframeStrategy(BaseStrategy):
         ```
     """
 
-    def __init__(
-        self,
-        symbol: str,
-        intervals: List[str],
-        config: dict
-    ) -> None:
+    def __init__(self, symbol: str, intervals: List[str], config: dict) -> None:
         """
         Initialize multi-timeframe strategy.
 
@@ -153,21 +147,13 @@ class MultiTimeframeStrategy(BaseStrategy):
 
         # Create separate buffer for each interval
         self.buffers: Dict[str, deque] = {
-            interval: deque(maxlen=self.buffer_size)
-            for interval in intervals
+            interval: deque(maxlen=self.buffer_size) for interval in intervals
         }
 
         # Track initialization status per interval
-        self._initialized: Dict[str, bool] = {
-            interval: False
-            for interval in intervals
-        }
+        self._initialized: Dict[str, bool] = {interval: False for interval in intervals}
 
-    def initialize_with_historical_data(
-        self,
-        interval: str,
-        candles: List[Candle]
-    ) -> None:
+    def initialize_with_historical_data(self, interval: str, candles: List[Candle]) -> None:
         """
         Initialize specific interval buffer with historical data.
 
@@ -234,7 +220,7 @@ class MultiTimeframeStrategy(BaseStrategy):
         self.buffers[interval].clear()
 
         # Add candles respecting maxlen (keeps most recent)
-        for candle in candles[-self.buffer_size:]:
+        for candle in candles[-self.buffer_size :]:
             self.buffers[interval].append(candle)
 
         # Mark as initialized
@@ -343,11 +329,7 @@ class MultiTimeframeStrategy(BaseStrategy):
         return await self.analyze_mtf(candle, self.buffers)
 
     @abstractmethod
-    async def analyze_mtf(
-        self,
-        candle: Candle,
-        buffers: Dict[str, deque]
-    ) -> Optional[Signal]:
+    async def analyze_mtf(self, candle: Candle, buffers: Dict[str, deque]) -> Optional[Signal]:
         """
         Analyze multiple timeframes and generate signal.
 
@@ -388,7 +370,6 @@ class MultiTimeframeStrategy(BaseStrategy):
             - Access any interval buffer via buffers[interval]
             - Must call calculate_take_profit() and calculate_stop_loss()
         """
-        pass
 
     def get_buffer(self, interval: str) -> Optional[deque]:
         """
@@ -456,8 +437,8 @@ class MultiTimeframeStrategy(BaseStrategy):
             # Returns: 51000 (50000 * 1.02)
             ```
         """
-        tp_percent = self.config.get('tp_percent', 0.02)
-        if side == 'LONG':
+        tp_percent = self.config.get("tp_percent", 0.02)
+        if side == "LONG":
             return entry_price * (1 + tp_percent)
         else:  # SHORT
             return entry_price * (1 - tp_percent)
@@ -482,8 +463,8 @@ class MultiTimeframeStrategy(BaseStrategy):
             # Returns: 49500 (50000 * 0.99)
             ```
         """
-        sl_percent = self.config.get('sl_percent', 0.01)
-        if side == 'LONG':
+        sl_percent = self.config.get("sl_percent", 0.01)
+        if side == "LONG":
             return entry_price * (1 - sl_percent)
         else:  # SHORT
             return entry_price * (1 + sl_percent)

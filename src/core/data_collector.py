@@ -6,12 +6,13 @@ from Binance USDT-M Futures markets via WebSocket, with REST API support for
 historical data retrieval.
 """
 
-from binance.um_futures import UMFutures
-from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
-from datetime import datetime, timezone
-from typing import Callable, List, Optional
 import asyncio
 import logging
+from datetime import datetime, timezone
+from typing import Callable, List, Optional
+
+from binance.um_futures import UMFutures
+from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
 
 from src.models.candle import Candle
 
@@ -67,7 +68,7 @@ class BinanceDataCollector:
         symbols: List[str],
         intervals: List[str],
         is_testnet: bool = True,
-        on_candle_callback: Optional[Callable[[Candle], None]] = None
+        on_candle_callback: Optional[Callable[[Candle], None]] = None,
     ) -> None:
         """
         Initialize BinanceDataCollector.
@@ -105,11 +106,7 @@ class BinanceDataCollector:
 
         # Initialize REST client for historical data and account queries
         base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL
-        self.rest_client = UMFutures(
-            key=api_key,
-            secret=api_secret,
-            base_url=base_url
-        )
+        self.rest_client = UMFutures(key=api_key, secret=api_secret, base_url=base_url)
 
         # WebSocket client (initialized in start_streaming)
         self.ws_client: Optional[UMFuturesWebsocketClient] = None
@@ -150,7 +147,6 @@ class BinanceDataCollector:
         """
         return self._is_connected and self.ws_client is not None
 
-
     def _handle_kline_message(self, _, message) -> None:
         """
         Handle incoming kline WebSocket messages.
@@ -187,40 +183,41 @@ class BinanceDataCollector:
             # Step 0: Parse JSON string if needed
             if isinstance(message, str):
                 import json
+
                 message = json.loads(message)
 
             # Step 1: Validate message type
-            event_type = message.get('e')
-            if event_type != 'kline':
+            event_type = message.get("e")
+            if event_type != "kline":
                 # WebSocket initialization messages (subscription confirmations, etc.)
                 # are expected and can be safely ignored without logging
                 if event_type is not None:
                     # Only log if it's an actual event type we don't recognize
-                    self.logger.debug(
-                        f"Received non-kline message: type='{event_type}'"
-                    )
+                    self.logger.debug(f"Received non-kline message: type='{event_type}'")
                 return
 
             # Step 2: Extract kline data
-            kline = message.get('k')
+            kline = message.get("k")
             if not kline:
-                self.logger.error(
-                    f"Message missing 'k' (kline data): {message}"
-                )
+                self.logger.error(f"Message missing 'k' (kline data): {message}")
                 return
 
             # Step 3-4: Parse and convert all fields
             candle = Candle(
-                symbol=kline['s'],
-                interval=kline['i'],
-                open_time=datetime.fromtimestamp(kline['t'] / 1000, tz=timezone.utc).replace(tzinfo=None),
-                close_time=datetime.fromtimestamp(kline['T'] / 1000, tz=timezone.utc).replace(tzinfo=None),
-                open=float(kline['o']),
-                high=float(kline['h']),
-                low=float(kline['l']),
-                close=float(kline['c']),
-                volume=float(kline['v']),
-                is_closed=kline['x']
+                symbol=kline["s"],
+                interval=kline["i"],
+                open_time=datetime.fromtimestamp(kline["t"] / 1000, tz=timezone.utc).replace(
+                    tzinfo=None
+                ),
+                close_time=datetime.fromtimestamp(kline["T"] / 1000, tz=timezone.utc).replace(
+                    tzinfo=None
+                ),
+                open=float(kline["o"]),
+                high=float(kline["h"]),
+                low=float(kline["l"]),
+                close=float(kline["c"]),
+                volume=float(kline["v"]),
+                is_closed=kline["x"],
             )
 
             # Step 6: Invoke user callback if configured
@@ -237,22 +234,18 @@ class BinanceDataCollector:
         except KeyError as e:
             # Missing required field in kline data
             self.logger.error(
-                f"Missing required field in kline message: {e} | Message: {message}",
-                exc_info=True
+                f"Missing required field in kline message: {e} | Message: {message}", exc_info=True
             )
         except (ValueError, TypeError) as e:
             # Invalid data type (e.g., non-numeric string, wrong type)
             self.logger.error(
-                f"Invalid data type in kline message: {e} | Message: {message}",
-                exc_info=True
+                f"Invalid data type in kline message: {e} | Message: {message}", exc_info=True
             )
         except Exception as e:
             # Unexpected error (including Candle validation errors)
             self.logger.error(
-                f"Unexpected error parsing kline message: {e} | Message: {message}",
-                exc_info=True
+                f"Unexpected error parsing kline message: {e} | Message: {message}", exc_info=True
             )
-
 
     async def start_streaming(self) -> None:
         """
@@ -283,15 +276,12 @@ class BinanceDataCollector:
             # Select WebSocket URL based on environment
             stream_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL
 
-            self.logger.info(
-                f"Initializing WebSocket connection to {stream_url}"
-            )
+            self.logger.info(f"Initializing WebSocket connection to {stream_url}")
 
             # Initialize WebSocket client with message handler
             # IMPORTANT: on_message must be set during client initialization
             self.ws_client = UMFuturesWebsocketClient(
-                stream_url=stream_url,
-                on_message=self._handle_kline_message
+                stream_url=stream_url, on_message=self._handle_kline_message
             )
 
             # Subscribe to kline streams for all symbol/interval combinations
@@ -302,10 +292,7 @@ class BinanceDataCollector:
                     self.logger.debug(f"Subscribing to stream: {stream_name}")
 
                     # Subscribe without callback parameter (handled by on_message)
-                    self.ws_client.kline(
-                        symbol=symbol.lower(),
-                        interval=interval
-                    )
+                    self.ws_client.kline(symbol=symbol.lower(), interval=interval)
                     stream_count += 1
 
             # Update state flags
@@ -318,12 +305,8 @@ class BinanceDataCollector:
             )
 
         except Exception as e:
-            self.logger.error(
-                f"Failed to start WebSocket streaming: {e}",
-                exc_info=True
-            )
+            self.logger.error(f"Failed to start WebSocket streaming: {e}", exc_info=True)
             raise ConnectionError(f"WebSocket initialization failed: {e}")
-
 
     def _parse_rest_kline(self, kline_array: List) -> Candle:
         """
@@ -351,31 +334,28 @@ class BinanceDataCollector:
             candle = Candle(
                 symbol="",  # Will be set by caller
                 interval="",  # Will be set by caller
-                open_time=datetime.fromtimestamp(int(kline_array[0]) / 1000, tz=timezone.utc).replace(tzinfo=None),
-                close_time=datetime.fromtimestamp(int(kline_array[6]) / 1000, tz=timezone.utc).replace(tzinfo=None),
+                open_time=datetime.fromtimestamp(
+                    int(kline_array[0]) / 1000, tz=timezone.utc
+                ).replace(tzinfo=None),
+                close_time=datetime.fromtimestamp(
+                    int(kline_array[6]) / 1000, tz=timezone.utc
+                ).replace(tzinfo=None),
                 open=float(kline_array[1]),
                 high=float(kline_array[2]),
                 low=float(kline_array[3]),
                 close=float(kline_array[4]),
                 volume=float(kline_array[5]),
-                is_closed=True  # Historical candles are always closed
+                is_closed=True,  # Historical candles are always closed
             )
             return candle
 
         except (IndexError, ValueError, TypeError) as e:
             self.logger.error(
-                f"Failed to parse REST kline data: {e} | Data: {kline_array}",
-                exc_info=True
+                f"Failed to parse REST kline data: {e} | Data: {kline_array}", exc_info=True
             )
             raise ValueError(f"Invalid kline data format: {e}")
 
-
-    def get_historical_candles(
-        self,
-        symbol: str,
-        interval: str,
-        limit: int = 500
-    ) -> List[Candle]:
+    def get_historical_candles(self, symbol: str, interval: str, limit: int = 500) -> List[Candle]:
         """
         Fetch historical kline data via Binance REST API.
 
@@ -406,17 +386,11 @@ class BinanceDataCollector:
         if not 1 <= limit <= 1000:
             raise ValueError(f"limit must be between 1 and 1000, got {limit}")
 
-        self.logger.info(
-            f"Fetching {limit} historical candles for {symbol} {interval}"
-        )
+        self.logger.info(f"Fetching {limit} historical candles for {symbol} {interval}")
 
         try:
             # Call Binance REST API
-            klines_data = self.rest_client.klines(
-                symbol=symbol,
-                interval=interval,
-                limit=limit
-            )
+            klines_data = self.rest_client.klines(symbol=symbol, interval=interval, limit=limit)
 
             # Parse each kline array into Candle object
             candles = []
@@ -431,7 +405,8 @@ class BinanceDataCollector:
             if candles:
                 self.logger.info(
                     f"Successfully retrieved {len(candles)} candles for {symbol} {interval} "
-                    f"(range: {candles[0].open_time.isoformat()} to {candles[-1].open_time.isoformat()})"
+                    f"(range: {candles[0].open_time.isoformat()} to "
+                    f"{candles[-1].open_time.isoformat()})"
                 )
             else:
                 self.logger.warning(
@@ -442,8 +417,7 @@ class BinanceDataCollector:
 
         except Exception as e:
             self.logger.error(
-                f"Failed to fetch historical candles for {symbol} {interval}: {e}",
-                exc_info=True
+                f"Failed to fetch historical candles for {symbol} {interval}: {e}", exc_info=True
             )
             raise ConnectionError(f"REST API request failed: {e}")
 
@@ -493,7 +467,10 @@ class BinanceDataCollector:
             self.logger.error(f"Invalid backfill limit: {limit}. Must be 0-1000.")
             return False
 
-        self.logger.info(f"Starting backfill: {len(self.symbols)} symbols × {len(self.intervals)} intervals = {len(self.symbols) * len(self.intervals)} pairs")
+        self.logger.info(
+            f"Starting backfill: {len(self.symbols)} symbols × {len(self.intervals)} intervals = "
+            f"{len(self.symbols) * len(self.intervals)} pairs"
+        )
 
         success_count = 0
         failed_pairs = []
@@ -512,9 +489,7 @@ class BinanceDataCollector:
                 except Exception as e:
                     # Log failure but continue with other pairs
                     failed_pairs.append(f"{symbol}_{interval}")
-                    self.logger.error(
-                        f"❌ Failed to backfill {symbol} {interval}: {e}"
-                    )
+                    self.logger.error(f"❌ Failed to backfill {symbol} {interval}: {e}")
 
         # Summary logging
         if success_count == total_pairs:
@@ -573,10 +548,7 @@ class BinanceDataCollector:
             if self.ws_client is not None:
                 self.logger.debug("Stopping WebSocket client...")
                 try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self.ws_client.stop),
-                        timeout=timeout
-                    )
+                    await asyncio.wait_for(asyncio.to_thread(self.ws_client.stop), timeout=timeout)
                     self.logger.info("WebSocket client stopped successfully")
                 except asyncio.TimeoutError:
                     self.logger.warning(
@@ -618,10 +590,7 @@ class BinanceDataCollector:
         return self
 
     async def __aexit__(
-        self,
-        exc_type: Optional[type],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[object]
+        self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[object]
     ) -> None:
         """
         Async context manager exit with automatic cleanup.
@@ -638,9 +607,7 @@ class BinanceDataCollector:
             - Logs context exceptions for debugging
         """
         if exc_type is not None:
-            self.logger.warning(
-                f"Exiting context with exception: {exc_type.__name__}: {exc_val}"
-            )
+            self.logger.warning(f"Exiting context with exception: {exc_type.__name__}: {exc_val}")
         else:
             self.logger.debug("Exiting async context manager normally")
 
@@ -648,11 +615,8 @@ class BinanceDataCollector:
         try:
             await self.stop()
         except Exception as e:
-            self.logger.error(
-                f"Error during context manager cleanup: {e}",
-                exc_info=True
-            )
+            self.logger.error(f"Error during context manager cleanup: {e}", exc_info=True)
 
         # Don't suppress exceptions from the context
         return None
-            # Don't re-raise - best effort cleanup
+        # Don't re-raise - best effort cleanup

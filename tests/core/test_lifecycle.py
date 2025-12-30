@@ -8,10 +8,11 @@ Tests cover:
 - Integration scenarios
 """
 
-import pytest
 import asyncio
-from unittest.mock import patch, MagicMock, AsyncMock
 from datetime import datetime, timezone
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.core.data_collector import BinanceDataCollector
 from src.models.candle import Candle
@@ -26,7 +27,7 @@ class TestBinanceDataCollectorConnectionState:
         return {"api_key": "test_key", "api_secret": "test_secret"}
 
     @pytest.fixture
-    @patch('src.core.data_collector.UMFutures')
+    @patch("src.core.data_collector.UMFutures")
     def data_collector(self, mock_um_futures, mock_api_credentials):
         """Create BinanceDataCollector instance for testing"""
         return BinanceDataCollector(
@@ -34,7 +35,7 @@ class TestBinanceDataCollectorConnectionState:
             api_secret=mock_api_credentials["api_secret"],
             symbols=["BTCUSDT"],
             intervals=["1m"],
-            is_testnet=True
+            is_testnet=True,
         )
 
     def test_is_connected_false_when_not_started(self, data_collector):
@@ -43,7 +44,7 @@ class TestBinanceDataCollectorConnectionState:
         assert data_collector._is_connected is False
         assert data_collector.ws_client is None
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_is_connected_true_after_start(self, mock_ws_client, data_collector):
         """Verify is_connected returns True after successful start_streaming()"""
         # Start streaming
@@ -54,7 +55,7 @@ class TestBinanceDataCollectorConnectionState:
         assert data_collector._is_connected is True
         assert data_collector.ws_client is not None
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_is_connected_false_after_stop(self, mock_ws_client, data_collector):
         """Verify is_connected returns False after stop()"""
         # Start and then stop
@@ -75,7 +76,7 @@ class TestBinanceDataCollectorStop:
         return {"api_key": "test_key", "api_secret": "test_secret"}
 
     @pytest.fixture
-    @patch('src.core.data_collector.UMFutures')
+    @patch("src.core.data_collector.UMFutures")
     def data_collector(self, mock_um_futures, mock_api_credentials):
         """Create BinanceDataCollector instance for testing"""
         return BinanceDataCollector(
@@ -83,7 +84,7 @@ class TestBinanceDataCollectorStop:
             api_secret=mock_api_credentials["api_secret"],
             symbols=["BTCUSDT"],
             intervals=["1m"],
-            is_testnet=True
+            is_testnet=True,
         )
 
     async def test_stop_idempotency(self, data_collector):
@@ -97,7 +98,7 @@ class TestBinanceDataCollectorStop:
         assert data_collector._running is False
         assert data_collector._is_connected is False
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_stop_closes_websocket(self, mock_ws_client, data_collector):
         """Verify WebSocket client stop() is called"""
         # Start streaming
@@ -112,7 +113,7 @@ class TestBinanceDataCollectorStop:
         # Verify ws_client.stop was called
         data_collector.ws_client.stop.assert_called_once()
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_stop_timeout_handling(self, mock_ws_client, data_collector):
         """Verify timeout parameter works correctly"""
         # Start streaming
@@ -140,7 +141,7 @@ class TestBinanceDataCollectorStop:
         assert data_collector._running is False
         assert data_collector._is_connected is False
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_stop_handles_websocket_errors(self, mock_ws_client, data_collector):
         """Verify cleanup continues if WebSocket stop() raises"""
         # Start streaming
@@ -156,7 +157,7 @@ class TestBinanceDataCollectorStop:
         assert data_collector._running is False
         assert data_collector._is_connected is False
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_stop_updates_state_flags(self, mock_ws_client, data_collector):
         """Verify _running and _is_connected are set to False"""
         # Start streaming
@@ -181,7 +182,7 @@ class TestBinanceDataCollectorContextManager:
         return {"api_key": "test_key", "api_secret": "test_secret"}
 
     @pytest.fixture
-    @patch('src.core.data_collector.UMFutures')
+    @patch("src.core.data_collector.UMFutures")
     def data_collector(self, mock_um_futures, mock_api_credentials):
         """Create BinanceDataCollector instance for testing"""
         return BinanceDataCollector(
@@ -189,7 +190,7 @@ class TestBinanceDataCollectorContextManager:
             api_secret=mock_api_credentials["api_secret"],
             symbols=["BTCUSDT"],
             intervals=["1m"],
-            is_testnet=True
+            is_testnet=True,
         )
 
     async def test_context_manager_enter_returns_self(self, data_collector):
@@ -197,7 +198,7 @@ class TestBinanceDataCollectorContextManager:
         returned = await data_collector.__aenter__()
         assert returned is data_collector
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_context_manager_exit_calls_stop(self, mock_ws_client, data_collector):
         """Verify __aexit__ calls stop() automatically"""
         # Enter context
@@ -214,7 +215,7 @@ class TestBinanceDataCollectorContextManager:
         assert data_collector._running is False
         assert data_collector._is_connected is False
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_context_manager_with_exception(self, mock_ws_client, data_collector):
         """Verify cleanup runs even with context exception"""
         # Enter context
@@ -236,7 +237,7 @@ class TestBinanceDataCollectorContextManager:
         result = await data_collector.__aexit__(ValueError, ValueError("test"), None)
         assert result is None
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_context_manager_full_lifecycle(self, mock_ws_client, data_collector):
         """Integration: async with → start_streaming → cleanup"""
         # Use async context manager
@@ -262,7 +263,7 @@ class TestBinanceDataCollectorLifecycleIntegration:
         return {"api_key": "test_key", "api_secret": "test_secret"}
 
     @pytest.fixture
-    @patch('src.core.data_collector.UMFutures')
+    @patch("src.core.data_collector.UMFutures")
     def data_collector(self, mock_um_futures, mock_api_credentials):
         """Create BinanceDataCollector instance for testing"""
         return BinanceDataCollector(
@@ -270,10 +271,10 @@ class TestBinanceDataCollectorLifecycleIntegration:
             api_secret=mock_api_credentials["api_secret"],
             symbols=["BTCUSDT"],
             intervals=["1m"],
-            is_testnet=True
+            is_testnet=True,
         )
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_start_and_stop_lifecycle(self, mock_ws_client, data_collector):
         """Full lifecycle: start → stop → verify cleanup"""
         # Initial state
@@ -289,7 +290,7 @@ class TestBinanceDataCollectorLifecycleIntegration:
         assert data_collector.is_connected is False
         assert data_collector._running is False
 
-    @patch('src.core.data_collector.UMFuturesWebsocketClient')
+    @patch("src.core.data_collector.UMFuturesWebsocketClient")
     async def test_context_manager_usage_pattern(self, mock_ws_client, data_collector):
         """Real-world usage pattern with context manager"""
         collected_candles = []
@@ -304,7 +305,7 @@ class TestBinanceDataCollectorLifecycleIntegration:
             symbols=["BTCUSDT"],
             intervals=["1m"],
             is_testnet=True,
-            on_candle_callback=callback
+            on_candle_callback=callback,
         )
 
         # Use context manager
@@ -323,7 +324,7 @@ class TestBinanceDataCollectorLifecycleIntegration:
                     low=49900.0 + i,
                     close=50050.0 + i,
                     volume=10.5,
-                    is_closed=True
+                    is_closed=True,
                 )
                 if collector.on_candle_callback:
                     collector.on_candle_callback(candle)

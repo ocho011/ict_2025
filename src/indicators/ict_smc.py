@@ -3,17 +3,20 @@ ICT Smart Money Concepts (SMC)
 Detects inducement, displacement, and mitigation zones
 """
 
-from typing import List, Union, Optional
 from collections import deque
+from typing import List, Optional, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import Inducement, Displacement, MitigationZone, FairValueGap, OrderBlock
+from src.models.ict_signals import (
+    Displacement,
+    FairValueGap,
+    Inducement,
+    MitigationZone,
+    OrderBlock,
+)
 
 
-def calculate_average_range(
-    candles: Union[List[Candle], deque[Candle]],
-    period: int = 20
-) -> float:
+def calculate_average_range(candles: Union[List[Candle], deque[Candle]], period: int = 20) -> float:
     """
     Calculate average candle range over period.
 
@@ -39,8 +42,7 @@ def calculate_average_range(
 
 
 def detect_inducement(
-    candles: Union[List[Candle], deque[Candle]],
-    lookback: int = 10
+    candles: Union[List[Candle], deque[Candle]], lookback: int = 10
 ) -> List[Inducement]:
     """
     Detect inducement patterns - fake moves to trap retail traders.
@@ -68,31 +70,35 @@ def detect_inducement(
         next_candle = candles_list[i + 1]
 
         # Get recent highs and lows from lookback window
-        recent_candles = candles_list[i - lookback:i]
+        recent_candles = candles_list[i - lookback : i]
         recent_high = max(c.high for c in recent_candles)
         recent_low = min(c.low for c in recent_candles)
 
         # Bullish inducement: Price breaks below recent low then reverses up
         # (Traps traders who shorted the breakout)
         if current_candle.low < recent_low and next_candle.close > recent_low:
-            inducements.append(Inducement(
-                index=i,
-                type='liquidity_grab',
-                direction='bearish',  # Fake bearish move
-                price_level=recent_low,
-                timestamp=current_candle.open_time
-            ))
+            inducements.append(
+                Inducement(
+                    index=i,
+                    type="liquidity_grab",
+                    direction="bearish",  # Fake bearish move
+                    price_level=recent_low,
+                    timestamp=current_candle.open_time,
+                )
+            )
 
         # Bearish inducement: Price breaks above recent high then reverses down
         # (Traps traders who bought the breakout)
         elif current_candle.high > recent_high and next_candle.close < recent_high:
-            inducements.append(Inducement(
-                index=i,
-                type='liquidity_grab',
-                direction='bullish',  # Fake bullish move
-                price_level=recent_high,
-                timestamp=current_candle.open_time
-            ))
+            inducements.append(
+                Inducement(
+                    index=i,
+                    type="liquidity_grab",
+                    direction="bullish",  # Fake bullish move
+                    price_level=recent_high,
+                    timestamp=current_candle.open_time,
+                )
+            )
 
     return inducements
 
@@ -100,7 +106,7 @@ def detect_inducement(
 def detect_displacement(
     candles: Union[List[Candle], deque[Candle]],
     displacement_ratio: float = 1.5,
-    avg_range_period: int = 20
+    avg_range_period: int = 20,
 ) -> List[Displacement]:
     """
     Detect displacement moves - strong impulsive price movements.
@@ -137,16 +143,18 @@ def detect_displacement(
         if candle_range >= displacement_ratio * avg_range:
             # Determine direction
             is_bullish = candle.close > candle.open
-            direction = 'bullish' if is_bullish else 'bearish'
+            direction = "bullish" if is_bullish else "bearish"
 
-            displacements.append(Displacement(
-                index=i,
-                direction=direction,
-                start_price=candle.open,
-                end_price=candle.close,
-                displacement_ratio=candle_range / avg_range,
-                timestamp=candle.open_time
-            ))
+            displacements.append(
+                Displacement(
+                    index=i,
+                    direction=direction,
+                    start_price=candle.open,
+                    end_price=candle.close,
+                    displacement_ratio=candle_range / avg_range,
+                    timestamp=candle.open_time,
+                )
+            )
 
     return displacements
 
@@ -154,7 +162,7 @@ def detect_displacement(
 def find_mitigation_zone(
     candles: Union[List[Candle], deque[Candle]],
     fvgs: Optional[List[FairValueGap]] = None,
-    obs: Optional[List[OrderBlock]] = None
+    obs: Optional[List[OrderBlock]] = None,
 ) -> List[MitigationZone]:
     """
     Find mitigation zones - areas where price fills imbalances or order blocks.
@@ -188,15 +196,17 @@ def find_mitigation_zone(
                 candle = candles_list[i]
 
                 # Price has entered the FVG zone
-                if (candle.low <= fvg.gap_high and candle.high >= fvg.gap_low):
-                    mitigation_zones.append(MitigationZone(
-                        index=i,
-                        type='FVG',
-                        high=fvg.gap_high,
-                        low=fvg.gap_low,
-                        timestamp=candle.open_time,
-                        mitigated=True
-                    ))
+                if candle.low <= fvg.gap_high and candle.high >= fvg.gap_low:
+                    mitigation_zones.append(
+                        MitigationZone(
+                            index=i,
+                            type="FVG",
+                            high=fvg.gap_high,
+                            low=fvg.gap_low,
+                            timestamp=candle.open_time,
+                            mitigated=True,
+                        )
+                    )
                     fvg.filled = True  # Mark FVG as filled
                     break
 
@@ -208,15 +218,17 @@ def find_mitigation_zone(
                 candle = candles_list[i]
 
                 # Price has entered the OB zone
-                if (candle.low <= ob.high and candle.high >= ob.low):
-                    mitigation_zones.append(MitigationZone(
-                        index=i,
-                        type='OB',
-                        high=ob.high,
-                        low=ob.low,
-                        timestamp=candle.open_time,
-                        mitigated=True
-                    ))
+                if candle.low <= ob.high and candle.high >= ob.low:
+                    mitigation_zones.append(
+                        MitigationZone(
+                            index=i,
+                            type="OB",
+                            high=ob.high,
+                            low=ob.low,
+                            timestamp=candle.open_time,
+                            mitigated=True,
+                        )
+                    )
                     break
 
     return mitigation_zones
@@ -227,7 +239,7 @@ def detect_all_smc(
     displacement_ratio: float = 1.5,
     inducement_lookback: int = 10,
     fvgs: Optional[List[FairValueGap]] = None,
-    obs: Optional[List[OrderBlock]] = None
+    obs: Optional[List[OrderBlock]] = None,
 ) -> tuple[List[Inducement], List[Displacement], List[MitigationZone]]:
     """
     Detect all Smart Money Concepts in one call.

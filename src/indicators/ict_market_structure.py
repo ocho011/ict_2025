@@ -3,17 +3,15 @@ ICT Market Structure Analysis
 Identifies swing points, Break of Structure (BOS), and Change of Character (CHoCH)
 """
 
-from typing import List, Optional, Union
 from collections import deque
+from typing import List, Optional, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import SwingPoint, StructureBreak
+from src.models.ict_signals import StructureBreak, SwingPoint
 
 
 def identify_swing_highs(
-    candles: Union[List[Candle], deque[Candle]],
-    left_bars: int = 5,
-    right_bars: int = 5
+    candles: Union[List[Candle], deque[Candle]], left_bars: int = 5, right_bars: int = 5
 ) -> List[SwingPoint]:
     """
     Identify swing high points in price action.
@@ -42,32 +40,30 @@ def identify_swing_highs(
 
         # Check if current high is higher than all left bars
         is_higher_than_left = all(
-            current_high > candles_list[j].high
-            for j in range(i - left_bars, i)
+            current_high > candles_list[j].high for j in range(i - left_bars, i)
         )
 
         # Check if current high is higher than all right bars
         is_higher_than_right = all(
-            current_high > candles_list[j].high
-            for j in range(i + 1, i + 1 + right_bars)
+            current_high > candles_list[j].high for j in range(i + 1, i + 1 + right_bars)
         )
 
         if is_higher_than_left and is_higher_than_right:
-            swing_highs.append(SwingPoint(
-                index=i,
-                price=current_high,
-                type='high',
-                timestamp=candles_list[i].open_time,
-                strength=min(left_bars, right_bars)
-            ))
+            swing_highs.append(
+                SwingPoint(
+                    index=i,
+                    price=current_high,
+                    type="high",
+                    timestamp=candles_list[i].open_time,
+                    strength=min(left_bars, right_bars),
+                )
+            )
 
     return swing_highs
 
 
 def identify_swing_lows(
-    candles: Union[List[Candle], deque[Candle]],
-    left_bars: int = 5,
-    right_bars: int = 5
+    candles: Union[List[Candle], deque[Candle]], left_bars: int = 5, right_bars: int = 5
 ) -> List[SwingPoint]:
     """
     Identify swing low points in price action.
@@ -95,32 +91,29 @@ def identify_swing_lows(
         current_low = candles_list[i].low
 
         # Check if current low is lower than all left bars
-        is_lower_than_left = all(
-            current_low < candles_list[j].low
-            for j in range(i - left_bars, i)
-        )
+        is_lower_than_left = all(current_low < candles_list[j].low for j in range(i - left_bars, i))
 
         # Check if current low is lower than all right bars
         is_lower_than_right = all(
-            current_low < candles_list[j].low
-            for j in range(i + 1, i + 1 + right_bars)
+            current_low < candles_list[j].low for j in range(i + 1, i + 1 + right_bars)
         )
 
         if is_lower_than_left and is_lower_than_right:
-            swing_lows.append(SwingPoint(
-                index=i,
-                price=current_low,
-                type='low',
-                timestamp=candles_list[i].open_time,
-                strength=min(left_bars, right_bars)
-            ))
+            swing_lows.append(
+                SwingPoint(
+                    index=i,
+                    price=current_low,
+                    type="low",
+                    timestamp=candles_list[i].open_time,
+                    strength=min(left_bars, right_bars),
+                )
+            )
 
     return swing_lows
 
 
 def detect_bos(
-    candles: Union[List[Candle], deque[Candle]],
-    swing_lookback: int = 5
+    candles: Union[List[Candle], deque[Candle]], swing_lookback: int = 5
 ) -> List[StructureBreak]:
     """
     Detect Break of Structure (BOS) events.
@@ -166,13 +159,15 @@ def detect_bos(
                     break_index = j
                     break
 
-            bos_events.append(StructureBreak(
-                index=break_index,
-                type='BOS',
-                direction='bullish',
-                broken_level=prev_swing_high.price,
-                timestamp=candles_list[break_index].open_time
-            ))
+            bos_events.append(
+                StructureBreak(
+                    index=break_index,
+                    type="BOS",
+                    direction="bullish",
+                    broken_level=prev_swing_high.price,
+                    timestamp=candles_list[break_index].open_time,
+                )
+            )
 
     # Detect bearish BOS: price breaks below previous swing low (downtrend continuation)
     for i in range(1, len(swing_lows)):
@@ -188,13 +183,15 @@ def detect_bos(
                     break_index = j
                     break
 
-            bos_events.append(StructureBreak(
-                index=break_index,
-                type='BOS',
-                direction='bearish',
-                broken_level=prev_swing_low.price,
-                timestamp=candles_list[break_index].open_time
-            ))
+            bos_events.append(
+                StructureBreak(
+                    index=break_index,
+                    type="BOS",
+                    direction="bearish",
+                    broken_level=prev_swing_low.price,
+                    timestamp=candles_list[break_index].open_time,
+                )
+            )
 
     # Sort by index to maintain chronological order
     bos_events.sort(key=lambda x: x.index)
@@ -202,8 +199,7 @@ def detect_bos(
 
 
 def detect_choch(
-    candles: Union[List[Candle], deque[Candle]],
-    swing_lookback: int = 5
+    candles: Union[List[Candle], deque[Candle]], swing_lookback: int = 5
 ) -> List[StructureBreak]:
     """
     Detect Change of Character (CHoCH) events.
@@ -247,13 +243,15 @@ def detect_choch(
                 # Verify we had lower lows before this break (confirming downtrend)
                 recent_lows = [sl for sl in swing_lows if prev_swing_high.index < sl.index < j]
                 if recent_lows and any(sl.price < prev_swing_high.price for sl in recent_lows):
-                    choch_events.append(StructureBreak(
-                        index=j,
-                        type='CHoCH',
-                        direction='bullish',
-                        broken_level=prev_swing_high.price,
-                        timestamp=candles_list[j].open_time
-                    ))
+                    choch_events.append(
+                        StructureBreak(
+                            index=j,
+                            type="CHoCH",
+                            direction="bullish",
+                            broken_level=prev_swing_high.price,
+                            timestamp=candles_list[j].open_time,
+                        )
+                    )
                     break
 
     # Detect bearish CHoCH: in uptrend, price breaks below recent swing low (reversal)
@@ -271,13 +269,15 @@ def detect_choch(
                 # Verify we had higher highs before this break (confirming uptrend)
                 recent_highs = [sh for sh in swing_highs if prev_swing_low.index < sh.index < j]
                 if recent_highs and any(sh.price > prev_swing_low.price for sh in recent_highs):
-                    choch_events.append(StructureBreak(
-                        index=j,
-                        type='CHoCH',
-                        direction='bearish',
-                        broken_level=prev_swing_low.price,
-                        timestamp=candles_list[j].open_time
-                    ))
+                    choch_events.append(
+                        StructureBreak(
+                            index=j,
+                            type="CHoCH",
+                            direction="bearish",
+                            broken_level=prev_swing_low.price,
+                            timestamp=candles_list[j].open_time,
+                        )
+                    )
                     break
 
     # Sort by index to maintain chronological order
@@ -286,9 +286,7 @@ def detect_choch(
 
 
 def get_current_trend(
-    candles: Union[List[Candle], deque[Candle]],
-    swing_lookback: int = 5,
-    min_swings: int = 2
+    candles: Union[List[Candle], deque[Candle]], swing_lookback: int = 5, min_swings: int = 2
 ) -> Optional[str]:
     """
     Determine current market trend based on swing structure.
@@ -317,28 +315,24 @@ def get_current_trend(
     recent_lows = swing_lows[-min_swings:]
 
     higher_highs = all(
-        recent_highs[i].price > recent_highs[i-1].price
-        for i in range(1, len(recent_highs))
+        recent_highs[i].price > recent_highs[i - 1].price for i in range(1, len(recent_highs))
     )
     higher_lows = all(
-        recent_lows[i].price > recent_lows[i-1].price
-        for i in range(1, len(recent_lows))
+        recent_lows[i].price > recent_lows[i - 1].price for i in range(1, len(recent_lows))
     )
 
     if higher_highs and higher_lows:
-        return 'bullish'
+        return "bullish"
 
     # Check for lower highs and lower lows (bearish trend)
     lower_highs = all(
-        recent_highs[i].price < recent_highs[i-1].price
-        for i in range(1, len(recent_highs))
+        recent_highs[i].price < recent_highs[i - 1].price for i in range(1, len(recent_highs))
     )
     lower_lows = all(
-        recent_lows[i].price < recent_lows[i-1].price
-        for i in range(1, len(recent_lows))
+        recent_lows[i].price < recent_lows[i - 1].price for i in range(1, len(recent_lows))
     )
 
     if lower_highs and lower_lows:
-        return 'bearish'
+        return "bearish"
 
     return None  # Consolidation or unclear trend

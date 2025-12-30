@@ -3,17 +3,14 @@ ICT Order Block (OB) Identification
 Detects last opposing candle before strong displacement moves
 """
 
-from typing import List, Union, Optional
 from collections import deque
+from typing import List, Optional, Union
 
 from src.models.candle import Candle
 from src.models.ict_signals import OrderBlock
 
 
-def calculate_average_range(
-    candles: Union[List[Candle], deque[Candle]],
-    period: int = 20
-) -> float:
+def calculate_average_range(candles: Union[List[Candle], deque[Candle]], period: int = 20) -> float:
     """
     Calculate average candle range over period.
 
@@ -41,7 +38,7 @@ def calculate_average_range(
 def identify_bullish_ob(
     candles: Union[List[Candle], deque[Candle]],
     displacement_ratio: float = 1.5,
-    avg_range_period: int = 20
+    avg_range_period: int = 20,
 ) -> List[OrderBlock]:
     """
     Identify bullish Order Blocks (demand zones).
@@ -76,8 +73,8 @@ def identify_bullish_ob(
 
         # Check if this is a strong upward displacement
         is_bullish_displacement = (
-            current_candle.close > current_candle.open and  # Bullish candle
-            candle_range >= displacement_ratio * avg_range   # Strong move
+            current_candle.close > current_candle.open  # Bullish candle
+            and candle_range >= displacement_ratio * avg_range  # Strong move
         )
 
         if is_bullish_displacement:
@@ -91,15 +88,17 @@ def identify_bullish_ob(
                     displacement_size = current_candle.high - current_candle.low
                     strength = displacement_size / avg_range
 
-                    bullish_obs.append(OrderBlock(
-                        index=j,
-                        direction='bullish',
-                        high=prev_candle.high,
-                        low=prev_candle.low,
-                        timestamp=prev_candle.open_time,
-                        displacement_size=displacement_size,
-                        strength=strength
-                    ))
+                    bullish_obs.append(
+                        OrderBlock(
+                            index=j,
+                            direction="bullish",
+                            high=prev_candle.high,
+                            low=prev_candle.low,
+                            timestamp=prev_candle.open_time,
+                            displacement_size=displacement_size,
+                            strength=strength,
+                        )
+                    )
                     break  # Found the OB for this displacement
 
     return bullish_obs
@@ -108,7 +107,7 @@ def identify_bullish_ob(
 def identify_bearish_ob(
     candles: Union[List[Candle], deque[Candle]],
     displacement_ratio: float = 1.5,
-    avg_range_period: int = 20
+    avg_range_period: int = 20,
 ) -> List[OrderBlock]:
     """
     Identify bearish Order Blocks (supply zones).
@@ -143,8 +142,8 @@ def identify_bearish_ob(
 
         # Check if this is a strong downward displacement
         is_bearish_displacement = (
-            current_candle.close < current_candle.open and  # Bearish candle
-            candle_range >= displacement_ratio * avg_range   # Strong move
+            current_candle.close < current_candle.open  # Bearish candle
+            and candle_range >= displacement_ratio * avg_range  # Strong move
         )
 
         if is_bearish_displacement:
@@ -158,24 +157,23 @@ def identify_bearish_ob(
                     displacement_size = current_candle.high - current_candle.low
                     strength = displacement_size / avg_range
 
-                    bearish_obs.append(OrderBlock(
-                        index=j,
-                        direction='bearish',
-                        high=prev_candle.high,
-                        low=prev_candle.low,
-                        timestamp=prev_candle.open_time,
-                        displacement_size=displacement_size,
-                        strength=strength
-                    ))
+                    bearish_obs.append(
+                        OrderBlock(
+                            index=j,
+                            direction="bearish",
+                            high=prev_candle.high,
+                            low=prev_candle.low,
+                            timestamp=prev_candle.open_time,
+                            displacement_size=displacement_size,
+                            strength=strength,
+                        )
+                    )
                     break  # Found the OB for this displacement
 
     return bearish_obs
 
 
-def validate_ob_strength(
-    ob: OrderBlock,
-    min_strength: float = 1.5
-) -> bool:
+def validate_ob_strength(ob: OrderBlock, min_strength: float = 1.5) -> bool:
     """
     Validate if Order Block has sufficient strength.
 
@@ -192,10 +190,7 @@ def validate_ob_strength(
     return ob.strength >= min_strength
 
 
-def get_ob_zone(
-    ob: OrderBlock,
-    zone_percent: float = 0.5
-) -> tuple[float, float]:
+def get_ob_zone(ob: OrderBlock, zone_percent: float = 0.5) -> tuple[float, float]:
     """
     Get optimal trading zone within Order Block.
 
@@ -211,7 +206,7 @@ def get_ob_zone(
     """
     zone_size = ob.zone_size * zone_percent
 
-    if ob.direction == 'bullish':
+    if ob.direction == "bullish":
         # Entry zone in lower portion of bullish OB
         zone_low = ob.low
         zone_high = ob.low + zone_size
@@ -223,10 +218,7 @@ def get_ob_zone(
     return (zone_low, zone_high)
 
 
-def filter_obs_by_strength(
-    obs: List[OrderBlock],
-    min_strength: float = 1.5
-) -> List[OrderBlock]:
+def filter_obs_by_strength(obs: List[OrderBlock], min_strength: float = 1.5) -> List[OrderBlock]:
     """
     Filter Order Blocks by minimum strength requirement.
 
@@ -241,9 +233,7 @@ def filter_obs_by_strength(
 
 
 def find_nearest_ob(
-    obs: List[OrderBlock],
-    current_price: float,
-    direction: str = 'bullish'
+    obs: List[OrderBlock], current_price: float, direction: str = "bullish"
 ) -> Optional[OrderBlock]:
     """
     Find the nearest Order Block to current price.
@@ -262,10 +252,7 @@ def find_nearest_ob(
         return None
 
     # Find OB with midpoint closest to current price
-    nearest_ob = min(
-        filtered_obs,
-        key=lambda ob: abs(ob.midpoint - current_price)
-    )
+    nearest_ob = min(filtered_obs, key=lambda ob: abs(ob.midpoint - current_price))
 
     return nearest_ob
 
@@ -274,7 +261,7 @@ def detect_all_ob(
     candles: Union[List[Candle], deque[Candle]],
     displacement_ratio: float = 1.5,
     avg_range_period: int = 20,
-    min_strength: Optional[float] = None
+    min_strength: Optional[float] = None,
 ) -> tuple[List[OrderBlock], List[OrderBlock]]:
     """
     Detect both bullish and bearish Order Blocks in one call.

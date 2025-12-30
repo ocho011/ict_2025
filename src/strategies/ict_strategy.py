@@ -10,60 +10,48 @@ Comprehensive strategy implementing ICT concepts:
 - Kill Zones (time-based filters)
 """
 
-from typing import Optional
 from datetime import datetime, timezone
-
-from src.models.candle import Candle
-from src.models.signal import Signal, SignalType
-from src.strategies.base import BaseStrategy
-
-# ICT Market Structure
-from src.indicators.ict_market_structure import (
-    identify_swing_highs,
-    identify_swing_lows,
-    detect_bos,
-    detect_choch,
-    get_current_trend
-)
+from typing import Optional
 
 # ICT Fair Value Gap
 from src.indicators.ict_fvg import (
-    detect_bullish_fvg,
     detect_bearish_fvg,
+    detect_bullish_fvg,
     find_nearest_fvg,
-    get_entry_zone
+    get_entry_zone,
+)
+
+# ICT Kill Zones
+from src.indicators.ict_killzones import get_active_killzone, is_killzone_active
+
+# ICT Liquidity
+from src.indicators.ict_liquidity import (
+    calculate_premium_discount,
+    detect_liquidity_sweep,
+    find_equal_highs,
+    find_equal_lows,
+    is_in_discount,
+    is_in_premium,
+)
+
+# ICT Market Structure
+from src.indicators.ict_market_structure import (
+    get_current_trend,
 )
 
 # ICT Order Block
 from src.indicators.ict_order_block import (
-    identify_bullish_ob,
-    identify_bearish_ob,
     find_nearest_ob,
-    get_ob_zone
-)
-
-# ICT Liquidity
-from src.indicators.ict_liquidity import (
-    find_equal_highs,
-    find_equal_lows,
-    calculate_premium_discount,
-    is_in_premium,
-    is_in_discount,
-    detect_liquidity_sweep
+    get_ob_zone,
+    identify_bearish_ob,
+    identify_bullish_ob,
 )
 
 # ICT Smart Money Concepts
-from src.indicators.ict_smc import (
-    detect_inducement,
-    detect_displacement,
-    find_mitigation_zone
-)
-
-# ICT Kill Zones
-from src.indicators.ict_killzones import (
-    is_killzone_active,
-    get_active_killzone
-)
+from src.indicators.ict_smc import detect_displacement, detect_inducement, find_mitigation_zone
+from src.models.candle import Candle
+from src.models.signal import Signal, SignalType
+from src.strategies.base import BaseStrategy
 
 
 class ICTStrategy(BaseStrategy):
@@ -104,13 +92,13 @@ class ICTStrategy(BaseStrategy):
         super().__init__(symbol, config)
 
         # ICT-specific parameters
-        self.swing_lookback = config.get('swing_lookback', 5)
-        self.displacement_ratio = config.get('displacement_ratio', 1.5)
-        self.fvg_min_gap_percent = config.get('fvg_min_gap_percent', 0.001)
-        self.ob_min_strength = config.get('ob_min_strength', 1.5)
-        self.liquidity_tolerance = config.get('liquidity_tolerance', 0.001)
-        self.rr_ratio = config.get('rr_ratio', 2.0)
-        self.use_killzones = config.get('use_killzones', True)
+        self.swing_lookback = config.get("swing_lookback", 5)
+        self.displacement_ratio = config.get("displacement_ratio", 1.5)
+        self.fvg_min_gap_percent = config.get("fvg_min_gap_percent", 0.001)
+        self.ob_min_strength = config.get("ob_min_strength", 1.5)
+        self.liquidity_tolerance = config.get("liquidity_tolerance", 0.001)
+        self.rr_ratio = config.get("rr_ratio", 2.0)
+        self.use_killzones = config.get("use_killzones", True)
 
         # Minimum buffer size for ICT analysis
         self.min_periods = max(50, self.swing_lookback * 4)
@@ -176,7 +164,7 @@ class ICTStrategy(BaseStrategy):
 
         bullish_obs, bearish_obs = (
             identify_bullish_ob(self.candle_buffer, displacement_ratio=self.displacement_ratio),
-            identify_bearish_ob(self.candle_buffer, displacement_ratio=self.displacement_ratio)
+            identify_bearish_ob(self.candle_buffer, displacement_ratio=self.displacement_ratio),
         )
 
         # Filter OBs by strength
@@ -185,20 +173,13 @@ class ICTStrategy(BaseStrategy):
 
         # Step 5: Liquidity Analysis
         equal_highs = find_equal_highs(
-            self.candle_buffer,
-            tolerance_percent=self.liquidity_tolerance,
-            lookback=20
+            self.candle_buffer, tolerance_percent=self.liquidity_tolerance, lookback=20
         )
         equal_lows = find_equal_lows(
-            self.candle_buffer,
-            tolerance_percent=self.liquidity_tolerance,
-            lookback=20
+            self.candle_buffer, tolerance_percent=self.liquidity_tolerance, lookback=20
         )
 
-        liquidity_sweeps = detect_liquidity_sweep(
-            self.candle_buffer,
-            equal_highs + equal_lows
-        )
+        detect_liquidity_sweep(self.candle_buffer, equal_highs + equal_lows)
 
         # Step 6: Inducement Check
         inducements = detect_inducement(self.candle_buffer, lookback=10)
@@ -209,30 +190,24 @@ class ICTStrategy(BaseStrategy):
         )
 
         # Step 8: Entry Timing - Look for mitigation of FVG/OB
-        mitigations = find_mitigation_zone(
-            self.candle_buffer,
-            fvgs=bullish_fvgs + bearish_fvgs,
-            obs=bullish_obs + bearish_obs
+        _mitigations = find_mitigation_zone(
+            self.candle_buffer, fvgs=bullish_fvgs + bearish_fvgs, obs=bullish_obs + bearish_obs
         )
 
         # LONG Entry Logic
-        if trend == 'bullish' and is_in_discount(current_price, range_low, range_high):
+        if trend == "bullish" and is_in_discount(current_price, range_low, range_high):
             # Check for bullish FVG or OB nearby
-            nearest_fvg = find_nearest_fvg(
-                bullish_fvgs, current_price, direction='bullish'
-            )
-            nearest_ob = find_nearest_ob(
-                bullish_obs, current_price, direction='bullish'
-            )
+            nearest_fvg = find_nearest_fvg(bullish_fvgs, current_price, direction="bullish")
+            nearest_ob = find_nearest_ob(bullish_obs, current_price, direction="bullish")
 
             # Check for recent inducement (bearish fake move)
             recent_inducement = any(
-                ind.direction == 'bearish' for ind in inducements[-3:] if inducements
+                ind.direction == "bearish" for ind in inducements[-3:] if inducements
             )
 
             # Check for recent displacement (bullish move)
             recent_displacement = any(
-                disp.direction == 'bullish' for disp in displacements[-3:] if displacements
+                disp.direction == "bullish" for disp in displacements[-3:] if displacements
             )
 
             # Entry conditions:
@@ -242,7 +217,7 @@ class ICTStrategy(BaseStrategy):
             # 4. Near bullish FVG or OB (mitigation zone)
             if recent_inducement and recent_displacement and (nearest_fvg or nearest_ob):
                 entry_price = candle.close
-                side = 'LONG'
+                side = "LONG"
 
                 # Calculate TP (next BSL or displacement extension)
                 take_profit = self.calculate_take_profit(entry_price, side)
@@ -259,34 +234,32 @@ class ICTStrategy(BaseStrategy):
                     strategy_name=self.__class__.__name__,
                     timestamp=datetime.now(timezone.utc),
                     metadata={
-                        'trend': trend,
-                        'zone': 'discount',
-                        'killzone': get_active_killzone(candle.open_time) if self.use_killzones else None,
-                        'fvg_present': nearest_fvg is not None,
-                        'ob_present': nearest_ob is not None,
-                        'inducement': recent_inducement,
-                        'displacement': recent_displacement
-                    }
+                        "trend": trend,
+                        "zone": "discount",
+                        "killzone": (
+                            get_active_killzone(candle.open_time) if self.use_killzones else None
+                        ),
+                        "fvg_present": nearest_fvg is not None,
+                        "ob_present": nearest_ob is not None,
+                        "inducement": recent_inducement,
+                        "displacement": recent_displacement,
+                    },
                 )
 
         # SHORT Entry Logic
-        elif trend == 'bearish' and is_in_premium(current_price, range_low, range_high):
+        elif trend == "bearish" and is_in_premium(current_price, range_low, range_high):
             # Check for bearish FVG or OB nearby
-            nearest_fvg = find_nearest_fvg(
-                bearish_fvgs, current_price, direction='bearish'
-            )
-            nearest_ob = find_nearest_ob(
-                bearish_obs, current_price, direction='bearish'
-            )
+            nearest_fvg = find_nearest_fvg(bearish_fvgs, current_price, direction="bearish")
+            nearest_ob = find_nearest_ob(bearish_obs, current_price, direction="bearish")
 
             # Check for recent inducement (bullish fake move)
             recent_inducement = any(
-                ind.direction == 'bullish' for ind in inducements[-3:] if inducements
+                ind.direction == "bullish" for ind in inducements[-3:] if inducements
             )
 
             # Check for recent displacement (bearish move)
             recent_displacement = any(
-                disp.direction == 'bearish' for disp in displacements[-3:] if displacements
+                disp.direction == "bearish" for disp in displacements[-3:] if displacements
             )
 
             # Entry conditions:
@@ -296,7 +269,7 @@ class ICTStrategy(BaseStrategy):
             # 4. Near bearish FVG or OB (mitigation zone)
             if recent_inducement and recent_displacement and (nearest_fvg or nearest_ob):
                 entry_price = candle.close
-                side = 'SHORT'
+                side = "SHORT"
 
                 # Calculate TP (next SSL or displacement extension)
                 take_profit = self.calculate_take_profit(entry_price, side)
@@ -313,14 +286,16 @@ class ICTStrategy(BaseStrategy):
                     strategy_name=self.__class__.__name__,
                     timestamp=datetime.now(timezone.utc),
                     metadata={
-                        'trend': trend,
-                        'zone': 'premium',
-                        'killzone': get_active_killzone(candle.open_time) if self.use_killzones else None,
-                        'fvg_present': nearest_fvg is not None,
-                        'ob_present': nearest_ob is not None,
-                        'inducement': recent_inducement,
-                        'displacement': recent_displacement
-                    }
+                        "trend": trend,
+                        "zone": "premium",
+                        "killzone": (
+                            get_active_killzone(candle.open_time) if self.use_killzones else None
+                        ),
+                        "fvg_present": nearest_fvg is not None,
+                        "ob_present": nearest_ob is not None,
+                        "inducement": recent_inducement,
+                        "displacement": recent_displacement,
+                    },
                 )
 
         return None
@@ -353,17 +328,13 @@ class ICTStrategy(BaseStrategy):
 
         reward_amount = risk_amount * self.rr_ratio
 
-        if side == 'LONG':
+        if side == "LONG":
             return entry_price + reward_amount
         else:  # SHORT
             return entry_price - reward_amount
 
     def calculate_stop_loss(
-        self,
-        entry_price: float,
-        side: str,
-        nearest_fvg=None,
-        nearest_ob=None
+        self, entry_price: float, side: str, nearest_fvg=None, nearest_ob=None
     ) -> float:
         """
         Calculate stop loss below/above FVG or OB zone.
@@ -387,7 +358,7 @@ class ICTStrategy(BaseStrategy):
             zone_low, zone_high = get_ob_zone(nearest_ob)
         else:
             # Fallback: Use 1% of entry price
-            if side == 'LONG':
+            if side == "LONG":
                 return entry_price * 0.99
             else:  # SHORT
                 return entry_price * 1.01
@@ -395,7 +366,7 @@ class ICTStrategy(BaseStrategy):
         # Place SL below/above zone with small buffer
         buffer = entry_price * 0.001  # 0.1% buffer
 
-        if side == 'LONG':
+        if side == "LONG":
             # SL below FVG/OB zone
             return zone_low - buffer
         else:  # SHORT

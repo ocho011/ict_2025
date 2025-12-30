@@ -65,11 +65,7 @@ class EventBus:
         self._processor_tasks: List[asyncio.Task] = []
 
         # Monitoring: track dropped events per queue
-        self._drop_count: Dict[str, int] = {
-            'data': 0,
-            'signal': 0,
-            'order': 0
-        }
+        self._drop_count: Dict[str, int] = {"data": 0, "signal": 0, "order": 0}
 
         self.logger.debug("EventBus initialized (queues will be created in start())")
 
@@ -110,10 +106,8 @@ class EventBus:
         self._subscribers[event_type].append(handler)
 
         # Log subscription for debugging
-        handler_name = getattr(handler, '__name__', repr(handler))
-        self.logger.debug(
-            f"Handler '{handler_name}' subscribed to {event_type.value}"
-        )
+        handler_name = getattr(handler, "__name__", repr(handler))
+        self.logger.debug(f"Handler '{handler_name}' subscribed to {event_type.value}")
 
     def _get_handlers(self, event_type: EventType) -> List[Callable]:
         """
@@ -142,11 +136,7 @@ class EventBus:
         """
         return self._subscribers[event_type]
 
-    async def publish(
-        self,
-        event: Event,
-        queue_name: str = 'data'
-    ) -> None:
+    async def publish(self, event: Event, queue_name: str = "data") -> None:
         """
         Publish event to specified queue with overflow handling.
 
@@ -197,8 +187,7 @@ class EventBus:
         # 1. Validate queues are initialized
         if not self._queues:
             raise RuntimeError(
-                "EventBus queues not initialized. "
-                "Call start() before publishing events."
+                "EventBus queues not initialized. " "Call start() before publishing events."
             )
 
         # 2. Validate queue name
@@ -212,9 +201,9 @@ class EventBus:
 
         # 3. Define timeout strategy per queue type
         timeout_map = {
-            'data': 1.0,    # Drop quickly for high-frequency data
-            'signal': 5.0,  # Wait longer for important signals
-            'order': None   # Never timeout for critical orders
+            "data": 1.0,  # Drop quickly for high-frequency data
+            "signal": 5.0,  # Wait longer for important signals
+            "order": None,  # Never timeout for critical orders
         }
         timeout = timeout_map[queue_name]
 
@@ -229,10 +218,7 @@ class EventBus:
                 )
             else:
                 # Data/Signal queues: timeout-based overflow handling
-                await asyncio.wait_for(
-                    queue.put(event),
-                    timeout=timeout
-                )
+                await asyncio.wait_for(queue.put(event), timeout=timeout)
                 self.logger.debug(
                     f"Published {event.event_type.value} to {queue_name} queue "
                     f"(qsize={queue.qsize()})"
@@ -240,7 +226,7 @@ class EventBus:
 
         except asyncio.TimeoutError:
             # 5. Handle timeout based on queue criticality
-            if queue_name == 'data':
+            if queue_name == "data":
                 # Data queue: drop is acceptable, log and continue
                 self._drop_count[queue_name] += 1
                 self.logger.warning(
@@ -313,8 +299,7 @@ class EventBus:
             try:
                 # 1. Poll queue with timeout (non-blocking)
                 event = await asyncio.wait_for(
-                    queue.get(),
-                    timeout=0.1  # Check _running flag 10x per second
+                    queue.get(), timeout=0.1  # Check _running flag 10x per second
                 )
 
                 # 2. Get handlers for this event type
@@ -327,7 +312,7 @@ class EventBus:
 
                 # 3. Execute each handler sequentially with error isolation
                 for handler in handlers:
-                    handler_name = getattr(handler, '__name__', repr(handler))
+                    handler_name = getattr(handler, "__name__", repr(handler))
 
                     try:
                         # Detect async vs sync handler
@@ -349,7 +334,7 @@ class EventBus:
                         self.logger.error(
                             f"Handler '{handler_name}' failed for "
                             f"{event.event_type.value} in {queue_name} queue: {e}",
-                            exc_info=True  # Include full traceback
+                            exc_info=True,  # Include full traceback
                         )
                         # Don't raise - continue to next handler
 
@@ -362,10 +347,7 @@ class EventBus:
 
             except Exception as e:
                 # Unexpected processor error (shouldn't happen, but be defensive)
-                self.logger.critical(
-                    f"Processor error in {queue_name} queue: {e}",
-                    exc_info=True
-                )
+                self.logger.critical(f"Processor error in {queue_name} queue: {e}", exc_info=True)
                 # Don't crash processor - continue loop
 
         self.logger.info(f"Stopped {queue_name} queue processor")
@@ -402,9 +384,9 @@ class EventBus:
         """
         return {
             queue_name: {
-                'size': queue.qsize(),
-                'maxsize': queue.maxsize,
-                'drops': self._drop_count[queue_name]
+                "size": queue.qsize(),
+                "maxsize": queue.maxsize,
+                "drops": self._drop_count[queue_name],
             }
             for queue_name, queue in self._queues.items()
         }
@@ -456,13 +438,12 @@ class EventBus:
         # Create queues with current event loop (prevents "different loop" errors)
         if not self._queues:
             self._queues = {
-                'data': asyncio.Queue(maxsize=1000),    # High throughput, can drop
-                'signal': asyncio.Queue(maxsize=100),   # Medium priority, must process
-                'order': asyncio.Queue(maxsize=50)      # Critical, never drop
+                "data": asyncio.Queue(maxsize=1000),  # High throughput, can drop
+                "signal": asyncio.Queue(maxsize=100),  # Medium priority, must process
+                "order": asyncio.Queue(maxsize=50),  # Critical, never drop
             }
             self.logger.debug(
-                "Created queues with current event loop: "
-                f"data(1000), signal(100), order(50)"
+                "Created queues with current event loop: data(1000), signal(100), order(50)"
             )
 
         self._running = True
@@ -470,18 +451,9 @@ class EventBus:
 
         # Create processor tasks with descriptive names
         self._processor_tasks = [
-            asyncio.create_task(
-                self._process_queue('data'),
-                name='data_processor'
-            ),
-            asyncio.create_task(
-                self._process_queue('signal'),
-                name='signal_processor'
-            ),
-            asyncio.create_task(
-                self._process_queue('order'),
-                name='order_processor'
-            )
+            asyncio.create_task(self._process_queue("data"), name="data_processor"),
+            asyncio.create_task(self._process_queue("signal"), name="signal_processor"),
+            asyncio.create_task(self._process_queue("order"), name="order_processor"),
         ]
 
         # Wait for all processors (runs until stop() called)
@@ -576,8 +548,7 @@ class EventBus:
         for queue_name, queue in self._queues.items():
             try:
                 self.logger.debug(
-                    f"Waiting for {queue_name} queue to drain "
-                    f"(pending: {queue.qsize()})"
+                    f"Waiting for {queue_name} queue to drain " f"(pending: {queue.qsize()})"
                 )
                 await asyncio.wait_for(queue.join(), timeout=timeout)
                 self.logger.debug(f"Queue {queue_name} drained successfully")
@@ -597,10 +568,8 @@ class EventBus:
         await asyncio.sleep(0.5)
 
         # Cancel processor tasks if still running (defensive check)
-        if hasattr(self, '_processor_tasks') and self._processor_tasks:
-            self.logger.debug(
-                f"Cancelling {len(self._processor_tasks)} processor tasks"
-            )
+        if hasattr(self, "_processor_tasks") and self._processor_tasks:
+            self.logger.debug(f"Cancelling {len(self._processor_tasks)} processor tasks")
             for task in self._processor_tasks:
                 if not task.done():
                     task.cancel()

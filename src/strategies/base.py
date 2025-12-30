@@ -6,11 +6,10 @@ must implement. It provides common functionality for candle buffer management
 and defines abstract methods for signal generation and risk calculations.
 """
 
+import logging
 from abc import ABC, abstractmethod
 from collections import deque
-from datetime import datetime
-from typing import Dict, List, Optional
-import logging
+from typing import List, Optional
 
 from src.models.candle import Candle
 from src.models.signal import Signal
@@ -124,7 +123,7 @@ class BaseStrategy(ABC):
         """
         self.symbol: str = symbol
         self.config: dict = config
-        self.buffer_size: int = config.get('buffer_size', 100)
+        self.buffer_size: int = config.get("buffer_size", 100)
         self.candle_buffer: deque = deque(maxlen=self.buffer_size)
         self._initialized: bool = False  # Track historical data initialization
         self.logger = logging.getLogger(self.__class__.__name__)
@@ -200,7 +199,7 @@ class BaseStrategy(ABC):
 
         # Add candles respecting maxlen (keeps most recent)
         # Slice to most recent buffer_size candles if more provided
-        for candle in candles[-self.buffer_size:]:
+        for candle in candles[-self.buffer_size :]:
             self.candle_buffer.append(candle)
 
         # Mark as initialized
@@ -216,7 +215,7 @@ class BaseStrategy(ABC):
         Add candle to buffer with automatic FIFO management.
 
         This method manages the historical candle buffer by appending
-        new candles. When the buffer reaches maxlen (buffer_size), 
+        new candles. When the buffer reaches maxlen (buffer_size),
         the deque automatically removes the oldest candle.
 
         Buffer Order:
@@ -456,7 +455,6 @@ class BaseStrategy(ABC):
             - Called for every candle, so performance matters
             - Signal model validates TP/SL logic in __post_init__()
         """
-        pass
 
     @abstractmethod
     def calculate_take_profit(self, entry_price: float, side: str) -> float:
@@ -527,7 +525,6 @@ class BaseStrategy(ABC):
             - Logic varies by strategy (percentage, RR, fixed, dynamic)
             - Signal.__post_init__() validates TP > entry (LONG) or TP < entry (SHORT)
         """
-        pass
 
     @abstractmethod
     def calculate_stop_loss(self, entry_price: float, side: str) -> float:
@@ -600,4 +597,3 @@ class BaseStrategy(ABC):
             - Signal.__post_init__() validates SL < entry (LONG) or SL > entry (SHORT)
             - Critical for risk management - should be conservative
         """
-        pass

@@ -13,7 +13,8 @@ Tests verify:
 - No signal when conditions not met
 """
 
-from datetime import datetime, timezone
+from datetime import datetime
+
 import pytest
 import pytz
 
@@ -21,23 +22,23 @@ from src.models.candle import Candle
 from src.models.signal import SignalType
 from src.strategies.ict_strategy import ICTStrategy
 
-
 # ============================================================================
 # Test Fixtures
 # ============================================================================
+
 
 @pytest.fixture
 def default_config():
     """Default ICT configuration."""
     return {
-        'buffer_size': 200,
-        'swing_lookback': 5,
-        'displacement_ratio': 1.5,
-        'fvg_min_gap_percent': 0.001,
-        'ob_min_strength': 1.5,
-        'liquidity_tolerance': 0.001,
-        'rr_ratio': 2.0,
-        'use_killzones': True
+        "buffer_size": 200,
+        "swing_lookback": 5,
+        "displacement_ratio": 1.5,
+        "fvg_min_gap_percent": 0.001,
+        "ob_min_strength": 1.5,
+        "liquidity_tolerance": 0.001,
+        "rr_ratio": 2.0,
+        "use_killzones": True,
     }
 
 
@@ -45,14 +46,14 @@ def default_config():
 def custom_config():
     """Custom ICT configuration with modified parameters."""
     return {
-        'buffer_size': 150,
-        'swing_lookback': 7,
-        'displacement_ratio': 2.0,
-        'fvg_min_gap_percent': 0.002,
-        'ob_min_strength': 2.0,
-        'liquidity_tolerance': 0.0015,
-        'rr_ratio': 3.0,
-        'use_killzones': False
+        "buffer_size": 150,
+        "swing_lookback": 7,
+        "displacement_ratio": 2.0,
+        "fvg_min_gap_percent": 0.002,
+        "ob_min_strength": 2.0,
+        "liquidity_tolerance": 0.0015,
+        "rr_ratio": 3.0,
+        "use_killzones": False,
     }
 
 
@@ -66,16 +67,16 @@ def base_candles():
     for i in range(100):
         price = 50000 + (i % 10) * 10  # Small oscillation
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=8, minute=i % 60),
-            close_time=base_time.replace(hour=8, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=8, minute=(i + 1) % 60),
             open=price - 5,
             high=price + 10,
             low=price - 10,
             close=price,
             volume=100.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -98,16 +99,16 @@ def bullish_trend_candles():
     for i in range(40):
         price = 48000 + i * 50  # Gradual uptrend
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=10 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=10 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=10 + (i + 1) // 60, minute=(i + 1) % 60),
             open=price - 10,
             high=price + 20,
             low=price - 15,
             close=price,
             volume=100.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -118,16 +119,16 @@ def bullish_trend_candles():
         open_price = price - 20
         close_price = price
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=10 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=10 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=10 + (i + 1) // 60, minute=(i + 1) % 60),
             open=open_price,
             high=close_price + 50,  # high >= max(open, close)
             low=open_price - 10,  # low <= min(open, close)
             close=close_price,
             volume=200.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -135,62 +136,68 @@ def bullish_trend_candles():
     fvg_base = displacement_start + 5 * 200
 
     # Candle 45: Bullish candle (low = 51000)
-    candles.append(Candle(
-        symbol='BTCUSDT',
-        interval='5m',
-        open_time=base_time.replace(hour=10, minute=45),
-        close_time=base_time.replace(hour=10, minute=46),
-        open=fvg_base,
-        high=fvg_base + 100,
-        low=fvg_base - 50,  # Low at 51000
-        close=fvg_base + 50,
-        volume=100.0,
-        is_closed=True
-    ))
+    candles.append(
+        Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=base_time.replace(hour=10, minute=45),
+            close_time=base_time.replace(hour=10, minute=46),
+            open=fvg_base,
+            high=fvg_base + 100,
+            low=fvg_base - 50,  # Low at 51000
+            close=fvg_base + 50,
+            volume=100.0,
+            is_closed=True,
+        )
+    )
 
     # Candle 46: Strong bullish candle creating gap (low = 51200, high = 51400)
-    candles.append(Candle(
-        symbol='BTCUSDT',
-        interval='5m',
-        open_time=base_time.replace(hour=10, minute=46),
-        close_time=base_time.replace(hour=10, minute=47),
-        open=fvg_base + 200,
-        high=fvg_base + 400,
-        low=fvg_base + 200,  # Gap: 51000 to 51200
-        close=fvg_base + 350,
-        volume=150.0,
-        is_closed=True
-    ))
+    candles.append(
+        Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=base_time.replace(hour=10, minute=46),
+            close_time=base_time.replace(hour=10, minute=47),
+            open=fvg_base + 200,
+            high=fvg_base + 400,
+            low=fvg_base + 200,  # Gap: 51000 to 51200
+            close=fvg_base + 350,
+            volume=150.0,
+            is_closed=True,
+        )
+    )
 
     # Candle 47: Continuation (high = 51500)
-    candles.append(Candle(
-        symbol='BTCUSDT',
-        interval='5m',
-        open_time=base_time.replace(hour=10, minute=47),
-        close_time=base_time.replace(hour=10, minute=48),
-        open=fvg_base + 350,
-        high=fvg_base + 500,  # High at 51500
-        low=fvg_base + 300,
-        close=fvg_base + 450,
-        volume=100.0,
-        is_closed=True
-    ))
+    candles.append(
+        Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=base_time.replace(hour=10, minute=47),
+            close_time=base_time.replace(hour=10, minute=48),
+            open=fvg_base + 350,
+            high=fvg_base + 500,  # High at 51500
+            low=fvg_base + 300,
+            close=fvg_base + 450,
+            volume=100.0,
+            is_closed=True,
+        )
+    )
 
     # Phase 4: Inducement (fake bearish move) - candles 48-52
     inducement_start = fvg_base + 450
     for i in range(48, 52):
         price = inducement_start - (i - 48) * 80  # Bearish fake-out
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=10 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=10 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=10 + (i + 1) // 60, minute=(i + 1) % 60),
             open=price + 30,
             high=price + 50,
             low=price - 20,
             close=price,
             volume=120.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -198,16 +205,16 @@ def bullish_trend_candles():
     mitigation_price = fvg_base + 250  # Within FVG zone (51000-51200)
     for i in range(52, 55):
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=10 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=10 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=10 + (i + 1) // 60, minute=(i + 1) % 60),
             open=mitigation_price - 20,
             high=mitigation_price + 30,
             low=mitigation_price - 30,
             close=mitigation_price,
             volume=100.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -230,16 +237,16 @@ def bearish_trend_candles():
     for i in range(40):
         price = 52000 - i * 50  # Gradual downtrend
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=14 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=14 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=14 + (i + 1) // 60, minute=(i + 1) % 60),
             open=price + 10,
             high=price + 15,
             low=price - 20,
             close=price,
             volume=100.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -250,16 +257,16 @@ def bearish_trend_candles():
         open_price = price + 20
         close_price = price
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=14 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=14 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=14 + (i + 1) // 60, minute=(i + 1) % 60),
             open=open_price,
             high=open_price + 10,  # high >= max(open, close)
             low=close_price - 50,  # low <= min(open, close)
             close=close_price,
             volume=200.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -267,62 +274,68 @@ def bearish_trend_candles():
     fvg_base = displacement_start - 5 * 200
 
     # Candle 45: Bearish candle (high = 49000)
-    candles.append(Candle(
-        symbol='BTCUSDT',
-        interval='5m',
-        open_time=base_time.replace(hour=14, minute=45),
-        close_time=base_time.replace(hour=14, minute=46),
-        open=fvg_base,
-        high=fvg_base + 50,  # High at 49000
-        low=fvg_base - 100,
-        close=fvg_base - 50,
-        volume=100.0,
-        is_closed=True
-    ))
+    candles.append(
+        Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=base_time.replace(hour=14, minute=45),
+            close_time=base_time.replace(hour=14, minute=46),
+            open=fvg_base,
+            high=fvg_base + 50,  # High at 49000
+            low=fvg_base - 100,
+            close=fvg_base - 50,
+            volume=100.0,
+            is_closed=True,
+        )
+    )
 
     # Candle 46: Strong bearish candle creating gap
-    candles.append(Candle(
-        symbol='BTCUSDT',
-        interval='5m',
-        open_time=base_time.replace(hour=14, minute=46),
-        close_time=base_time.replace(hour=14, minute=47),
-        open=fvg_base - 200,
-        high=fvg_base - 200,  # Gap: 48800 to 49000
-        low=fvg_base - 400,
-        close=fvg_base - 350,
-        volume=150.0,
-        is_closed=True
-    ))
+    candles.append(
+        Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=base_time.replace(hour=14, minute=46),
+            close_time=base_time.replace(hour=14, minute=47),
+            open=fvg_base - 200,
+            high=fvg_base - 200,  # Gap: 48800 to 49000
+            low=fvg_base - 400,
+            close=fvg_base - 350,
+            volume=150.0,
+            is_closed=True,
+        )
+    )
 
     # Candle 47: Continuation
-    candles.append(Candle(
-        symbol='BTCUSDT',
-        interval='5m',
-        open_time=base_time.replace(hour=14, minute=47),
-        close_time=base_time.replace(hour=14, minute=48),
-        open=fvg_base - 350,
-        high=fvg_base - 300,
-        low=fvg_base - 500,  # Low at 48500
-        close=fvg_base - 450,
-        volume=100.0,
-        is_closed=True
-    ))
+    candles.append(
+        Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=base_time.replace(hour=14, minute=47),
+            close_time=base_time.replace(hour=14, minute=48),
+            open=fvg_base - 350,
+            high=fvg_base - 300,
+            low=fvg_base - 500,  # Low at 48500
+            close=fvg_base - 450,
+            volume=100.0,
+            is_closed=True,
+        )
+    )
 
     # Phase 4: Inducement (fake bullish move) - candles 48-52
     inducement_start = fvg_base - 450
     for i in range(48, 52):
         price = inducement_start + (i - 48) * 80  # Bullish fake-out
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=14 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=14 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=14 + (i + 1) // 60, minute=(i + 1) % 60),
             open=price - 30,
             high=price + 20,
             low=price - 50,
             close=price,
             volume=120.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -330,16 +343,16 @@ def bearish_trend_candles():
     mitigation_price = fvg_base - 250  # Within bearish FVG zone
     for i in range(52, 55):
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=base_time.replace(hour=14 + i // 60, minute=i % 60),
-            close_time=base_time.replace(hour=14 + (i+1) // 60, minute=(i+1) % 60),
+            close_time=base_time.replace(hour=14 + (i + 1) // 60, minute=(i + 1) % 60),
             open=mitigation_price + 20,
             high=mitigation_price + 30,
             low=mitigation_price - 30,
             close=mitigation_price,
             volume=100.0,
-            is_closed=True
+            is_closed=True,
         )
         candles.append(candle)
 
@@ -350,14 +363,15 @@ def bearish_trend_candles():
 # Initialization Tests
 # ============================================================================
 
+
 class TestICTStrategyInit:
     """Test ICTStrategy initialization and configuration."""
 
     def test_default_initialization(self, default_config):
         """Test ICTStrategy initializes with default configuration."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
-        assert strategy.symbol == 'BTCUSDT'
+        assert strategy.symbol == "BTCUSDT"
         assert strategy.swing_lookback == 5
         assert strategy.displacement_ratio == 1.5
         assert strategy.fvg_min_gap_percent == 0.001
@@ -369,9 +383,9 @@ class TestICTStrategyInit:
 
     def test_custom_initialization(self, custom_config):
         """Test ICTStrategy initializes with custom configuration."""
-        strategy = ICTStrategy(symbol='ETHUSDT', config=custom_config)
+        strategy = ICTStrategy(symbol="ETHUSDT", config=custom_config)
 
-        assert strategy.symbol == 'ETHUSDT'
+        assert strategy.symbol == "ETHUSDT"
         assert strategy.swing_lookback == 7
         assert strategy.displacement_ratio == 2.0
         assert strategy.fvg_min_gap_percent == 0.002
@@ -386,13 +400,14 @@ class TestICTStrategyInit:
 # Kill Zone Filter Tests
 # ============================================================================
 
+
 class TestKillZoneFilter:
     """Test kill zone filtering behavior."""
 
     @pytest.mark.asyncio
     async def test_outside_killzone_no_signal(self, default_config, bullish_trend_candles):
         """Test that strategy returns None outside kill zones when filtering enabled."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         # Feed all candles
         for candle in bullish_trend_candles[:-1]:
@@ -410,7 +425,7 @@ class TestKillZoneFilter:
             low=last_candle.low,
             close=last_candle.close,
             volume=last_candle.volume,
-            is_closed=True
+            is_closed=True,
         )
 
         signal = await strategy.analyze(outside_kz_candle)
@@ -420,7 +435,7 @@ class TestKillZoneFilter:
     async def test_killzone_disabled_allows_signal(self, custom_config, bullish_trend_candles):
         """Test that signals can occur outside kill zones when filtering disabled."""
         # custom_config has use_killzones=False
-        strategy = ICTStrategy(symbol='BTCUSDT', config=custom_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=custom_config)
 
         # Feed all candles
         for candle in bullish_trend_candles[:-1]:
@@ -438,10 +453,10 @@ class TestKillZoneFilter:
             low=last_candle.low,
             close=last_candle.close,
             volume=last_candle.volume,
-            is_closed=True
+            is_closed=True,
         )
 
-        signal = await strategy.analyze(outside_kz_candle)
+        await strategy.analyze(outside_kz_candle)
         # May still be None due to other conditions, but not filtered by kill zone
         # (we don't assert signal exists because other ICT conditions may not be met)
 
@@ -450,13 +465,14 @@ class TestKillZoneFilter:
 # LONG Entry Tests
 # ============================================================================
 
+
 class TestLongEntryConditions:
     """Test LONG entry signal generation."""
 
     @pytest.mark.asyncio
     async def test_long_signal_on_bullish_setup(self, default_config, bullish_trend_candles):
         """Test LONG signal generated on complete bullish ICT setup."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         signal = None
         for candle in bullish_trend_candles:
@@ -472,25 +488,26 @@ class TestLongEntryConditions:
         # If signal generated, verify it's a LONG
         if signal is not None:
             assert signal.signal_type == SignalType.LONG_ENTRY
-            assert signal.symbol == 'BTCUSDT'
+            assert signal.symbol == "BTCUSDT"
             assert signal.entry_price > 0
             assert signal.take_profit > signal.entry_price  # TP above entry for LONG
             assert signal.stop_loss < signal.entry_price  # SL below entry for LONG
-            assert signal.strategy_name == 'ICTStrategy'
+            assert signal.strategy_name == "ICTStrategy"
 
             # Verify metadata
-            assert 'trend' in signal.metadata
-            assert 'zone' in signal.metadata
-            assert 'killzone' in signal.metadata
-            assert 'fvg_present' in signal.metadata
-            assert 'ob_present' in signal.metadata
-            assert 'inducement' in signal.metadata
-            assert 'displacement' in signal.metadata
+            assert "trend" in signal.metadata
+            assert "zone" in signal.metadata
+            assert "killzone" in signal.metadata
+            assert "fvg_present" in signal.metadata
+            assert "ob_present" in signal.metadata
+            assert "inducement" in signal.metadata
+            assert "displacement" in signal.metadata
 
 
 # ============================================================================
 # SHORT Entry Tests
 # ============================================================================
+
 
 class TestShortEntryConditions:
     """Test SHORT entry signal generation."""
@@ -498,7 +515,7 @@ class TestShortEntryConditions:
     @pytest.mark.asyncio
     async def test_short_signal_on_bearish_setup(self, default_config, bearish_trend_candles):
         """Test SHORT signal generated on complete bearish ICT setup."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         signal = None
         for candle in bearish_trend_candles:
@@ -510,31 +527,32 @@ class TestShortEntryConditions:
         # If signal generated, verify it's a SHORT
         if signal is not None:
             assert signal.signal_type == SignalType.SHORT_ENTRY
-            assert signal.symbol == 'BTCUSDT'
+            assert signal.symbol == "BTCUSDT"
             assert signal.entry_price > 0
             assert signal.take_profit < signal.entry_price  # TP below entry for SHORT
             assert signal.stop_loss > signal.entry_price  # SL above entry for SHORT
-            assert signal.strategy_name == 'ICTStrategy'
+            assert signal.strategy_name == "ICTStrategy"
 
             # Verify metadata
-            assert 'trend' in signal.metadata
-            assert 'zone' in signal.metadata
-            assert signal.metadata['zone'] == 'premium'  # SHORT in premium zone
+            assert "trend" in signal.metadata
+            assert "zone" in signal.metadata
+            assert signal.metadata["zone"] == "premium"  # SHORT in premium zone
 
 
 # ============================================================================
 # Take Profit / Stop Loss Tests
 # ============================================================================
 
+
 class TestTakeProfitCalculation:
     """Test take profit calculation using displacement and risk-reward ratio."""
 
     def test_tp_calculation_long(self, default_config):
         """Test TP calculation for LONG position."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         entry_price = 50000.0
-        tp = strategy.calculate_take_profit(entry_price, 'LONG')
+        tp = strategy.calculate_take_profit(entry_price, "LONG")
 
         # TP should be above entry for LONG
         assert tp > entry_price
@@ -543,10 +561,10 @@ class TestTakeProfitCalculation:
 
     def test_tp_calculation_short(self, default_config):
         """Test TP calculation for SHORT position."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         entry_price = 50000.0
-        tp = strategy.calculate_take_profit(entry_price, 'SHORT')
+        tp = strategy.calculate_take_profit(entry_price, "SHORT")
 
         # TP should be below entry for SHORT
         assert tp < entry_price
@@ -559,10 +577,10 @@ class TestStopLossCalculation:
 
     def test_sl_calculation_long_without_zones(self, default_config):
         """Test SL calculation for LONG when no FVG/OB zones available."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         entry_price = 50000.0
-        sl = strategy.calculate_stop_loss(entry_price, 'LONG', nearest_fvg=None, nearest_ob=None)
+        sl = strategy.calculate_stop_loss(entry_price, "LONG", nearest_fvg=None, nearest_ob=None)
 
         # SL should be below entry for LONG
         assert sl < entry_price
@@ -571,10 +589,10 @@ class TestStopLossCalculation:
 
     def test_sl_calculation_short_without_zones(self, default_config):
         """Test SL calculation for SHORT when no FVG/OB zones available."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         entry_price = 50000.0
-        sl = strategy.calculate_stop_loss(entry_price, 'SHORT', nearest_fvg=None, nearest_ob=None)
+        sl = strategy.calculate_stop_loss(entry_price, "SHORT", nearest_fvg=None, nearest_ob=None)
 
         # SL should be above entry for SHORT
         assert sl > entry_price
@@ -586,18 +604,19 @@ class TestStopLossCalculation:
 # Data Handling Tests
 # ============================================================================
 
+
 class TestDataHandling:
     """Test insufficient data and edge cases."""
 
     @pytest.mark.asyncio
     async def test_insufficient_data_no_signal(self, default_config):
         """Test strategy returns None with insufficient data."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         # Create single candle
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=datetime(2025, 1, 15, 15, 30, 0, tzinfo=pytz.UTC),
             close_time=datetime(2025, 1, 15, 15, 35, 0, tzinfo=pytz.UTC),
             open=50000.0,
@@ -605,7 +624,7 @@ class TestDataHandling:
             low=49900.0,
             close=50000.0,
             volume=100.0,
-            is_closed=True
+            is_closed=True,
         )
 
         signal = await strategy.analyze(candle)
@@ -614,7 +633,7 @@ class TestDataHandling:
     @pytest.mark.asyncio
     async def test_unclosed_candle_no_signal(self, default_config, base_candles):
         """Test strategy returns None for unclosed candles."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         # Feed closed candles
         for candle in base_candles:
@@ -622,8 +641,8 @@ class TestDataHandling:
 
         # Create unclosed candle
         unclosed_candle = Candle(
-            symbol='BTCUSDT',
-            interval='5m',
+            symbol="BTCUSDT",
+            interval="5m",
             open_time=datetime(2025, 1, 15, 15, 30, 0, tzinfo=pytz.UTC),
             close_time=datetime(2025, 1, 15, 15, 35, 0, tzinfo=pytz.UTC),
             open=50000.0,
@@ -631,7 +650,7 @@ class TestDataHandling:
             low=49900.0,
             close=50000.0,
             volume=100.0,
-            is_closed=False  # Unclosed
+            is_closed=False,  # Unclosed
         )
 
         signal = await strategy.analyze(unclosed_candle)
@@ -640,7 +659,7 @@ class TestDataHandling:
     @pytest.mark.asyncio
     async def test_no_clear_trend_no_signal(self, default_config, base_candles):
         """Test strategy returns None when no clear trend detected."""
-        strategy = ICTStrategy(symbol='BTCUSDT', config=default_config)
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         # Feed sideways candles (no clear trend)
         signal = None

@@ -2,31 +2,27 @@
 Unit tests for ICT Liquidity Analysis
 """
 
-import pytest
-from datetime import datetime, timedelta
 from collections import deque
+from datetime import datetime, timedelta
 
-from src.models.candle import Candle
-from src.models.ict_signals import LiquidityLevel, LiquiditySweep
+import pytest
+
 from src.indicators.ict_liquidity import (
+    calculate_premium_discount,
+    detect_liquidity_sweep,
     find_equal_highs,
     find_equal_lows,
-    calculate_premium_discount,
-    is_in_premium,
-    is_in_discount,
-    detect_liquidity_sweep,
     find_liquidity_voids,
-    get_liquidity_draw
+    get_liquidity_draw,
+    is_in_discount,
+    is_in_premium,
 )
+from src.models.candle import Candle
+from src.models.ict_signals import LiquidityLevel
 
 
 def create_test_candle(
-    index: int,
-    open_price: float,
-    high: float,
-    low: float,
-    close: float,
-    base_time: datetime = None
+    index: int, open_price: float, high: float, low: float, close: float, base_time: datetime = None
 ) -> Candle:
     """Helper to create test candles."""
     if base_time is None:
@@ -45,7 +41,7 @@ def create_test_candle(
         close=close,
         volume=100.0,
         close_time=close_time,
-        is_closed=True
+        is_closed=True,
     )
 
 
@@ -66,7 +62,7 @@ class TestFindEqualHighs:
 
         assert len(equal_highs) > 0
         bsl = equal_highs[0]
-        assert bsl.type == 'BSL'
+        assert bsl.type == "BSL"
         assert bsl.num_touches == 2
         assert pytest.approx(bsl.price, abs=0.1) == 110
 
@@ -111,7 +107,7 @@ class TestFindEqualLows:
         """Test detection of equal lows forming SSL."""
         candles = [
             create_test_candle(0, 100, 102, 98, 99),
-            create_test_candle(1, 99, 100, 95, 97),    # Swing low at 95
+            create_test_candle(1, 99, 100, 95, 97),  # Swing low at 95
             create_test_candle(2, 97, 99, 97, 98),
             create_test_candle(3, 98, 100, 95.05, 96),  # Swing low at 95.05 (equal)
             create_test_candle(4, 96, 98, 96, 97),
@@ -121,7 +117,7 @@ class TestFindEqualLows:
 
         assert len(equal_lows) > 0
         ssl = equal_lows[0]
-        assert ssl.type == 'SSL'
+        assert ssl.type == "SSL"
         assert ssl.num_touches == 2
         assert pytest.approx(ssl.price, abs=0.1) == 95
 
@@ -130,13 +126,13 @@ class TestFindEqualLows:
         candles = [
             # First equal low group at 95 (need swing lows)
             create_test_candle(0, 100, 102, 98, 99),
-            create_test_candle(1, 99, 100, 95, 97),    # Swing low at 95
+            create_test_candle(1, 99, 100, 95, 97),  # Swing low at 95
             create_test_candle(2, 97, 99, 97, 98),
             create_test_candle(3, 98, 100, 94.95, 96),  # Swing low at 94.95 (equal)
             create_test_candle(4, 96, 98, 96, 97),
             # Second equal low group at 85 (need swing lows)
             create_test_candle(5, 97, 99, 97, 98),
-            create_test_candle(6, 98, 100, 85, 87),    # Swing low at 85
+            create_test_candle(6, 98, 100, 85, 87),  # Swing low at 85
             create_test_candle(7, 87, 89, 87, 88),
             create_test_candle(8, 88, 90, 85.08, 86),  # Swing low at 85.08 (equal)
             create_test_candle(9, 86, 88, 86, 87),
@@ -153,7 +149,7 @@ class TestCalculatePremiumDiscount:
     def test_premium_discount_calculation(self):
         """Test calculation of premium and discount zones."""
         candles = [
-            create_test_candle(0, 100, 110, 90, 105),   # Range: 90-110
+            create_test_candle(0, 100, 110, 90, 105),  # Range: 90-110
             create_test_candle(1, 105, 108, 92, 100),
             create_test_candle(2, 100, 105, 95, 102),
         ]
@@ -189,11 +185,11 @@ class TestDetectLiquiditySweep:
         # Create liquidity level
         bsl = LiquidityLevel(
             index=0,
-            type='BSL',
+            type="BSL",
             price=110,
             timestamp=candles[0].open_time,
             swept=False,
-            num_touches=2
+            num_touches=2,
         )
 
         # Add sweep candle (goes above BSL)
@@ -206,7 +202,7 @@ class TestDetectLiquiditySweep:
 
         assert len(sweeps) > 0
         sweep = sweeps[0]
-        assert sweep.direction == 'bearish'
+        assert sweep.direction == "bearish"
         assert sweep.swept_level == 110
         assert sweep.reversal_started  # Should detect reversal
 
@@ -221,11 +217,11 @@ class TestDetectLiquiditySweep:
         # Create liquidity level
         ssl = LiquidityLevel(
             index=0,
-            type='SSL',
+            type="SSL",
             price=90,
             timestamp=candles[0].open_time,
             swept=False,
-            num_touches=2
+            num_touches=2,
         )
 
         # Add sweep candle (goes below SSL)
@@ -238,7 +234,7 @@ class TestDetectLiquiditySweep:
 
         assert len(sweeps) > 0
         sweep = sweeps[0]
-        assert sweep.direction == 'bullish'
+        assert sweep.direction == "bullish"
         assert sweep.reversal_started
 
     def test_sweep_without_reversal(self):
@@ -249,11 +245,11 @@ class TestDetectLiquiditySweep:
 
         bsl = LiquidityLevel(
             index=0,
-            type='BSL',
+            type="BSL",
             price=110,
             timestamp=candles[0].open_time,
             swept=False,
-            num_touches=2
+            num_touches=2,
         )
 
         # Sweep but no reversal - price stays high
@@ -291,9 +287,9 @@ class TestFindLiquidityVoids:
     def test_bearish_void_detected(self):
         """Test detection of bearish liquidity void."""
         candles = [
-            create_test_candle(0, 100, 102, 98, 99),    # Low at 98
-            create_test_candle(1, 99, 99, 89, 90),      # Gap creator
-            create_test_candle(2, 90, 92, 88, 89),      # High at 92 < 98 = void
+            create_test_candle(0, 100, 102, 98, 99),  # Low at 98
+            create_test_candle(1, 99, 99, 89, 90),  # Gap creator
+            create_test_candle(2, 90, 92, 88, 89),  # High at 92 < 98 = void
         ]
 
         voids = find_liquidity_voids(candles, min_gap_percent=0.005)
@@ -307,13 +303,13 @@ class TestGetLiquidityDraw:
     def test_nearest_liquidity_draw_above(self):
         """Test finding nearest liquidity above current price."""
         levels = [
-            LiquidityLevel(0, 'BSL', 110, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(1, 'BSL', 130, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(2, 'SSL', 90, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(1, "BSL", 130, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(2, "SSL", 90, datetime(2025, 1, 1), False, 2),
         ]
 
         # Current price 105 - nearest above is 110
-        draw = get_liquidity_draw(105, levels, direction='above')
+        draw = get_liquidity_draw(105, levels, direction="above")
 
         assert draw is not None
         assert draw.price == 110
@@ -321,13 +317,13 @@ class TestGetLiquidityDraw:
     def test_nearest_liquidity_draw_below(self):
         """Test finding nearest liquidity below current price."""
         levels = [
-            LiquidityLevel(0, 'BSL', 110, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(1, 'SSL', 90, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(2, 'SSL', 70, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(1, "SSL", 90, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(2, "SSL", 70, datetime(2025, 1, 1), False, 2),
         ]
 
         # Current price 105 - nearest below is 90
-        draw = get_liquidity_draw(105, levels, direction='below')
+        draw = get_liquidity_draw(105, levels, direction="below")
 
         assert draw is not None
         assert draw.price == 90
@@ -335,12 +331,12 @@ class TestGetLiquidityDraw:
     def test_nearest_liquidity_draw_both(self):
         """Test finding nearest liquidity in any direction."""
         levels = [
-            LiquidityLevel(0, 'BSL', 110, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(1, 'SSL', 90, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel(1, "SSL", 90, datetime(2025, 1, 1), False, 2),
         ]
 
         # Current price 105 - nearest is 110 (5 points away vs 15)
-        draw = get_liquidity_draw(105, levels, direction='both')
+        draw = get_liquidity_draw(105, levels, direction="both")
 
         assert draw is not None
         assert draw.price == 110
@@ -348,10 +344,10 @@ class TestGetLiquidityDraw:
     def test_no_unswept_liquidity(self):
         """Test when all liquidity is swept."""
         levels = [
-            LiquidityLevel(0, 'BSL', 110, datetime(2025, 1, 1), True, 2),  # Swept
+            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), True, 2),  # Swept
         ]
 
-        draw = get_liquidity_draw(105, levels, direction='both')
+        draw = get_liquidity_draw(105, levels, direction="both")
 
         assert draw is None
 
@@ -364,9 +360,11 @@ class TestLiquidityWorkflows:
         # Create candles with equal highs and lows (need swing patterns)
         candles = [
             create_test_candle(0, 100, 105, 95, 98),
-            create_test_candle(1, 98, 110, 90, 105),     # Swing high at 110, swing low at 90
+            create_test_candle(1, 98, 110, 90, 105),  # Swing high at 110, swing low at 90
             create_test_candle(2, 105, 108, 95, 100),
-            create_test_candle(3, 100, 110.05, 90.05, 102),  # Swing high at 110.05, swing low at 90.05 (equal)
+            create_test_candle(
+                3, 100, 110.05, 90.05, 102
+            ),  # Swing high at 110.05, swing low at 90.05 (equal)
             create_test_candle(4, 102, 108, 95, 103),
         ]
 

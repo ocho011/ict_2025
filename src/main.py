@@ -6,12 +6,11 @@ including data collection, strategy execution, risk management, and order execut
 """
 
 import asyncio
+import logging
+import os
 import signal
 import sys
-import os
-import logging
 from pathlib import Path
-from datetime import datetime
 from typing import Optional
 
 # Add project root to Python path for imports
@@ -20,29 +19,29 @@ project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from src.utils.config import ConfigManager
-from src.utils.logger import TradingLogger
+from enum import Enum, auto
+
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
 from src.core.trading_engine import TradingEngine
+from src.execution.order_manager import OrderExecutionManager
+from src.models.candle import Candle
+from src.models.event import Event, EventType
+from src.risk.manager import RiskManager
 from src.strategies import StrategyFactory
 from src.strategies.base import BaseStrategy
-from src.execution.order_manager import OrderExecutionManager
-from src.risk.manager import RiskManager
-from src.models.event import Event, EventType
-from src.models.candle import Candle
-from src.models.signal import Signal
-from src.models.order import Order
-from enum import Enum, auto
+from src.utils.config import ConfigManager
+from src.utils.logger import TradingLogger
 
 
 class LifecycleState(Enum):
     """Trading bot lifecycle states for event handling control."""
+
     INITIALIZING = auto()  # __init__ phase
-    STARTING = auto()      # initialize() in progress
-    RUNNING = auto()       # Fully operational
-    STOPPING = auto()      # shutdown() in progress
-    STOPPED = auto()       # Shutdown complete
+    STARTING = auto()  # initialize() in progress
+    RUNNING = auto()  # Fully operational
+    STOPPING = auto()  # shutdown() in progress
+    STOPPED = auto()  # Shutdown complete
 
 
 class TradingBot:
@@ -157,7 +156,7 @@ class TradingBot:
             symbols=[trading_config.symbol],
             intervals=trading_config.intervals,
             is_testnet=api_config.is_testnet,
-            on_candle_callback=self._on_candle_received  # Bridge to EventBus (Subtask 10.2)
+            on_candle_callback=self._on_candle_received,  # Bridge to EventBus (Subtask 10.2)
         )
 
         # Step 5.5: Store backfill limit for TradingEngine initialization
@@ -175,19 +174,19 @@ class TradingBot:
         self.order_manager = OrderExecutionManager(
             api_key=api_config.api_key,
             api_secret=api_config.api_secret,
-            is_testnet=api_config.is_testnet
+            is_testnet=api_config.is_testnet,
         )
 
         # Step 7: Initialize RiskManager
         self.logger.info("Initializing RiskManager...")
         self.risk_manager = RiskManager(
             config={
-                'max_risk_per_trade': trading_config.max_risk_per_trade,
-                'default_leverage': trading_config.leverage,
-                'max_leverage': 20,  # Hard limit
-                'max_position_size_percent': 0.1  # 10% of account
+                "max_risk_per_trade": trading_config.max_risk_per_trade,
+                "default_leverage": trading_config.leverage,
+                "max_leverage": 20,  # Hard limit
+                "max_position_size_percent": 0.1,  # 10% of account
             },
-            audit_logger=self.order_manager.audit_logger  # Share audit logger instance
+            audit_logger=self.order_manager.audit_logger,  # Share audit logger instance
         )
 
         # Step 8: Create strategy instance via StrategyFactory
@@ -195,20 +194,21 @@ class TradingBot:
 
         # Build strategy configuration
         strategy_config = {
-            'buffer_size': 100,
-            'risk_reward_ratio': trading_config.take_profit_ratio,
-            'stop_loss_percent': trading_config.stop_loss_percent
+            "buffer_size": 100,
+            "risk_reward_ratio": trading_config.take_profit_ratio,
+            "stop_loss_percent": trading_config.stop_loss_percent,
         }
 
         # Add ICT-specific configuration if available
         if trading_config.ict_config is not None:
             strategy_config.update(trading_config.ict_config)
-            self.logger.info(f"ICT configuration loaded: use_killzones={trading_config.ict_config.get('use_killzones', True)}")
+            self.logger.info(
+                f"ICT configuration loaded: "
+                f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
+            )
 
         self.strategy = StrategyFactory.create(
-            name=trading_config.strategy,
-            symbol=trading_config.symbol,
-            config=strategy_config
+            name=trading_config.strategy, symbol=trading_config.symbol, config=strategy_config
         )
 
         # Step 9: Initialize EventBus and TradingEngine
@@ -226,7 +226,7 @@ class TradingBot:
             order_manager=self.order_manager,
             risk_manager=self.risk_manager,
             config_manager=self.config_manager,
-            trading_bot=self
+            trading_bot=self,
         )
 
         # Step 9.5: Initialize strategy with historical data (if backfill enabled)
@@ -240,10 +240,7 @@ class TradingBot:
         # Step 10: Configure leverage and margin type
 
         self.logger.info("Configuring leverage...")
-        success = self.order_manager.set_leverage(
-            trading_config.symbol,
-            trading_config.leverage
-        )
+        success = self.order_manager.set_leverage(trading_config.symbol, trading_config.leverage)
         if not success:
             self.logger.warning(
                 f"Failed to set leverage to {trading_config.leverage}x. "
@@ -253,13 +250,12 @@ class TradingBot:
         # Configure margin type (ISOLATED by default for risk management)
         self.logger.info(f"Configuring margin type to {trading_config.margin_type}...")
         success = self.order_manager.set_margin_type(
-            trading_config.symbol,
-            trading_config.margin_type
+            trading_config.symbol, trading_config.margin_type
         )
         if not success:
             self.logger.warning(
-                f"Failed to set margin type to {trading_config.margin_type} for {trading_config.symbol}. "
-                "Using current margin type."
+                f"Failed to set margin type to {trading_config.margin_type} for "
+                f"{trading_config.symbol}. Using current margin type."
             )
 
         self.logger.info("✅ All components initialized successfully")
@@ -278,9 +274,7 @@ class TradingBot:
         self._event_loop = loop
         self._lifecycle_state = LifecycleState.RUNNING
 
-        self.logger.info(
-            f"✅ Event loop registered, lifecycle state: {self._lifecycle_state.name}"
-        )
+        self.logger.info(f"✅ Event loop registered, lifecycle state: {self._lifecycle_state.name}")
 
     def _on_candle_received(self, candle: Candle) -> None:
         """
@@ -340,8 +334,7 @@ class TradingBot:
         # Step 5: Publish to EventBus (thread-safe)
         try:
             asyncio.run_coroutine_threadsafe(
-                self.event_bus.publish(event, queue_name='data'),
-                self._event_loop
+                self.event_bus.publish(event, queue_name="data"), self._event_loop
             )
 
         except Exception as e:
@@ -350,7 +343,7 @@ class TradingBot:
                 f"Failed to publish event: {e} | "
                 f"{candle.symbol} {candle.interval} @ {candle.close}. "
                 f"Drops: {self._event_drop_count}",
-                exc_info=True
+                exc_info=True,
             )
             return
 
@@ -476,5 +469,5 @@ def main() -> None:
         logger.info("=" * 80)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

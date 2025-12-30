@@ -2,28 +2,27 @@
 Unit tests for ICT Smart Money Concepts (SMC)
 """
 
-import pytest
-from datetime import datetime, timedelta
 from collections import deque
+from datetime import datetime, timedelta
 
-from src.models.candle import Candle
-from src.models.ict_signals import Inducement, Displacement, MitigationZone, FairValueGap, OrderBlock
+import pytest
+
 from src.indicators.ict_smc import (
     calculate_average_range,
-    detect_inducement,
+    detect_all_smc,
     detect_displacement,
+    detect_inducement,
     find_mitigation_zone,
-    detect_all_smc
+)
+from src.models.candle import Candle
+from src.models.ict_signals import (
+    FairValueGap,
+    OrderBlock,
 )
 
 
 def create_test_candle(
-    index: int,
-    open_price: float,
-    high: float,
-    low: float,
-    close: float,
-    base_time: datetime = None
+    index: int, open_price: float, high: float, low: float, close: float, base_time: datetime = None
 ) -> Candle:
     """Helper to create test candles."""
     if base_time is None:
@@ -42,7 +41,7 @@ def create_test_candle(
         close=close,
         volume=100.0,
         close_time=close_time,
-        is_closed=True
+        is_closed=True,
     )
 
 
@@ -76,14 +75,14 @@ class TestDetectInducement:
         # Recent low is 95 (from candle 0)
         # Add inducement: price breaks below recent low (95) then reverses up
         candles.append(create_test_candle(10, 104, 105, 94, 95))  # Breaks below 95
-        candles.append(create_test_candle(11, 95, 98, 95, 97))    # Reverses above 95
+        candles.append(create_test_candle(11, 95, 98, 95, 97))  # Reverses above 95
 
         inducements = detect_inducement(candles, lookback=10)
 
         assert len(inducements) > 0
         ind = inducements[0]
-        assert ind.type == 'liquidity_grab'
-        assert ind.direction == 'bearish'  # Fake bearish move
+        assert ind.type == "liquidity_grab"
+        assert ind.direction == "bearish"  # Fake bearish move
         assert ind.price_level == 95  # Recent low that was broken
 
     def test_bearish_inducement_detected(self):
@@ -103,8 +102,8 @@ class TestDetectInducement:
 
         assert len(inducements) > 0
         ind = inducements[0]
-        assert ind.type == 'liquidity_grab'
-        assert ind.direction == 'bullish'  # Fake bullish move
+        assert ind.type == "liquidity_grab"
+        assert ind.direction == "bullish"  # Fake bullish move
         assert ind.price_level == 110  # Recent high that was broken
 
     def test_no_inducement_without_reversal(self):
@@ -158,7 +157,7 @@ class TestDetectDisplacement:
 
         assert len(displacements) > 0
         disp = displacements[0]
-        assert disp.direction == 'bullish'
+        assert disp.direction == "bullish"
         assert disp.displacement_ratio >= 2.5  # Should be ~3.0
         assert disp.size == 5  # Close - open (125 - 120)
 
@@ -177,7 +176,7 @@ class TestDetectDisplacement:
 
         assert len(displacements) > 0
         disp = displacements[0]
-        assert disp.direction == 'bearish'
+        assert disp.direction == "bearish"
         assert disp.displacement_ratio >= 2.5
         assert disp.size == 5  # Close - open (abs(115 - 120))
 
@@ -219,56 +218,56 @@ class TestFindMitigationZone:
     def test_fvg_mitigation_detected(self):
         """Test detection of FVG mitigation."""
         candles = [
-            create_test_candle(0, 100, 102, 100, 101),    # FVG forms
+            create_test_candle(0, 100, 102, 100, 101),  # FVG forms
             create_test_candle(1, 101, 110, 101, 109),
-            create_test_candle(2, 109, 112, 108, 111),    # Gap: 102-108
+            create_test_candle(2, 109, 112, 108, 111),  # Gap: 102-108
             create_test_candle(3, 111, 113, 110, 112),
-            create_test_candle(4, 112, 113, 105, 106),    # Price returns to fill FVG
+            create_test_candle(4, 112, 113, 105, 106),  # Price returns to fill FVG
         ]
 
         # Create FVG
         fvg = FairValueGap(
             index=0,
-            direction='bullish',
+            direction="bullish",
             gap_high=108,
             gap_low=102,
             timestamp=candles[0].open_time,
-            filled=False
+            filled=False,
         )
 
         mitigation_zones = find_mitigation_zone(candles, fvgs=[fvg])
 
         assert len(mitigation_zones) > 0
         mz = mitigation_zones[0]
-        assert mz.type == 'FVG'
+        assert mz.type == "FVG"
         assert mz.mitigated
         assert fvg.filled  # FVG should be marked as filled
 
     def test_ob_mitigation_detected(self):
         """Test detection of Order Block mitigation."""
         candles = [
-            create_test_candle(0, 100, 105, 100, 103),    # OB zone: 100-105
-            create_test_candle(1, 103, 115, 103, 114),    # Displacement up
+            create_test_candle(0, 100, 105, 100, 103),  # OB zone: 100-105
+            create_test_candle(1, 103, 115, 103, 114),  # Displacement up
             create_test_candle(2, 114, 116, 113, 115),
-            create_test_candle(3, 115, 116, 102, 103),    # Price returns to OB
+            create_test_candle(3, 115, 116, 102, 103),  # Price returns to OB
         ]
 
         # Create OB
         ob = OrderBlock(
             index=0,
-            direction='bullish',
+            direction="bullish",
             high=105,
             low=100,
             timestamp=candles[0].open_time,
             displacement_size=12,
-            strength=2.0
+            strength=2.0,
         )
 
         mitigation_zones = find_mitigation_zone(candles, obs=[ob])
 
         assert len(mitigation_zones) > 0
         mz = mitigation_zones[0]
-        assert mz.type == 'OB'
+        assert mz.type == "OB"
         assert mz.mitigated
 
     def test_no_mitigation_without_price_return(self):
@@ -276,18 +275,18 @@ class TestFindMitigationZone:
         candles = [
             create_test_candle(0, 100, 102, 100, 101),
             create_test_candle(1, 101, 110, 101, 109),
-            create_test_candle(2, 109, 112, 108, 111),    # Gap: 102-108
+            create_test_candle(2, 109, 112, 108, 111),  # Gap: 102-108
             create_test_candle(3, 111, 113, 110, 112),
-            create_test_candle(4, 112, 114, 111, 113),    # Price stays above gap
+            create_test_candle(4, 112, 114, 111, 113),  # Price stays above gap
         ]
 
         fvg = FairValueGap(
             index=0,
-            direction='bullish',
+            direction="bullish",
             gap_high=108,
             gap_low=102,
             timestamp=candles[0].open_time,
-            filled=False
+            filled=False,
         )
 
         mitigation_zones = find_mitigation_zone(candles, fvgs=[fvg])
@@ -299,24 +298,24 @@ class TestFindMitigationZone:
     def test_multiple_mitigations(self):
         """Test detection of multiple mitigation zones."""
         candles = [
-            create_test_candle(0, 100, 102, 100, 101),    # FVG 1: 102-108
+            create_test_candle(0, 100, 102, 100, 101),  # FVG 1: 102-108
             create_test_candle(1, 101, 110, 101, 109),
             create_test_candle(2, 109, 112, 108, 111),
             create_test_candle(3, 111, 113, 110, 112),
-            create_test_candle(4, 112, 114, 111, 113),    # FVG 2: 114-120
+            create_test_candle(4, 112, 114, 111, 113),  # FVG 2: 114-120
             create_test_candle(5, 113, 123, 113, 122),
             create_test_candle(6, 122, 125, 120, 124),
-            create_test_candle(7, 124, 125, 105, 106),    # Fills FVG 1
-            create_test_candle(8, 106, 118, 106, 117),    # Fills FVG 2
+            create_test_candle(7, 124, 125, 105, 106),  # Fills FVG 1
+            create_test_candle(8, 106, 118, 106, 117),  # Fills FVG 2
         ]
 
-        fvg1 = FairValueGap(0, 'bullish', 108, 102, candles[0].open_time, False)
-        fvg2 = FairValueGap(4, 'bullish', 120, 114, candles[4].open_time, False)
+        fvg1 = FairValueGap(0, "bullish", 108, 102, candles[0].open_time, False)
+        fvg2 = FairValueGap(4, "bullish", 120, 114, candles[4].open_time, False)
 
         mitigation_zones = find_mitigation_zone(candles, fvgs=[fvg1, fvg2])
 
         assert len(mitigation_zones) >= 2
-        assert all(mz.type == 'FVG' for mz in mitigation_zones)
+        assert all(mz.type == "FVG" for mz in mitigation_zones)
 
 
 class TestDetectAllSMC:
@@ -332,7 +331,7 @@ class TestDetectAllSMC:
 
         # Add inducement pattern
         candles.append(create_test_candle(10, 104, 105, 94, 95))  # Break low
-        candles.append(create_test_candle(11, 95, 98, 95, 97))    # Reverse up
+        candles.append(create_test_candle(11, 95, 98, 95, 97))  # Reverse up
 
         # Add more normal candles
         for i in range(12, 22):
@@ -342,16 +341,13 @@ class TestDetectAllSMC:
         candles.append(create_test_candle(22, 122, 128, 122, 127))  # Strong move
 
         # Create FVG for mitigation test
-        fvg = FairValueGap(0, 'bullish', 108, 102, candles[0].open_time, False)
+        fvg = FairValueGap(0, "bullish", 108, 102, candles[0].open_time, False)
 
-        inducements, displacements, mitigation_zones = detect_all_smc(
-            candles,
-            fvgs=[fvg]
-        )
+        inducements, displacements, mitigation_zones = detect_all_smc(candles, fvgs=[fvg])
 
         # Should detect inducement
         assert len(inducements) > 0
-        assert inducements[0].type == 'liquidity_grab'
+        assert inducements[0].type == "liquidity_grab"
 
         # Should detect displacement
         assert len(displacements) > 0
@@ -385,7 +381,7 @@ class TestSMCWorkflows:
 
         # Phase 2: Inducement (fake breakout below)
         candles.append(create_test_candle(10, 104, 105, 94, 95))  # Break low at 95
-        candles.append(create_test_candle(11, 95, 98, 95, 97))    # Reverse up
+        candles.append(create_test_candle(11, 95, 98, 95, 97))  # Reverse up
 
         # Phase 3: More normal candles
         for i in range(12, 22):
@@ -396,20 +392,19 @@ class TestSMCWorkflows:
 
         # Phase 5: Normal continuation
         for i in range(23, 28):
-            candles.append(create_test_candle(i, 127 + i - 23, 129 + i - 23, 127 + i - 23, 128 + i - 23))
+            candles.append(
+                create_test_candle(i, 127 + i - 23, 129 + i - 23, 127 + i - 23, 128 + i - 23)
+            )
 
         # Phase 6: Mitigation (return to fill FVG)
         # Create FVG with gap above the early candles to avoid early mitigation
-        fvg = FairValueGap(0, 'bullish', 118, 112, candles[0].open_time, False)
+        fvg = FairValueGap(0, "bullish", 118, 112, candles[0].open_time, False)
         # Normal pullback to fill FVG (not a huge displacement)
         candles.append(create_test_candle(28, 132, 132, 130, 131))  # Small pullback
         candles.append(create_test_candle(29, 131, 131, 115, 116))  # Fill FVG
 
         # Analyze all patterns
-        inducements, displacements, mitigation_zones = detect_all_smc(
-            candles,
-            fvgs=[fvg]
-        )
+        inducements, displacements, mitigation_zones = detect_all_smc(candles, fvgs=[fvg])
 
         # Verify all SMC concepts detected
         assert len(inducements) > 0  # Inducement detected
@@ -417,8 +412,8 @@ class TestSMCWorkflows:
         assert len(mitigation_zones) > 0  # Mitigation detected
 
         # Verify SMC concept characteristics
-        assert inducements[0].type == 'liquidity_grab'
-        assert inducements[0].direction in ['bullish', 'bearish']
+        assert inducements[0].type == "liquidity_grab"
+        assert inducements[0].direction in ["bullish", "bearish"]
         assert displacements[0].displacement_ratio >= 1.5
-        assert mitigation_zones[0].type == 'FVG'
+        assert mitigation_zones[0].type == "FVG"
         assert mitigation_zones[0].mitigated

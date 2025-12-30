@@ -3,16 +3,18 @@ Configuration management with INI files and environment overrides
 """
 
 import os
+from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
-from configparser import ConfigParser
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
+
 from src.core.exceptions import ConfigurationError
 
 
 @dataclass
 class APIConfig:
     """Binance API configuration"""
+
     api_key: str
     api_secret: str
     is_testnet: bool = True
@@ -38,6 +40,7 @@ class TradingConfig:
         - intervals: must be valid Binance interval formats
           (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w)
     """
+
     symbol: str
     intervals: List[str]
     strategy: str
@@ -46,7 +49,7 @@ class TradingConfig:
     take_profit_ratio: float
     stop_loss_percent: float
     backfill_limit: int = 100  # Default 100 candles
-    margin_type: str = 'ISOLATED'  # Default to ISOLATED margin (safer than CROSSED)
+    margin_type: str = "ISOLATED"  # Default to ISOLATED margin (safer than CROSSED)
     ict_config: Optional[Dict[str, Any]] = None  # ICT strategy specific configuration
 
     def __post_init__(self):
@@ -73,39 +76,46 @@ class TradingConfig:
 
         # Validate backfill_limit
         if self.backfill_limit < 0 or self.backfill_limit > 1000:
-            raise ConfigurationError(
-                f"Backfill limit must be 0-1000, got {self.backfill_limit}"
-            )
+            raise ConfigurationError(f"Backfill limit must be 0-1000, got {self.backfill_limit}")
 
         # Validate margin_type
-        if self.margin_type not in ('ISOLATED', 'CROSSED'):
+        if self.margin_type not in ("ISOLATED", "CROSSED"):
             raise ConfigurationError(
                 f"Margin type must be 'ISOLATED' or 'CROSSED', got {self.margin_type}"
             )
 
         # Validate symbol format
         if not self.symbol or not self.symbol.endswith("USDT"):
-            raise ConfigurationError(
-                f"Invalid symbol format: {self.symbol}. Must end with 'USDT'"
-            )
+            raise ConfigurationError(f"Invalid symbol format: {self.symbol}. Must end with 'USDT'")
 
         # Validate intervals
         valid_intervals = {
-            "1m", "3m", "5m", "15m", "30m",
-            "1h", "2h", "4h", "6h", "8h", "12h",
-            "1d", "3d", "1w"
+            "1m",
+            "3m",
+            "5m",
+            "15m",
+            "30m",
+            "1h",
+            "2h",
+            "4h",
+            "6h",
+            "8h",
+            "12h",
+            "1d",
+            "3d",
+            "1w",
         }
         for interval in self.intervals:
             if interval not in valid_intervals:
                 raise ConfigurationError(
-                    f"Invalid interval: {interval}. "
-                    f"Must be one of {sorted(valid_intervals)}"
+                    f"Invalid interval: {interval}. " f"Must be one of {sorted(valid_intervals)}"
                 )
 
 
 @dataclass
 class LoggingConfig:
     """Logging system configuration"""
+
     log_level: str = "INFO"
     log_dir: str = "logs"
 
@@ -113,8 +123,7 @@ class LoggingConfig:
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if self.log_level.upper() not in valid_levels:
             raise ConfigurationError(
-                f"Invalid log level: {self.log_level}. "
-                f"Must be one of {valid_levels}"
+                f"Invalid log level: {self.log_level}. " f"Must be one of {valid_levels}"
             )
 
 
@@ -159,11 +168,7 @@ class ConfigManager:
         # If environment variables provide complete configuration, use them
         if api_key_env and api_secret_env:
             is_testnet = is_testnet_env.lower() == "true" if is_testnet_env else True
-            return APIConfig(
-                api_key=api_key_env,
-                api_secret=api_secret_env,
-                is_testnet=is_testnet
-            )
+            return APIConfig(api_key=api_key_env, api_secret=api_secret_env, is_testnet=is_testnet)
 
         # Load from INI file with environment-specific sections
         config_file = self.config_dir / "api_keys.ini"
@@ -210,20 +215,14 @@ class ConfigManager:
                 f"Invalid API secret in [{env_section}]. Please set your actual credentials."
             )
 
-        return APIConfig(
-            api_key=api_key,
-            api_secret=api_secret,
-            is_testnet=is_testnet
-        )
+        return APIConfig(api_key=api_key, api_secret=api_secret, is_testnet=is_testnet)
 
     def _load_trading_config(self) -> TradingConfig:
         """Load trading configuration from INI file"""
         config_file = self.config_dir / "trading_config.ini"
 
         if not config_file.exists():
-            raise ConfigurationError(
-                f"Trading configuration not found: {config_file}"
-            )
+            raise ConfigurationError(f"Trading configuration not found: {config_file}")
 
         config = ConfigParser()
         config.read(config_file)
@@ -238,14 +237,14 @@ class ConfigManager:
         if "ict_strategy" in config:
             ict_section = config["ict_strategy"]
             ict_config = {
-                'buffer_size': ict_section.getint('buffer_size', 200),
-                'swing_lookback': ict_section.getint('swing_lookback', 5),
-                'displacement_ratio': ict_section.getfloat('displacement_ratio', 1.5),
-                'fvg_min_gap_percent': ict_section.getfloat('fvg_min_gap_percent', 0.001),
-                'ob_min_strength': ict_section.getfloat('ob_min_strength', 1.5),
-                'liquidity_tolerance': ict_section.getfloat('liquidity_tolerance', 0.001),
-                'rr_ratio': ict_section.getfloat('rr_ratio', 2.0),
-                'use_killzones': ict_section.getboolean('use_killzones', True),
+                "buffer_size": ict_section.getint("buffer_size", 200),
+                "swing_lookback": ict_section.getint("swing_lookback", 5),
+                "displacement_ratio": ict_section.getfloat("displacement_ratio", 1.5),
+                "fvg_min_gap_percent": ict_section.getfloat("fvg_min_gap_percent", 0.001),
+                "ob_min_strength": ict_section.getfloat("ob_min_strength", 1.5),
+                "liquidity_tolerance": ict_section.getfloat("liquidity_tolerance", 0.001),
+                "rr_ratio": ict_section.getfloat("rr_ratio", 2.0),
+                "use_killzones": ict_section.getboolean("use_killzones", True),
             }
 
         return TradingConfig(
@@ -257,7 +256,7 @@ class ConfigManager:
             take_profit_ratio=trading.getfloat("take_profit_ratio", 2.0),
             stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
             backfill_limit=trading.getint("backfill_limit", 100),
-            ict_config=ict_config
+            ict_config=ict_config,
         )
 
     def validate(self) -> bool:
@@ -282,9 +281,7 @@ class ConfigManager:
 
         # Cross-config validation: leverage warning in testnet
         if self._trading_config.leverage > 1 and self._api_config.is_testnet:
-            logger.warning(
-                f"Using {self._trading_config.leverage}x leverage in testnet mode"
-            )
+            logger.warning(f"Using {self._trading_config.leverage}x leverage in testnet mode")
 
         # Log environment mode
         if self._api_config.is_testnet:
@@ -330,7 +327,7 @@ class ConfigManager:
 
         return LoggingConfig(
             log_level=logging_section.get("log_level", "INFO"),
-            log_dir=logging_section.get("log_dir", "logs")
+            log_dir=logging_section.get("log_dir", "logs"),
         )
 
     @property

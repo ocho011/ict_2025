@@ -2,9 +2,10 @@
 Risk management and position sizing
 """
 
-from typing import Optional, TYPE_CHECKING
-from src.models.signal import Signal
+from typing import TYPE_CHECKING, Optional
+
 from src.models.position import Position
+from src.models.signal import Signal
 
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
@@ -15,7 +16,7 @@ class RiskManager:
     Manages risk and calculates position sizes
     """
 
-    def __init__(self, config: dict, audit_logger: Optional['AuditLogger'] = None):
+    def __init__(self, config: dict, audit_logger: Optional["AuditLogger"] = None):
         """
         Initialize RiskManager with configuration.
 
@@ -27,13 +28,14 @@ class RiskManager:
                 - max_position_size_percent: float (e.g., 0.1 for 10%)
             audit_logger: Optional AuditLogger instance for structured logging
         """
-        self.max_risk_per_trade = config.get('max_risk_per_trade', 0.01)
-        self.max_leverage = config.get('max_leverage', 20)
-        self.default_leverage = config.get('default_leverage', 10)
-        self.max_position_size_percent = config.get('max_position_size_percent', 0.1)
+        self.max_risk_per_trade = config.get("max_risk_per_trade", 0.01)
+        self.max_leverage = config.get("max_leverage", 20)
+        self.default_leverage = config.get("default_leverage", 10)
+        self.max_position_size_percent = config.get("max_position_size_percent", 0.1)
 
         # Setup logging
         import logging
+
         self.logger = logging.getLogger(__name__)
 
         # Setup audit logger
@@ -41,6 +43,7 @@ class RiskManager:
             self.audit_logger = audit_logger
         else:
             from src.core.audit_logger import AuditLogger
+
             self.audit_logger = AuditLogger()
 
     def calculate_position_size(
@@ -49,7 +52,7 @@ class RiskManager:
         entry_price: float,
         stop_loss_price: float,
         leverage: int,
-        symbol_info: Optional[dict] = None
+        symbol_info: Optional[dict] = None,
     ) -> float:
         """
         Calculate position size based on risk management rules.
@@ -92,9 +95,7 @@ class RiskManager:
         if stop_loss_price <= 0:
             raise ValueError(f"Stop loss price must be > 0, got {stop_loss_price}")
         if leverage < 1 or leverage > self.max_leverage:
-            raise ValueError(
-                f"Leverage must be between 1 and {self.max_leverage}, got {leverage}"
-            )
+            raise ValueError(f"Leverage must be between 1 and {self.max_leverage}, got {leverage}")
 
         # Step 2: Calculate SL distance as percentage
         sl_distance_percent = abs(entry_price - stop_loss_price) / entry_price
@@ -130,17 +131,18 @@ class RiskManager:
             # Audit log: position size capped
             try:
                 from src.core.audit_logger import AuditEventType
+
                 self.audit_logger.log_event(
                     event_type=AuditEventType.POSITION_SIZE_CAPPED,
                     operation="calculate_position_size",
-                    symbol=symbol_info.get('symbol') if symbol_info else None,
+                    symbol=symbol_info.get("symbol") if symbol_info else None,
                     additional_data={
-                        'requested_quantity': original_quantity,
-                        'capped_quantity': max_quantity,
-                        'max_position_percent': self.max_position_size_percent,
-                        'leverage': leverage,
-                        'account_balance': account_balance
-                    }
+                        "requested_quantity": original_quantity,
+                        "capped_quantity": max_quantity,
+                        "max_position_percent": self.max_position_size_percent,
+                        "leverage": leverage,
+                        "account_balance": account_balance,
+                    },
                 )
             except Exception as e:
                 self.logger.warning(f"Audit logging failed: {e}")
@@ -163,20 +165,21 @@ class RiskManager:
         # Audit log: position size calculated
         try:
             from src.core.audit_logger import AuditEventType
+
             self.audit_logger.log_event(
                 event_type=AuditEventType.POSITION_SIZE_CALCULATED,
                 operation="calculate_position_size",
-                symbol=symbol_info.get('symbol') if symbol_info else None,
+                symbol=symbol_info.get("symbol") if symbol_info else None,
                 additional_data={
-                    'account_balance': account_balance,
-                    'entry_price': entry_price,
-                    'stop_loss_price': stop_loss_price,
-                    'leverage': leverage,
-                    'risk_amount': risk_amount,
-                    'sl_distance_percent': sl_distance_percent,
-                    'position_value': position_value,
-                    'final_quantity': quantity
-                }
+                    "account_balance": account_balance,
+                    "entry_price": entry_price,
+                    "stop_loss_price": stop_loss_price,
+                    "leverage": leverage,
+                    "risk_amount": risk_amount,
+                    "sl_distance_percent": sl_distance_percent,
+                    "position_value": position_value,
+                    "final_quantity": quantity,
+                },
             )
         except Exception as e:
             self.logger.warning(f"Audit logging failed: {e}")
@@ -207,19 +210,20 @@ class RiskManager:
             # Audit log: risk rejection due to existing position
             try:
                 from src.core.audit_logger import AuditEventType
+
                 self.audit_logger.log_event(
                     event_type=AuditEventType.RISK_REJECTION,
                     operation="validate_risk",
                     symbol=signal.symbol,
                     order_data={
-                        'signal_type': signal.signal_type.value,
-                        'entry_price': signal.entry_price
+                        "signal_type": signal.signal_type.value,
+                        "entry_price": signal.entry_price,
                     },
                     error={
-                        'reason': 'existing_position',
-                        'position_side': position.side,
-                        'position_entry': position.entry_price
-                    }
+                        "reason": "existing_position",
+                        "position_side": position.side,
+                        "position_entry": position.entry_price,
+                    },
                 )
             except Exception as e:
                 self.logger.warning(f"Audit logging failed: {e}")
@@ -230,26 +234,25 @@ class RiskManager:
         if signal.signal_type == SignalType.LONG_ENTRY:
             if signal.take_profit <= signal.entry_price:
                 self.logger.warning(
-                    f"Signal rejected: LONG TP ({signal.take_profit}) must be > entry ({signal.entry_price})"
+                    f"Signal rejected: LONG TP ({signal.take_profit}) must be > "
+                    f"entry ({signal.entry_price})"
                 )
 
                 # Audit log: risk rejection due to invalid LONG TP
                 try:
                     from src.core.audit_logger import AuditEventType
+
                     self.audit_logger.log_event(
                         event_type=AuditEventType.RISK_REJECTION,
                         operation="validate_risk",
                         symbol=signal.symbol,
                         order_data={
-                            'signal_type': signal.signal_type.value,
-                            'entry_price': signal.entry_price,
-                            'take_profit': signal.take_profit,
-                            'stop_loss': signal.stop_loss
+                            "signal_type": signal.signal_type.value,
+                            "entry_price": signal.entry_price,
+                            "take_profit": signal.take_profit,
+                            "stop_loss": signal.stop_loss,
                         },
-                        error={
-                            'reason': 'invalid_tp_sl_levels',
-                            'validation_failed': 'LONG_TP'
-                        }
+                        error={"reason": "invalid_tp_sl_levels", "validation_failed": "LONG_TP"},
                     )
                 except Exception as e:
                     self.logger.warning(f"Audit logging failed: {e}")
@@ -257,26 +260,25 @@ class RiskManager:
                 return False
             if signal.stop_loss >= signal.entry_price:
                 self.logger.warning(
-                    f"Signal rejected: LONG SL ({signal.stop_loss}) must be < entry ({signal.entry_price})"
+                    f"Signal rejected: LONG SL ({signal.stop_loss}) must be < "
+                    f"entry ({signal.entry_price})"
                 )
 
                 # Audit log: risk rejection due to invalid LONG SL
                 try:
                     from src.core.audit_logger import AuditEventType
+
                     self.audit_logger.log_event(
                         event_type=AuditEventType.RISK_REJECTION,
                         operation="validate_risk",
                         symbol=signal.symbol,
                         order_data={
-                            'signal_type': signal.signal_type.value,
-                            'entry_price': signal.entry_price,
-                            'take_profit': signal.take_profit,
-                            'stop_loss': signal.stop_loss
+                            "signal_type": signal.signal_type.value,
+                            "entry_price": signal.entry_price,
+                            "take_profit": signal.take_profit,
+                            "stop_loss": signal.stop_loss,
                         },
-                        error={
-                            'reason': 'invalid_tp_sl_levels',
-                            'validation_failed': 'LONG_SL'
-                        }
+                        error={"reason": "invalid_tp_sl_levels", "validation_failed": "LONG_SL"},
                     )
                 except Exception as e:
                     self.logger.warning(f"Audit logging failed: {e}")
@@ -287,26 +289,25 @@ class RiskManager:
         elif signal.signal_type == SignalType.SHORT_ENTRY:
             if signal.take_profit >= signal.entry_price:
                 self.logger.warning(
-                    f"Signal rejected: SHORT TP ({signal.take_profit}) must be < entry ({signal.entry_price})"
+                    f"Signal rejected: SHORT TP ({signal.take_profit}) must be < "
+                    f"entry ({signal.entry_price})"
                 )
 
                 # Audit log: risk rejection due to invalid SHORT TP
                 try:
                     from src.core.audit_logger import AuditEventType
+
                     self.audit_logger.log_event(
                         event_type=AuditEventType.RISK_REJECTION,
                         operation="validate_risk",
                         symbol=signal.symbol,
                         order_data={
-                            'signal_type': signal.signal_type.value,
-                            'entry_price': signal.entry_price,
-                            'take_profit': signal.take_profit,
-                            'stop_loss': signal.stop_loss
+                            "signal_type": signal.signal_type.value,
+                            "entry_price": signal.entry_price,
+                            "take_profit": signal.take_profit,
+                            "stop_loss": signal.stop_loss,
                         },
-                        error={
-                            'reason': 'invalid_tp_sl_levels',
-                            'validation_failed': 'SHORT_TP'
-                        }
+                        error={"reason": "invalid_tp_sl_levels", "validation_failed": "SHORT_TP"},
                     )
                 except Exception as e:
                     self.logger.warning(f"Audit logging failed: {e}")
@@ -314,26 +315,25 @@ class RiskManager:
                 return False
             if signal.stop_loss <= signal.entry_price:
                 self.logger.warning(
-                    f"Signal rejected: SHORT SL ({signal.stop_loss}) must be > entry ({signal.entry_price})"
+                    f"Signal rejected: SHORT SL ({signal.stop_loss}) must be > "
+                    f"entry ({signal.entry_price})"
                 )
 
                 # Audit log: risk rejection due to invalid SHORT SL
                 try:
                     from src.core.audit_logger import AuditEventType
+
                     self.audit_logger.log_event(
                         event_type=AuditEventType.RISK_REJECTION,
                         operation="validate_risk",
                         symbol=signal.symbol,
                         order_data={
-                            'signal_type': signal.signal_type.value,
-                            'entry_price': signal.entry_price,
-                            'take_profit': signal.take_profit,
-                            'stop_loss': signal.stop_loss
+                            "signal_type": signal.signal_type.value,
+                            "entry_price": signal.entry_price,
+                            "take_profit": signal.take_profit,
+                            "stop_loss": signal.stop_loss,
                         },
-                        error={
-                            'reason': 'invalid_tp_sl_levels',
-                            'validation_failed': 'SHORT_SL'
-                        }
+                        error={"reason": "invalid_tp_sl_levels", "validation_failed": "SHORT_SL"},
                     )
                 except Exception as e:
                     self.logger.warning(f"Audit logging failed: {e}")
@@ -344,28 +344,25 @@ class RiskManager:
         # Audit log: risk validation passed
         try:
             from src.core.audit_logger import AuditEventType
+
             self.audit_logger.log_event(
                 event_type=AuditEventType.RISK_VALIDATION,
                 operation="validate_risk",
                 symbol=signal.symbol,
                 order_data={
-                    'signal_type': signal.signal_type.value,
-                    'entry_price': signal.entry_price,
-                    'take_profit': signal.take_profit,
-                    'stop_loss': signal.stop_loss
+                    "signal_type": signal.signal_type.value,
+                    "entry_price": signal.entry_price,
+                    "take_profit": signal.take_profit,
+                    "stop_loss": signal.stop_loss,
                 },
-                additional_data={'validation_passed': True}
+                additional_data={"validation_passed": True},
             )
         except Exception as e:
             self.logger.warning(f"Audit logging failed: {e}")
 
         return True
 
-    def _round_to_lot_size(
-        self,
-        quantity: float,
-        symbol_info: Optional[dict] = None
-    ) -> float:
+    def _round_to_lot_size(self, quantity: float, symbol_info: Optional[dict] = None) -> float:
         """
         Round quantity to Binance lot size and precision specifications.
 
@@ -395,8 +392,8 @@ class RiskManager:
         if symbol_info is None:
             symbol_info = {}
 
-        lot_size = symbol_info.get('lot_size', 0.001)
-        quantity_precision = symbol_info.get('quantity_precision', 3)
+        lot_size = symbol_info.get("lot_size", 0.001)
+        quantity_precision = symbol_info.get("quantity_precision", 3)
 
         # Step 2: Floor to lot size (ensures quantity is multiple of stepSize)
         floored = quantity - (quantity % lot_size)

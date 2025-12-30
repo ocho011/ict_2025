@@ -68,10 +68,7 @@ class Order:
         """Validate order parameters."""
         # For TP/SL orders with closePosition=True, quantity can be 0
         # since Binance manages the position closure automatically
-        is_tpsl_order = self.order_type in (
-            OrderType.STOP_MARKET,
-            OrderType.TAKE_PROFIT_MARKET
-        )
+        is_tpsl_order = self.order_type in (OrderType.STOP_MARKET, OrderType.TAKE_PROFIT_MARKET)
 
         if not is_tpsl_order and self.quantity <= 0:
             raise ValueError(f"Quantity must be > 0, got {self.quantity}")

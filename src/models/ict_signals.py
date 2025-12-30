@@ -19,9 +19,10 @@ class SwingPoint:
         timestamp: When this swing point occurred
         strength: Number of bars on each side that validate this swing
     """
+
     index: int
     price: float
-    type: Literal['high', 'low']
+    type: Literal["high", "low"]
     timestamp: datetime
     strength: int = 5  # Default lookback on each side
 
@@ -38,9 +39,10 @@ class StructureBreak:
         broken_level: Price level that was broken
         timestamp: When the break occurred
     """
+
     index: int
-    type: Literal['BOS', 'CHoCH']
-    direction: Literal['bullish', 'bearish']
+    type: Literal["BOS", "CHoCH"]
+    direction: Literal["bullish", "bearish"]
     broken_level: float
     timestamp: datetime
 
@@ -58,8 +60,9 @@ class FairValueGap:
         timestamp: When the gap formed
         filled: Whether the gap has been filled/mitigated
     """
+
     index: int
-    direction: Literal['bullish', 'bearish']
+    direction: Literal["bullish", "bearish"]
     gap_high: float
     gap_low: float
     timestamp: datetime
@@ -90,8 +93,9 @@ class OrderBlock:
         displacement_size: Size of the displacement that validated this OB
         strength: Validation strength (displacement ratio vs avg range)
     """
+
     index: int
-    direction: Literal['bullish', 'bearish']
+    direction: Literal["bullish", "bearish"]
     high: float
     low: float
     timestamp: datetime
@@ -122,8 +126,9 @@ class LiquidityLevel:
         swept: Whether this liquidity has been taken/swept
         num_touches: Number of times price touched this level
     """
+
     index: int
-    type: Literal['BSL', 'SSL']
+    type: Literal["BSL", "SSL"]
     price: float
     timestamp: datetime
     swept: bool = False
@@ -142,8 +147,9 @@ class LiquiditySweep:
         reversal_started: Whether price reversed after sweep
         timestamp: When the sweep occurred
     """
+
     index: int
-    direction: Literal['bullish', 'bearish']
+    direction: Literal["bullish", "bearish"]
     swept_level: float
     reversal_started: bool
     timestamp: datetime
@@ -161,9 +167,10 @@ class Inducement:
         price_level: Price level of the trap
         timestamp: When inducement occurred
     """
+
     index: int
-    type: Literal['false_breakout', 'liquidity_grab']
-    direction: Literal['bullish', 'bearish']
+    type: Literal["false_breakout", "liquidity_grab"]
+    direction: Literal["bullish", "bearish"]
     price_level: float
     timestamp: datetime
 
@@ -181,8 +188,9 @@ class Displacement:
         displacement_ratio: Size relative to average range
         timestamp: When displacement started
     """
+
     index: int
-    direction: Literal['bullish', 'bearish']
+    direction: Literal["bullish", "bearish"]
     start_price: float
     end_price: float
     displacement_ratio: float  # displacement / avg_range
@@ -207,8 +215,9 @@ class MitigationZone:
         timestamp: When the zone formed
         mitigated: Whether the zone has been fully mitigated
     """
+
     index: int
-    type: Literal['FVG', 'OB']
+    type: Literal["FVG", "OB"]
     high: float
     low: float
     timestamp: datetime

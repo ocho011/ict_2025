@@ -2,31 +2,25 @@
 Unit tests for ICT Fair Value Gap (FVG) Detection
 """
 
-import pytest
-from datetime import datetime, timedelta
 from collections import deque
+from datetime import datetime, timedelta
 
-from src.models.candle import Candle
-from src.models.ict_signals import FairValueGap
 from src.indicators.ict_fvg import (
-    detect_bullish_fvg,
+    detect_all_fvg,
     detect_bearish_fvg,
-    is_fvg_filled,
-    get_fvg_levels,
-    update_fvg_status,
+    detect_bullish_fvg,
     find_nearest_fvg,
     get_entry_zone,
-    detect_all_fvg
+    get_fvg_levels,
+    is_fvg_filled,
+    update_fvg_status,
 )
+from src.models.candle import Candle
+from src.models.ict_signals import FairValueGap
 
 
 def create_test_candle(
-    index: int,
-    open_price: float,
-    high: float,
-    low: float,
-    close: float,
-    base_time: datetime = None
+    index: int, open_price: float, high: float, low: float, close: float, base_time: datetime = None
 ) -> Candle:
     """Helper to create test candles."""
     if base_time is None:
@@ -45,7 +39,7 @@ def create_test_candle(
         close=close,
         volume=100.0,
         close_time=close_time,
-        is_closed=True
+        is_closed=True,
     )
 
 
@@ -55,9 +49,9 @@ class TestDetectBullishFVG:
     def test_bullish_fvg_detected(self):
         """Test detection of a clear bullish FVG."""
         candles = [
-            create_test_candle(0, 100, 102, 99, 101),    # Candle 0: high=102
-            create_test_candle(1, 101, 110, 101, 109),   # Candle 1: gap creator
-            create_test_candle(2, 109, 112, 108, 111),   # Candle 2: low=108 > 102 = FVG
+            create_test_candle(0, 100, 102, 99, 101),  # Candle 0: high=102
+            create_test_candle(1, 101, 110, 101, 109),  # Candle 1: gap creator
+            create_test_candle(2, 109, 112, 108, 111),  # Candle 2: low=108 > 102 = FVG
             create_test_candle(3, 111, 113, 110, 112),
         ]
 
@@ -65,7 +59,7 @@ class TestDetectBullishFVG:
 
         assert len(fvgs) > 0
         fvg = fvgs[0]
-        assert fvg.direction == 'bullish'
+        assert fvg.direction == "bullish"
         assert fvg.gap_low == 102  # candle[0].high
         assert fvg.gap_high == 108  # candle[2].low
         assert fvg.index == 0
@@ -74,11 +68,11 @@ class TestDetectBullishFVG:
     def test_multiple_bullish_fvgs(self):
         """Test detection of multiple bullish FVGs."""
         candles = [
-            create_test_candle(0, 100, 102, 99, 101),    # FVG 1
+            create_test_candle(0, 100, 102, 99, 101),  # FVG 1
             create_test_candle(1, 101, 110, 101, 109),
             create_test_candle(2, 109, 112, 108, 111),
             create_test_candle(3, 111, 113, 110, 112),
-            create_test_candle(4, 112, 115, 111, 114),   # FVG 2
+            create_test_candle(4, 112, 115, 111, 114),  # FVG 2
             create_test_candle(5, 114, 123, 114, 122),
             create_test_candle(6, 122, 125, 120, 124),
         ]
@@ -87,7 +81,7 @@ class TestDetectBullishFVG:
 
         # Should detect at least 2 FVGs
         assert len(fvgs) >= 2
-        assert all(fvg.direction == 'bullish' for fvg in fvgs)
+        assert all(fvg.direction == "bullish" for fvg in fvgs)
 
     def test_no_fvg_insufficient_gap(self):
         """Test that tiny gaps below threshold are ignored."""
@@ -135,9 +129,9 @@ class TestDetectBearishFVG:
     def test_bearish_fvg_detected(self):
         """Test detection of a clear bearish FVG."""
         candles = [
-            create_test_candle(0, 100, 102, 98, 99),     # Candle 0: low=98
-            create_test_candle(1, 99, 99, 89, 90),       # Candle 1: gap creator
-            create_test_candle(2, 90, 92, 88, 89),       # Candle 2: high=92 < 98 = FVG
+            create_test_candle(0, 100, 102, 98, 99),  # Candle 0: low=98
+            create_test_candle(1, 99, 99, 89, 90),  # Candle 1: gap creator
+            create_test_candle(2, 90, 92, 88, 89),  # Candle 2: high=92 < 98 = FVG
             create_test_candle(3, 89, 90, 87, 88),
         ]
 
@@ -145,20 +139,20 @@ class TestDetectBearishFVG:
 
         assert len(fvgs) > 0
         fvg = fvgs[0]
-        assert fvg.direction == 'bearish'
+        assert fvg.direction == "bearish"
         assert fvg.gap_high == 98  # candle[0].low
-        assert fvg.gap_low == 92   # candle[2].high
+        assert fvg.gap_low == 92  # candle[2].high
         assert fvg.index == 0
         assert not fvg.filled
 
     def test_multiple_bearish_fvgs(self):
         """Test detection of multiple bearish FVGs."""
         candles = [
-            create_test_candle(0, 100, 102, 98, 99),     # FVG 1
+            create_test_candle(0, 100, 102, 98, 99),  # FVG 1
             create_test_candle(1, 99, 99, 89, 90),
             create_test_candle(2, 90, 92, 88, 89),
             create_test_candle(3, 89, 90, 87, 88),
-            create_test_candle(4, 88, 90, 86, 87),       # FVG 2
+            create_test_candle(4, 88, 90, 86, 87),  # FVG 2
             create_test_candle(5, 87, 87, 77, 78),
             create_test_candle(6, 78, 80, 76, 77),
         ]
@@ -167,7 +161,7 @@ class TestDetectBearishFVG:
 
         # Should detect at least 2 FVGs
         assert len(fvgs) >= 2
-        assert all(fvg.direction == 'bearish' for fvg in fvgs)
+        assert all(fvg.direction == "bearish" for fvg in fvgs)
 
 
 class TestIsFVGFilled:
@@ -177,11 +171,11 @@ class TestIsFVGFilled:
         """Test FVG that hasn't been filled yet."""
         fvg = FairValueGap(
             index=0,
-            direction='bullish',
+            direction="bullish",
             gap_high=110,
             gap_low=100,
             timestamp=datetime(2025, 1, 1),
-            filled=False
+            filled=False,
         )
 
         # Price outside gap
@@ -192,11 +186,11 @@ class TestIsFVGFilled:
         """Test FVG that has been filled."""
         fvg = FairValueGap(
             index=0,
-            direction='bullish',
+            direction="bullish",
             gap_high=110,
             gap_low=100,
             timestamp=datetime(2025, 1, 1),
-            filled=False
+            filled=False,
         )
 
         # Price within gap
@@ -208,11 +202,11 @@ class TestIsFVGFilled:
         """Test bearish FVG filled check."""
         fvg = FairValueGap(
             index=0,
-            direction='bearish',
+            direction="bearish",
             gap_high=100,
             gap_low=90,
             timestamp=datetime(2025, 1, 1),
-            filled=False
+            filled=False,
         )
 
         assert not is_fvg_filled(fvg, 85)
@@ -227,11 +221,11 @@ class TestGetFVGLevels:
         """Test extraction of key FVG levels."""
         fvg = FairValueGap(
             index=0,
-            direction='bullish',
+            direction="bullish",
             gap_high=110,
             gap_low=100,
             timestamp=datetime(2025, 1, 1),
-            filled=False
+            filled=False,
         )
 
         low, mid, high = get_fvg_levels(fvg)
@@ -285,13 +279,13 @@ class TestFindNearestFVG:
     def test_find_nearest_bullish_fvg(self):
         """Test finding nearest bullish FVG to current price."""
         fvgs = [
-            FairValueGap(0, 'bullish', 110, 100, datetime(2025, 1, 1), False),
-            FairValueGap(1, 'bullish', 130, 120, datetime(2025, 1, 1), False),
-            FairValueGap(2, 'bullish', 90, 80, datetime(2025, 1, 1), False),
+            FairValueGap(0, "bullish", 110, 100, datetime(2025, 1, 1), False),
+            FairValueGap(1, "bullish", 130, 120, datetime(2025, 1, 1), False),
+            FairValueGap(2, "bullish", 90, 80, datetime(2025, 1, 1), False),
         ]
 
         # Current price 115 - nearest is 100-110 FVG
-        nearest = find_nearest_fvg(fvgs, 115, 'bullish')
+        nearest = find_nearest_fvg(fvgs, 115, "bullish")
         assert nearest is not None
         assert nearest.index == 0
         assert nearest.gap_low == 100
@@ -299,12 +293,12 @@ class TestFindNearestFVG:
     def test_find_nearest_only_unfilled(self):
         """Test finding only unfilled FVGs."""
         fvgs = [
-            FairValueGap(0, 'bullish', 110, 100, datetime(2025, 1, 1), True),  # Filled
-            FairValueGap(1, 'bullish', 130, 120, datetime(2025, 1, 1), False),  # Unfilled
+            FairValueGap(0, "bullish", 110, 100, datetime(2025, 1, 1), True),  # Filled
+            FairValueGap(1, "bullish", 130, 120, datetime(2025, 1, 1), False),  # Unfilled
         ]
 
         # Should only return unfilled FVG
-        nearest = find_nearest_fvg(fvgs, 115, 'bullish', only_unfilled=True)
+        nearest = find_nearest_fvg(fvgs, 115, "bullish", only_unfilled=True)
         assert nearest is not None
         assert nearest.index == 1
         assert not nearest.filled
@@ -315,9 +309,7 @@ class TestGetEntryZone:
 
     def test_bullish_entry_zone(self):
         """Test entry zone for bullish FVG (lower portion)."""
-        fvg = FairValueGap(
-            0, 'bullish', 110, 100, datetime(2025, 1, 1), False
-        )
+        fvg = FairValueGap(0, "bullish", 110, 100, datetime(2025, 1, 1), False)
 
         low, high = get_entry_zone(fvg, zone_percent=0.5)
 
@@ -327,9 +319,7 @@ class TestGetEntryZone:
 
     def test_bearish_entry_zone(self):
         """Test entry zone for bearish FVG (upper portion)."""
-        fvg = FairValueGap(
-            0, 'bearish', 100, 90, datetime(2025, 1, 1), False
-        )
+        fvg = FairValueGap(0, "bearish", 100, 90, datetime(2025, 1, 1), False)
 
         low, high = get_entry_zone(fvg, zone_percent=0.5)
 
@@ -360,8 +350,8 @@ class TestDetectAllFVG:
         # Should detect both types
         assert len(bullish_fvgs) > 0
         assert len(bearish_fvgs) > 0
-        assert all(fvg.direction == 'bullish' for fvg in bullish_fvgs)
-        assert all(fvg.direction == 'bearish' for fvg in bearish_fvgs)
+        assert all(fvg.direction == "bullish" for fvg in bullish_fvgs)
+        assert all(fvg.direction == "bearish" for fvg in bearish_fvgs)
 
     def test_auto_update_status(self):
         """Test auto-update of filled status."""

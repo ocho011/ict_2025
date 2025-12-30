@@ -11,12 +11,12 @@ Exports:
     StrategyFactory: Factory for creating strategy instances
 """
 
-from typing import Dict, Type, List
+from typing import Dict, List, Type
 
-from src.strategies.base import BaseStrategy
-from src.strategies.mock_strategy import MockSMACrossoverStrategy
 from src.strategies.always_signal import AlwaysSignalStrategy
+from src.strategies.base import BaseStrategy
 from src.strategies.ict_strategy import ICTStrategy
+from src.strategies.mock_strategy import MockSMACrossoverStrategy
 
 
 class StrategyFactory:
@@ -48,12 +48,12 @@ class StrategyFactory:
         True
     """
 
-    # A central lookup table mapping string aliases to strategy classes. 
+    # A central lookup table mapping string aliases to strategy classes.
     # Used by the factory to dynamically create instances from a given name.
     _strategies: Dict[str, Type[BaseStrategy]] = {
-        'mock_sma': MockSMACrossoverStrategy,
-        'always_signal': AlwaysSignalStrategy,  # Test strategy for pipeline verification
-        'ict_strategy': ICTStrategy,  # ICT Smart Money Concepts strategy
+        "mock_sma": MockSMACrossoverStrategy,
+        "always_signal": AlwaysSignalStrategy,  # Test strategy for pipeline verification
+        "ict_strategy": ICTStrategy,  # ICT Smart Money Concepts strategy
     }
 
     @classmethod
@@ -89,17 +89,12 @@ class StrategyFactory:
         """
         # Validate config type
         if not isinstance(config, dict):
-            raise TypeError(
-                f"config must be a dict, got {type(config).__name__}"
-            )
+            raise TypeError(f"config must be a dict, got {type(config).__name__}")
 
         # Check if strategy is registered
         if name not in cls._strategies:
-            available = ', '.join(sorted(cls._strategies.keys()))
-            raise ValueError(
-                f"Unknown strategy: '{name}'. "
-                f"Available strategies: {available}"
-            )
+            available = ", ".join(sorted(cls._strategies.keys()))
+            raise ValueError(f"Unknown strategy: '{name}'. " f"Available strategies: {available}")
 
         # Get strategy class and instantiate
         strategy_class = cls._strategies[name]
@@ -166,8 +161,7 @@ class StrategyFactory:
         # Validate strategy class inheritance
         if not issubclass(strategy_class, BaseStrategy):
             raise TypeError(
-                f"strategy_class must inherit from BaseStrategy, "
-                f"got {strategy_class.__name__}"
+                f"strategy_class must inherit from BaseStrategy, " f"got {strategy_class.__name__}"
             )
 
         # Prevent accidental override of existing strategies
@@ -180,4 +174,4 @@ class StrategyFactory:
         cls._strategies[name] = strategy_class
 
 
-__all__ = ['BaseStrategy', 'MockSMACrossoverStrategy', 'AlwaysSignalStrategy', 'StrategyFactory']
+__all__ = ["BaseStrategy", "MockSMACrossoverStrategy", "AlwaysSignalStrategy", "StrategyFactory"]

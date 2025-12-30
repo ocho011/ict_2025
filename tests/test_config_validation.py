@@ -5,9 +5,9 @@ Tests all validation rules for APIConfig, TradingConfig, and ConfigManager
 """
 
 import pytest
-from pathlib import Path
-from src.utils.config import APIConfig, TradingConfig, LoggingConfig, ConfigManager
+
 from src.core.exceptions import ConfigurationError
+from src.utils.config import APIConfig, ConfigManager, LoggingConfig, TradingConfig
 
 
 class TestAPIConfigValidation:
@@ -46,9 +46,7 @@ class TestAPIConfigValidation:
 
     def test_mainnet_mode(self):
         """Mainnet mode should be settable"""
-        config = APIConfig(
-            api_key="test_key", api_secret="test_secret", is_testnet=False
-        )
+        config = APIConfig(api_key="test_key", api_secret="test_secret", is_testnet=False)
         assert config.is_testnet is False
 
 
@@ -165,9 +163,7 @@ class TestTradingConfigValidation:
 
     def test_risk_zero_raises(self):
         """Risk = 0 should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Max risk per trade must be 0-10%"
-        ):
+        with pytest.raises(ConfigurationError, match="Max risk per trade must be 0-10%"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -180,9 +176,7 @@ class TestTradingConfigValidation:
 
     def test_risk_negative_raises(self):
         """Negative risk should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Max risk per trade must be 0-10%"
-        ):
+        with pytest.raises(ConfigurationError, match="Max risk per trade must be 0-10%"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -195,9 +189,7 @@ class TestTradingConfigValidation:
 
     def test_risk_too_high_raises(self):
         """Risk > 10% should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Max risk per trade must be 0-10%"
-        ):
+        with pytest.raises(ConfigurationError, match="Max risk per trade must be 0-10%"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -224,9 +216,7 @@ class TestTradingConfigValidation:
 
     def test_take_profit_zero_raises(self):
         """Zero take profit ratio should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Take profit ratio must be positive"
-        ):
+        with pytest.raises(ConfigurationError, match="Take profit ratio must be positive"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -239,9 +229,7 @@ class TestTradingConfigValidation:
 
     def test_take_profit_negative_raises(self):
         """Negative take profit ratio should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Take profit ratio must be positive"
-        ):
+        with pytest.raises(ConfigurationError, match="Take profit ratio must be positive"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -281,9 +269,7 @@ class TestTradingConfigValidation:
 
     def test_stop_loss_zero_raises(self):
         """Stop loss = 0 should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Stop loss percent must be 0-50%"
-        ):
+        with pytest.raises(ConfigurationError, match="Stop loss percent must be 0-50%"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -296,9 +282,7 @@ class TestTradingConfigValidation:
 
     def test_stop_loss_negative_raises(self):
         """Negative stop loss should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Stop loss percent must be 0-50%"
-        ):
+        with pytest.raises(ConfigurationError, match="Stop loss percent must be 0-50%"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -311,9 +295,7 @@ class TestTradingConfigValidation:
 
     def test_stop_loss_too_high_raises(self):
         """Stop loss > 50% should raise"""
-        with pytest.raises(
-            ConfigurationError, match="Stop loss percent must be 0-50%"
-        ):
+        with pytest.raises(ConfigurationError, match="Stop loss percent must be 0-50%"):
             TradingConfig(
                 symbol="BTCUSDT",
                 intervals=["1m"],
@@ -486,9 +468,9 @@ class TestTradingConfigValidation:
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
             stop_loss_percent=0.02,
-            margin_type='ISOLATED'
+            margin_type="ISOLATED",
         )
-        assert config.margin_type == 'ISOLATED'
+        assert config.margin_type == "ISOLATED"
 
     def test_margin_type_crossed_valid(self):
         """CROSSED margin type should be valid"""
@@ -500,9 +482,9 @@ class TestTradingConfigValidation:
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
             stop_loss_percent=0.02,
-            margin_type='CROSSED'
+            margin_type="CROSSED",
         )
-        assert config.margin_type == 'CROSSED'
+        assert config.margin_type == "CROSSED"
 
     def test_margin_type_default_isolated(self):
         """Default margin type should be ISOLATED"""
@@ -513,9 +495,9 @@ class TestTradingConfigValidation:
             leverage=10,
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
-            stop_loss_percent=0.02
+            stop_loss_percent=0.02,
         )
-        assert config.margin_type == 'ISOLATED'
+        assert config.margin_type == "ISOLATED"
 
     def test_margin_type_invalid_raises(self):
         """Invalid margin type should raise ConfigurationError"""
@@ -528,7 +510,7 @@ class TestTradingConfigValidation:
                 max_risk_per_trade=0.01,
                 take_profit_ratio=2.0,
                 stop_loss_percent=0.02,
-                margin_type='INVALID'
+                margin_type="INVALID",
             )
 
     def test_margin_type_lowercase_raises(self):
@@ -542,7 +524,7 @@ class TestTradingConfigValidation:
                 max_risk_per_trade=0.01,
                 take_profit_ratio=2.0,
                 stop_loss_percent=0.02,
-                margin_type='isolated'  # lowercase not accepted
+                margin_type="isolated",  # lowercase not accepted
             )
 
 

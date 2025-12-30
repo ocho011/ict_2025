@@ -2,13 +2,15 @@
 Unit tests for RiskManager - Subtask 7.1, 7.2, 7.3, 7.4
 """
 
-import pytest
 import logging
 from datetime import datetime
 from unittest.mock import patch
-from src.risk.manager import RiskManager
-from src.models.signal import Signal, SignalType
+
+import pytest
+
 from src.models.position import Position
+from src.models.signal import Signal, SignalType
+from src.risk.manager import RiskManager
 
 
 class TestPositionSizeCalculation:
@@ -18,10 +20,10 @@ class TestPositionSizeCalculation:
     def risk_manager(self):
         """Setup RiskManager with standard config"""
         config = {
-            'max_risk_per_trade': 0.01,  # 1%
-            'max_leverage': 20,
-            'default_leverage': 10,
-            'max_position_size_percent': 0.1  # 10%
+            "max_risk_per_trade": 0.01,  # 1%
+            "max_leverage": 20,
+            "default_leverage": 10,
+            "max_position_size_percent": 0.1,  # 10%
         }
         return RiskManager(config)
 
@@ -36,10 +38,7 @@ class TestPositionSizeCalculation:
         Quantity: $5,000 / $50,000 = 0.1 BTC
         """
         quantity = risk_manager.calculate_position_size(
-            account_balance=10000,
-            entry_price=50000,
-            stop_loss_price=49000,  # 2% SL
-            leverage=10
+            account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=10  # 2% SL
         )
 
         expected = 0.1  # 0.1 BTC
@@ -61,7 +60,7 @@ class TestPositionSizeCalculation:
             account_balance=10000,
             entry_price=50000,
             stop_loss_price=49950,  # 0.1% SL (tight)
-            leverage=10
+            leverage=10,
         )
 
         # Position size capped at 10% of account with 10x leverage
@@ -82,7 +81,7 @@ class TestPositionSizeCalculation:
             account_balance=10000,
             entry_price=50000,
             stop_loss_price=45000,  # 10% SL (wide)
-            leverage=10
+            leverage=10,
         )
 
         expected = 0.02  # 0.02 BTC
@@ -91,10 +90,7 @@ class TestPositionSizeCalculation:
     def test_different_account_balance(self, risk_manager):
         """Test with $50,000 account balance"""
         quantity = risk_manager.calculate_position_size(
-            account_balance=50000,
-            entry_price=50000,
-            stop_loss_price=49000,  # 2% SL
-            leverage=10
+            account_balance=50000, entry_price=50000, stop_loss_price=49000, leverage=10  # 2% SL
         )
 
         # Risk: 1% of $50,000 = $500
@@ -106,18 +102,15 @@ class TestPositionSizeCalculation:
     def test_different_risk_percentage(self):
         """Test with 2% risk per trade"""
         config = {
-            'max_risk_per_trade': 0.02,  # 2% risk
-            'max_leverage': 20,
-            'default_leverage': 10,
-            'max_position_size_percent': 0.1
+            "max_risk_per_trade": 0.02,  # 2% risk
+            "max_leverage": 20,
+            "default_leverage": 10,
+            "max_position_size_percent": 0.1,
         }
         risk_manager = RiskManager(config)
 
         quantity = risk_manager.calculate_position_size(
-            account_balance=10000,
-            entry_price=50000,
-            stop_loss_price=49000,  # 2% SL
-            leverage=10
+            account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=10  # 2% SL
         )
 
         # Risk: 2% of $10,000 = $200
@@ -137,7 +130,7 @@ class TestPositionSizeCalculation:
                 account_balance=10000,
                 entry_price=50000,
                 stop_loss_price=50000,  # Same as entry!
-                leverage=10
+                leverage=10,
             )
 
         # With 0.1% minimum SL:
@@ -155,40 +148,28 @@ class TestPositionSizeCalculation:
         """Negative account balance raises ValueError"""
         with pytest.raises(ValueError, match="Account balance must be > 0"):
             risk_manager.calculate_position_size(
-                account_balance=-1000,
-                entry_price=50000,
-                stop_loss_price=49000,
-                leverage=10
+                account_balance=-1000, entry_price=50000, stop_loss_price=49000, leverage=10
             )
 
     def test_invalid_entry_price(self, risk_manager):
         """Zero entry price raises ValueError"""
         with pytest.raises(ValueError, match="Entry price must be > 0"):
             risk_manager.calculate_position_size(
-                account_balance=10000,
-                entry_price=0,
-                stop_loss_price=49000,
-                leverage=10
+                account_balance=10000, entry_price=0, stop_loss_price=49000, leverage=10
             )
 
     def test_invalid_stop_loss_price(self, risk_manager):
         """Negative SL price raises ValueError"""
         with pytest.raises(ValueError, match="Stop loss price must be > 0"):
             risk_manager.calculate_position_size(
-                account_balance=10000,
-                entry_price=50000,
-                stop_loss_price=-1000,
-                leverage=10
+                account_balance=10000, entry_price=50000, stop_loss_price=-1000, leverage=10
             )
 
     def test_leverage_too_low(self, risk_manager):
         """Leverage < 1 raises ValueError"""
         with pytest.raises(ValueError, match="Leverage must be between"):
             risk_manager.calculate_position_size(
-                account_balance=10000,
-                entry_price=50000,
-                stop_loss_price=49000,
-                leverage=0
+                account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=0
             )
 
     def test_leverage_too_high(self, risk_manager):
@@ -198,7 +179,7 @@ class TestPositionSizeCalculation:
                 account_balance=10000,
                 entry_price=50000,
                 stop_loss_price=49000,
-                leverage=125  # Exceeds max_leverage=20
+                leverage=125,  # Exceeds max_leverage=20
             )
 
     def test_leverage_at_max(self, risk_manager):
@@ -207,7 +188,7 @@ class TestPositionSizeCalculation:
             account_balance=10000,
             entry_price=50000,
             stop_loss_price=49000,
-            leverage=20  # At max_leverage
+            leverage=20,  # At max_leverage
         )
 
         # Should succeed without error
@@ -224,7 +205,7 @@ class TestPositionSizeCalculation:
             account_balance=10000,
             entry_price=50000,
             stop_loss_price=51000,  # Above entry for SHORT
-            leverage=10
+            leverage=10,
         )
 
         # SL distance: |51000 - 50000| / 50000 = 2%
@@ -235,10 +216,7 @@ class TestPositionSizeCalculation:
     def test_high_leverage_20x(self, risk_manager):
         """Test with 20x leverage (max allowed)"""
         quantity = risk_manager.calculate_position_size(
-            account_balance=10000,
-            entry_price=50000,
-            stop_loss_price=49000,  # 2% SL
-            leverage=20
+            account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=20  # 2% SL
         )
 
         # Position size calculation independent of leverage
@@ -250,10 +228,7 @@ class TestPositionSizeCalculation:
         """Verify position size calculation is logged"""
         with caplog.at_level(logging.INFO):
             risk_manager.calculate_position_size(
-                account_balance=10000,
-                entry_price=50000,
-                stop_loss_price=49000,
-                leverage=10
+                account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=10
             )
 
         # Check for calculation details in logs
@@ -269,10 +244,10 @@ class TestSignalValidation:
     def risk_manager(self):
         """Setup RiskManager"""
         config = {
-            'max_risk_per_trade': 0.01,
-            'max_leverage': 20,
-            'default_leverage': 10,
-            'max_position_size_percent': 0.1
+            "max_risk_per_trade": 0.01,
+            "max_leverage": 20,
+            "default_leverage": 10,
+            "max_position_size_percent": 0.1,
         }
         return RiskManager(config)
 
@@ -283,9 +258,9 @@ class TestSignalValidation:
             symbol="BTCUSDT",
             entry_price=50000,
             take_profit=51000,  # Above entry ✅
-            stop_loss=49000,    # Below entry ✅
+            stop_loss=49000,  # Below entry ✅
             strategy_name="test",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         assert risk_manager.validate_risk(signal, None) is True
 
@@ -296,24 +271,24 @@ class TestSignalValidation:
             symbol="BTCUSDT",
             entry_price=50000,
             take_profit=49000,  # Below entry ✅
-            stop_loss=51000,    # Above entry ✅
+            stop_loss=51000,  # Above entry ✅
             strategy_name="test",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         assert risk_manager.validate_risk(signal, None) is True
 
     def test_long_invalid_tp_below_entry(self, risk_manager, caplog):
         """LONG signal with TP ≤ entry is rejected"""
         # Bypass Signal.__post_init__ validation to test RiskManager validation
-        with patch.object(Signal, '__post_init__', lambda self: None):
+        with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.LONG_ENTRY,
                 symbol="BTCUSDT",
                 entry_price=50000,
                 take_profit=49000,  # Below entry ❌
-                stop_loss=49500,    # Below entry (valid for SL)
+                stop_loss=49500,  # Below entry (valid for SL)
                 strategy_name="test",
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
 
         with caplog.at_level(logging.WARNING):
@@ -326,15 +301,15 @@ class TestSignalValidation:
     def test_long_invalid_sl_above_entry(self, risk_manager, caplog):
         """LONG signal with SL ≥ entry is rejected"""
         # Bypass Signal.__post_init__ validation to test RiskManager validation
-        with patch.object(Signal, '__post_init__', lambda self: None):
+        with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.LONG_ENTRY,
                 symbol="BTCUSDT",
                 entry_price=50000,
                 take_profit=51000,  # Above entry (valid for TP)
-                stop_loss=50000,    # Equal to entry ❌
+                stop_loss=50000,  # Equal to entry ❌
                 strategy_name="test",
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
 
         with caplog.at_level(logging.WARNING):
@@ -347,15 +322,15 @@ class TestSignalValidation:
     def test_short_invalid_tp_above_entry(self, risk_manager, caplog):
         """SHORT signal with TP ≥ entry is rejected"""
         # Bypass Signal.__post_init__ validation to test RiskManager validation
-        with patch.object(Signal, '__post_init__', lambda self: None):
+        with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.SHORT_ENTRY,
                 symbol="BTCUSDT",
                 entry_price=50000,
                 take_profit=51000,  # Above entry ❌
-                stop_loss=51500,    # Above entry (valid for SL)
+                stop_loss=51500,  # Above entry (valid for SL)
                 strategy_name="test",
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
 
         with caplog.at_level(logging.WARNING):
@@ -368,15 +343,15 @@ class TestSignalValidation:
     def test_short_invalid_sl_below_entry(self, risk_manager, caplog):
         """SHORT signal with SL ≤ entry is rejected"""
         # Bypass Signal.__post_init__ validation to test RiskManager validation
-        with patch.object(Signal, '__post_init__', lambda self: None):
+        with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.SHORT_ENTRY,
                 symbol="BTCUSDT",
                 entry_price=50000,
                 take_profit=49000,  # Below entry (valid for TP)
-                stop_loss=50000,    # Equal to entry ❌
+                stop_loss=50000,  # Equal to entry ❌
                 strategy_name="test",
-                timestamp=datetime.now()
+                timestamp=datetime.now(),
             )
 
         with caplog.at_level(logging.WARNING):
@@ -395,14 +370,10 @@ class TestSignalValidation:
             take_profit=51000,
             stop_loss=49000,
             strategy_name="test",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
         position = Position(
-            symbol="BTCUSDT",
-            side="LONG",
-            entry_price=50000,
-            quantity=0.1,
-            leverage=10
+            symbol="BTCUSDT", side="LONG", entry_price=50000, quantity=0.1, leverage=10
         )
 
         with caplog.at_level(logging.WARNING):
@@ -420,10 +391,10 @@ class TestPositionSizeLimiting:
     def risk_manager(self):
         """Setup RiskManager with 10% max position size"""
         config = {
-            'max_risk_per_trade': 0.01,
-            'max_leverage': 20,
-            'default_leverage': 10,
-            'max_position_size_percent': 0.1  # 10% max
+            "max_risk_per_trade": 0.01,
+            "max_leverage": 20,
+            "default_leverage": 10,
+            "max_position_size_percent": 0.1,  # 10% max
         }
         return RiskManager(config)
 
@@ -436,10 +407,7 @@ class TestPositionSizeLimiting:
         Calculated: 0.1 BTC < 0.2 BTC → not capped
         """
         quantity = risk_manager.calculate_position_size(
-            account_balance=10000,
-            entry_price=50000,
-            stop_loss_price=49000,  # 2% SL
-            leverage=10
+            account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=10  # 2% SL
         )
 
         expected = 0.1  # Not capped
@@ -458,7 +426,7 @@ class TestPositionSizeLimiting:
                 account_balance=10000,
                 entry_price=50000,
                 stop_loss_price=49950,  # 0.1% tight SL
-                leverage=10
+                leverage=10,
             )
 
         max_quantity = 10000 * 0.1 * 10 / 50000  # 0.2 BTC
@@ -477,15 +445,12 @@ class TestPositionSizeLimiting:
             account_balance=10000,
             entry_price=50000,
             stop_loss_price=49950,  # Tight SL to trigger limit
-            leverage=10
+            leverage=10,
         )
 
         # 20x leverage
         qty_20x = risk_manager.calculate_position_size(
-            account_balance=10000,
-            entry_price=50000,
-            stop_loss_price=49950,
-            leverage=20
+            account_balance=10000, entry_price=50000, stop_loss_price=49950, leverage=20
         )
 
         # 20x should allow 2x the position size
@@ -494,18 +459,15 @@ class TestPositionSizeLimiting:
     def test_custom_max_percentage(self):
         """Test with 20% max position size"""
         config = {
-            'max_risk_per_trade': 0.01,
-            'max_leverage': 20,
-            'default_leverage': 10,
-            'max_position_size_percent': 0.2  # 20% max
+            "max_risk_per_trade": 0.01,
+            "max_leverage": 20,
+            "default_leverage": 10,
+            "max_position_size_percent": 0.2,  # 20% max
         }
         risk_manager = RiskManager(config)
 
         quantity = risk_manager.calculate_position_size(
-            account_balance=10000,
-            entry_price=50000,
-            stop_loss_price=49950,  # Tight SL
-            leverage=10
+            account_balance=10000, entry_price=50000, stop_loss_price=49950, leverage=10  # Tight SL
         )
 
         # Max: 20% × 10x = $20,000 / $50,000 = 0.4 BTC
@@ -516,10 +478,7 @@ class TestPositionSizeLimiting:
         """Warning is logged when position exceeds limit"""
         with caplog.at_level(logging.WARNING):
             risk_manager.calculate_position_size(
-                account_balance=10000,
-                entry_price=50000,
-                stop_loss_price=49950,
-                leverage=10
+                account_balance=10000, entry_price=50000, stop_loss_price=49950, leverage=10
             )
 
         assert "Position size" in caplog.text
@@ -530,10 +489,7 @@ class TestPositionSizeLimiting:
         """max_allowed value is included in final log"""
         with caplog.at_level(logging.INFO):
             risk_manager.calculate_position_size(
-                account_balance=10000,
-                entry_price=50000,
-                stop_loss_price=49000,
-                leverage=10
+                account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=10
             )
 
         assert "max_allowed=" in caplog.text
@@ -548,7 +504,7 @@ class TestPositionSizeLimiting:
             account_balance=10000,
             entry_price=50000,
             stop_loss_price=49990,  # 0.02% tight SL
-            leverage=10
+            leverage=10,
         )
 
         # Max position: 10% × 10x = 0.2 BTC
@@ -569,7 +525,7 @@ class TestSignalRiskRewardRatio:
             stop_loss=49000,  # 1,000 risk (below for LONG)
             take_profit=52000,  # 2,000 reward (above for LONG)
             strategy_name="test",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         # Risk: 50000 - 49000 = 1,000
@@ -586,7 +542,7 @@ class TestSignalRiskRewardRatio:
             stop_loss=51000,  # 1,000 risk (above for SHORT)
             take_profit=48000,  # 2,000 reward (below for SHORT)
             strategy_name="test",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert signal.risk_reward_ratio == pytest.approx(2.0, rel=0.01)
@@ -600,7 +556,7 @@ class TestSignalRiskRewardRatio:
             stop_loss=49000,  # 1,000 risk
             take_profit=51000,  # 1,000 reward
             strategy_name="test",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert signal.risk_reward_ratio == pytest.approx(1.0, rel=0.01)
@@ -614,7 +570,7 @@ class TestSignalRiskRewardRatio:
             stop_loss=49000,  # 1,000 risk
             take_profit=53000,  # 3,000 reward
             strategy_name="test",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert signal.risk_reward_ratio == pytest.approx(3.0, rel=0.01)
@@ -627,40 +583,40 @@ class TestQuantityRounding:
     def risk_manager(self):
         """Setup RiskManager with standard config"""
         config = {
-            'max_risk_per_trade': 0.01,
-            'max_leverage': 20,
-            'default_leverage': 10,
-            'max_position_size_percent': 0.1
+            "max_risk_per_trade": 0.01,
+            "max_leverage": 20,
+            "default_leverage": 10,
+            "max_position_size_percent": 0.1,
         }
         return RiskManager(config)
 
     def test_standard_rounding_btcusdt(self, risk_manager):
         """Standard case: 1.2345 BTC with BTCUSDT specs → 1.234"""
-        symbol_info = {'lot_size': 0.001, 'quantity_precision': 3}
+        symbol_info = {"lot_size": 0.001, "quantity_precision": 3}
         result = risk_manager._round_to_lot_size(1.2345, symbol_info)
         assert result == pytest.approx(1.234, abs=1e-9)
 
     def test_lot_size_flooring(self, risk_manager):
         """Lot size flooring: 0.0567 with stepSize=0.01 → 0.05"""
-        symbol_info = {'lot_size': 0.01, 'quantity_precision': 2}
+        symbol_info = {"lot_size": 0.01, "quantity_precision": 2}
         result = risk_manager._round_to_lot_size(0.0567, symbol_info)
         assert result == pytest.approx(0.05, abs=1e-9)
 
     def test_precision_dominates(self, risk_manager):
         """Precision rounding: 0.0567 with fine lot_size → 0.056"""
-        symbol_info = {'lot_size': 0.001, 'quantity_precision': 3}
+        symbol_info = {"lot_size": 0.001, "quantity_precision": 3}
         result = risk_manager._round_to_lot_size(0.0567, symbol_info)
         assert result == pytest.approx(0.056, abs=1e-9)
 
     def test_no_upward_rounding(self, risk_manager):
         """1.9999 should NOT round up to 2.0, floors to 1.999"""
-        symbol_info = {'lot_size': 0.001, 'quantity_precision': 3}
+        symbol_info = {"lot_size": 0.001, "quantity_precision": 3}
         result = risk_manager._round_to_lot_size(1.9999, symbol_info)
         assert result == pytest.approx(1.999, abs=1e-9)
 
     def test_minimum_lot_size(self, risk_manager):
         """0.001 BTC (minimum) should remain 0.001"""
-        symbol_info = {'lot_size': 0.001, 'quantity_precision': 3}
+        symbol_info = {"lot_size": 0.001, "quantity_precision": 3}
         result = risk_manager._round_to_lot_size(0.001, symbol_info)
         assert result == pytest.approx(0.001, abs=1e-9)
 
@@ -672,25 +628,25 @@ class TestQuantityRounding:
     def test_partial_symbol_info(self, risk_manager):
         """Partial symbol_info fills missing values with defaults"""
         # Only lot_size provided, precision defaults to 3
-        symbol_info = {'lot_size': 0.01}
+        symbol_info = {"lot_size": 0.01}
         result = risk_manager._round_to_lot_size(1.2345, symbol_info)
         assert result == pytest.approx(1.230, abs=1e-9)  # lot_size=0.01 dominates
 
     def test_integration_with_calculate_position_size(self, risk_manager):
         """Full integration: calculate → limit → round"""
-        symbol_info = {'lot_size': 0.001, 'quantity_precision': 3}
+        symbol_info = {"lot_size": 0.001, "quantity_precision": 3}
 
         quantity = risk_manager.calculate_position_size(
             account_balance=10000,
             entry_price=50000,
             stop_loss_price=49000,  # 2% SL
             leverage=10,
-            symbol_info=symbol_info
+            symbol_info=symbol_info,
         )
 
         # Verify quantity is Binance-compliant
         # 1. Check precision (exactly 3 decimals or less)
-        decimal_part = str(quantity).split('.')[1] if '.' in str(quantity) else ''
+        decimal_part = str(quantity).split(".")[1] if "." in str(quantity) else ""
         assert len(decimal_part) <= 3
 
         # 2. Check lot_size compliance (multiple of 0.001)
@@ -698,13 +654,13 @@ class TestQuantityRounding:
 
     def test_ethusdt_specs(self, risk_manager):
         """Real-world: ETHUSDT (lot_size=0.001, precision=3)"""
-        symbol_info = {'lot_size': 0.001, 'quantity_precision': 3}
+        symbol_info = {"lot_size": 0.001, "quantity_precision": 3}
         result = risk_manager._round_to_lot_size(12.3456, symbol_info)
         assert result == pytest.approx(12.345, abs=1e-9)
 
     def test_bnbusdt_specs(self, risk_manager):
         """Real-world: BNBUSDT (lot_size=0.01, precision=2)"""
-        symbol_info = {'lot_size': 0.01, 'quantity_precision': 2}
+        symbol_info = {"lot_size": 0.01, "quantity_precision": 2}
         result = risk_manager._round_to_lot_size(49.876, symbol_info)
         assert result == pytest.approx(49.87, abs=1e-9)
 
@@ -715,16 +671,16 @@ class TestQuantityRounding:
             entry_price=50000,
             stop_loss_price=49000,
             leverage=10,
-            symbol_info=None  # No symbol info
+            symbol_info=None,  # No symbol info
         )
 
         # Should use default round(qty, 3)
-        decimal_part = str(quantity).split('.')[1] if '.' in str(quantity) else ''
+        decimal_part = str(quantity).split(".")[1] if "." in str(quantity) else ""
         assert len(decimal_part) <= 3
 
     def test_debug_logging(self, risk_manager, caplog):
         """Verify rounding is logged at DEBUG level"""
-        symbol_info = {'lot_size': 0.001, 'quantity_precision': 3}
+        symbol_info = {"lot_size": 0.001, "quantity_precision": 3}
 
         with caplog.at_level(logging.DEBUG):
             risk_manager._round_to_lot_size(1.2345, symbol_info)

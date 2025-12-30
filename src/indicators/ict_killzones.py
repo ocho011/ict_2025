@@ -3,20 +3,20 @@ ICT Kill Zones
 Identifies optimal trading times based on ICT methodology
 """
 
-from typing import Optional, Literal
 from datetime import datetime, time
+from typing import Literal, Optional
+
 import pytz
 
-
 # Kill Zone time ranges in UTC
-LONDON_KILLZONE_START = time(8, 0)   # 8:00 UTC (3:00 AM EST)
-LONDON_KILLZONE_END = time(9, 0)     # 9:00 UTC (4:00 AM EST)
+LONDON_KILLZONE_START = time(8, 0)  # 8:00 UTC (3:00 AM EST)
+LONDON_KILLZONE_END = time(9, 0)  # 9:00 UTC (4:00 AM EST)
 
-NY_AM_KILLZONE_START = time(15, 0)   # 15:00 UTC (10:00 AM EST)
-NY_AM_KILLZONE_END = time(16, 0)     # 16:00 UTC (11:00 AM EST)
+NY_AM_KILLZONE_START = time(15, 0)  # 15:00 UTC (10:00 AM EST)
+NY_AM_KILLZONE_END = time(16, 0)  # 16:00 UTC (11:00 AM EST)
 
-NY_PM_KILLZONE_START = time(19, 0)   # 19:00 UTC (2:00 PM EST)
-NY_PM_KILLZONE_END = time(20, 0)     # 20:00 UTC (3:00 PM EST)
+NY_PM_KILLZONE_START = time(19, 0)  # 19:00 UTC (2:00 PM EST)
+NY_PM_KILLZONE_END = time(20, 0)  # 20:00 UTC (3:00 PM EST)
 
 
 def is_london_killzone(timestamp: datetime) -> bool:
@@ -76,9 +76,7 @@ def is_newyork_killzone(timestamp: datetime) -> bool:
     return ny_am or ny_pm
 
 
-def get_active_killzone(
-    timestamp: datetime
-) -> Optional[Literal['london', 'ny_am', 'ny_pm']]:
+def get_active_killzone(timestamp: datetime) -> Optional[Literal["london", "ny_am", "ny_pm"]]:
     """
     Get the currently active kill zone, if any.
 
@@ -98,15 +96,15 @@ def get_active_killzone(
 
     # Check London kill zone
     if LONDON_KILLZONE_START <= current_time < LONDON_KILLZONE_END:
-        return 'london'
+        return "london"
 
     # Check NY AM kill zone
     if NY_AM_KILLZONE_START <= current_time < NY_AM_KILLZONE_END:
-        return 'ny_am'
+        return "ny_am"
 
     # Check NY PM kill zone
     if NY_PM_KILLZONE_START <= current_time < NY_PM_KILLZONE_END:
-        return 'ny_pm'
+        return "ny_pm"
 
     return None
 
@@ -125,8 +123,8 @@ def is_killzone_active(timestamp: datetime) -> bool:
 
 
 def get_next_killzone(
-    timestamp: datetime
-) -> tuple[Optional[Literal['london', 'ny_am', 'ny_pm']], Optional[datetime]]:
+    timestamp: datetime,
+) -> tuple[Optional[Literal["london", "ny_am", "ny_pm"]], Optional[datetime]]:
     """
     Get the next upcoming kill zone and its start time.
 
@@ -149,19 +147,19 @@ def get_next_killzone(
     if current_time < LONDON_KILLZONE_START:
         london_start = datetime.combine(current_date, LONDON_KILLZONE_START)
         london_start = pytz.UTC.localize(london_start)
-        return ('london', london_start)
+        return ("london", london_start)
 
     # Check if NY AM kill zone is upcoming
     if current_time < NY_AM_KILLZONE_START:
         ny_am_start = datetime.combine(current_date, NY_AM_KILLZONE_START)
         ny_am_start = pytz.UTC.localize(ny_am_start)
-        return ('ny_am', ny_am_start)
+        return ("ny_am", ny_am_start)
 
     # Check if NY PM kill zone is upcoming
     if current_time < NY_PM_KILLZONE_START:
         ny_pm_start = datetime.combine(current_date, NY_PM_KILLZONE_START)
         ny_pm_start = pytz.UTC.localize(ny_pm_start)
-        return ('ny_pm', ny_pm_start)
+        return ("ny_pm", ny_pm_start)
 
     # All kill zones have passed for today
     return (None, None)

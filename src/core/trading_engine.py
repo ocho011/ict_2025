@@ -10,22 +10,23 @@ Coordinates:
 
 import asyncio
 import logging
-from typing import Any, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
+    from src.main import TradingBot
 
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
 from src.execution.order_manager import OrderExecutionManager
+from src.models.candle import Candle
+from src.models.event import Event, EventType
+from src.models.order import Order
+from src.models.signal import Signal
 from src.risk.manager import RiskManager
 from src.strategies.base import BaseStrategy
 from src.strategies.multi_timeframe import MultiTimeframeStrategy
 from src.utils.config import ConfigManager
-from src.models.candle import Candle
-from src.models.event import Event, EventType
-from src.models.signal import Signal
-from src.models.order import Order
 
 
 class TradingEngine:
@@ -62,7 +63,7 @@ class TradingEngine:
         - _on_order_filled: Order → Position update (future)
     """
 
-    def __init__(self, audit_logger: Optional['AuditLogger'] = None) -> None:
+    def __init__(self, audit_logger: Optional["AuditLogger"] = None) -> None:
         """
         Initialize TradingEngine with minimal setup.
 
@@ -111,6 +112,7 @@ class TradingEngine:
             self.audit_logger = audit_logger
         else:
             from src.core.audit_logger import AuditLogger
+
             self.audit_logger = AuditLogger()
 
         # Components (injected via set_components)
@@ -134,7 +136,7 @@ class TradingEngine:
         order_manager: OrderExecutionManager,
         risk_manager: RiskManager,
         config_manager: ConfigManager,
-        trading_bot: 'TradingBot'
+        trading_bot: "TradingBot",
     ) -> None:
         """
         Inject all required components in one call.
@@ -240,7 +242,8 @@ class TradingEngine:
 
         if not self.data_collector:
             self.logger.warning(
-                "[TradingEngine] DataCollector not injected, skipping historical data initialization"
+                "[TradingEngine] DataCollector not injected, "
+                "skipping historical data initialization"
             )
             return
 
@@ -265,9 +268,7 @@ class TradingEngine:
                     try:
                         # Fetch historical candles directly from API
                         candles = self.data_collector.get_historical_candles(
-                            symbol=symbol,
-                            interval=interval,
-                            limit=limit
+                            symbol=symbol, interval=interval, limit=limit
                         )
 
                         if candles:
@@ -309,9 +310,7 @@ class TradingEngine:
                 )
 
                 candles = self.data_collector.get_historical_candles(
-                    symbol=symbol,
-                    interval=interval,
-                    limit=limit
+                    symbol=symbol, interval=interval, limit=limit
                 )
 
                 if candles:
@@ -335,7 +334,7 @@ class TradingEngine:
         except Exception as e:
             self.logger.error(
                 f"[TradingEngine] ❌ Failed to initialize strategy with historical data: {e}",
-                exc_info=True
+                exc_info=True,
             )
 
     def _setup_event_handlers(self) -> None:
@@ -398,10 +397,7 @@ class TradingEngine:
             signal = await self.strategy.analyze(candle)
         except Exception as e:
             # Don't crash on strategy errors
-            self.logger.error(
-                f"Strategy analysis failed for {candle.symbol}: {e}",
-                exc_info=True
-            )
+            self.logger.error(f"Strategy analysis failed for {candle.symbol}: {e}", exc_info=True)
             return
 
         # Step 4: If signal exists, publish SIGNAL_GENERATED event
@@ -415,32 +411,32 @@ class TradingEngine:
             # Audit log: signal generated from candle analysis
             try:
                 from src.core.audit_logger import AuditEventType
+
                 self.audit_logger.log_event(
                     event_type=AuditEventType.SIGNAL_PROCESSING,
                     operation="candle_analysis",
                     symbol=candle.symbol,
                     additional_data={
-                        'interval': candle.interval,
-                        'close_price': candle.close,
-                        'signal_generated': True,
-                        'signal_type': signal.signal_type.value,
-                        'entry_price': signal.entry_price,
-                        'take_profit': signal.take_profit,
-                        'stop_loss': signal.stop_loss,
-                        'strategy_name': signal.strategy_name
-                    }
+                        "interval": candle.interval,
+                        "close_price": candle.close,
+                        "signal_generated": True,
+                        "signal_type": signal.signal_type.value,
+                        "entry_price": signal.entry_price,
+                        "take_profit": signal.take_profit,
+                        "stop_loss": signal.stop_loss,
+                        "strategy_name": signal.strategy_name,
+                    },
                 )
             except Exception as e:
                 self.logger.warning(f"Audit logging failed: {e}")
 
             # Create event and publish to 'signal' queue
             signal_event = Event(EventType.SIGNAL_GENERATED, signal)
-            await self.event_bus.publish(signal_event, queue_name='signal')
+            await self.event_bus.publish(signal_event, queue_name="signal")
         else:
             # Info log for no signal (shows strategy is working)
             self.logger.info(
-                f"✓ No signal: {candle.symbol} {candle.interval} "
-                f"(strategy conditions not met)"
+                f"✓ No signal: {candle.symbol} {candle.interval} " f"(strategy conditions not met)"
             )
 
     async def _on_signal_generated(self, event: Event) -> None:
@@ -458,9 +454,7 @@ class TradingEngine:
         # Step 1: Extract signal from event data
         signal: Signal = event.data
 
-        self.logger.info(
-            f"Processing signal: {signal.signal_type.value} for {signal.symbol}"
-        )
+        self.logger.info(f"Processing signal: {signal.signal_type.value} for {signal.symbol}")
 
         try:
             # Step 2: Get current position from OrderManager
@@ -477,15 +471,16 @@ class TradingEngine:
                 # Audit log: risk rejection
                 try:
                     from src.core.audit_logger import AuditEventType
+
                     self.audit_logger.log_event(
                         event_type=AuditEventType.RISK_REJECTION,
                         operation="signal_execution",
                         symbol=signal.symbol,
                         order_data={
-                            'signal_type': signal.signal_type.value,
-                            'entry_price': signal.entry_price
+                            "signal_type": signal.signal_type.value,
+                            "entry_price": signal.entry_price,
                         },
-                        error={'reason': 'risk_validation_failed'}
+                        error={"reason": "risk_validation_failed"},
                     )
                 except Exception as e:
                     self.logger.warning(f"Audit logging failed: {e}")
@@ -507,14 +502,13 @@ class TradingEngine:
                 entry_price=signal.entry_price,
                 stop_loss_price=signal.stop_loss,
                 leverage=self.config_manager.trading_config.leverage,
-                symbol_info=None  # OrderManager will handle rounding internally
+                symbol_info=None,  # OrderManager will handle rounding internally
             )
 
             # Step 6: Execute signal via OrderManager
             # Returns (entry_order, [tp_order, sl_order])
             entry_order, tpsl_orders = self.order_manager.execute_signal(
-                signal=signal,
-                quantity=quantity
+                signal=signal, quantity=quantity
             )
 
             # Step 7: Log successful trade execution
@@ -528,50 +522,46 @@ class TradingEngine:
             # Audit log: trade executed successfully
             try:
                 from src.core.audit_logger import AuditEventType
+
                 self.audit_logger.log_event(
                     event_type=AuditEventType.TRADE_EXECUTED,
                     operation="execute_trade",
                     symbol=signal.symbol,
                     order_data={
-                        'signal_type': signal.signal_type.value,
-                        'entry_price': signal.entry_price,
-                        'quantity': quantity,
-                        'leverage': self.config_manager.trading_config.leverage
+                        "signal_type": signal.signal_type.value,
+                        "entry_price": signal.entry_price,
+                        "quantity": quantity,
+                        "leverage": self.config_manager.trading_config.leverage,
                     },
                     response={
-                        'entry_order_id': entry_order.order_id,
-                        'tpsl_count': len(tpsl_orders)
-                    }
+                        "entry_order_id": entry_order.order_id,
+                        "tpsl_count": len(tpsl_orders),
+                    },
                 )
             except Exception as e:
                 self.logger.warning(f"Audit logging failed: {e}")
 
             # Step 8: Publish ORDER_FILLED event
             order_event = Event(EventType.ORDER_FILLED, entry_order)
-            await self.event_bus.publish(order_event, queue_name='order')
+            await self.event_bus.publish(order_event, queue_name="order")
 
         except Exception as e:
             # Step 9: Catch and log execution errors without crashing
-            self.logger.error(
-                f"Failed to execute signal for {signal.symbol}: {e}",
-                exc_info=True
-            )
+            self.logger.error(f"Failed to execute signal for {signal.symbol}: {e}", exc_info=True)
 
             # Audit log: trade execution failed
             try:
                 from src.core.audit_logger import AuditEventType
+
                 self.audit_logger.log_event(
                     event_type=AuditEventType.TRADE_EXECUTION_FAILED,
                     operation="execute_trade",
                     symbol=signal.symbol,
                     order_data={
-                        'signal_type': signal.signal_type.value,
-                        'entry_price': signal.entry_price
+                        "signal_type": signal.signal_type.value,
+                        "entry_price": signal.entry_price,
                     },
-                    error={
-                        'error_type': type(e).__name__,
-                        'error_message': str(e)
-                    }
+                    error={"error_type": type(e).__name__, "error_message": str(e)},
                 )
             except Exception:
                 pass  # Exception context already logged
@@ -603,17 +593,18 @@ class TradingEngine:
         # Audit log: order filled confirmation
         try:
             from src.core.audit_logger import AuditEventType
+
             self.audit_logger.log_event(
                 event_type=AuditEventType.ORDER_PLACED,  # Reuse existing event type
                 operation="order_confirmation",
                 symbol=order.symbol,
                 response={
-                    'order_id': order.order_id,
-                    'side': order.side.value,
-                    'quantity': order.quantity,
-                    'price': order.price,
-                    'order_type': order.order_type.value
-                }
+                    "order_id": order.order_id,
+                    "side": order.side.value,
+                    "quantity": order.quantity,
+                    "price": order.price,
+                    "order_type": order.order_type.value,
+                },
             )
         except Exception as e:
             self.logger.warning(f"Audit logging failed: {e}")
@@ -669,19 +660,13 @@ class TradingEngine:
             # Start all components concurrently
             tasks = [
                 # EventBus always runs
-                asyncio.create_task(
-                    self.event_bus.start(),
-                    name='eventbus'
-                )
+                asyncio.create_task(self.event_bus.start(), name="eventbus")
             ]
 
             # Add DataCollector (should always be configured)
             if self.data_collector:
                 tasks.append(
-                    asyncio.create_task(
-                        self.data_collector.start_streaming(),
-                        name='datacollector'
-                    )
+                    asyncio.create_task(self.data_collector.start_streaming(), name="datacollector")
                 )
                 self.logger.info("DataCollector streaming enabled")
 

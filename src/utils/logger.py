@@ -2,14 +2,14 @@
 Logging configuration with multi-handler setup and structured trade logging
 """
 
+import json
 import logging
 import sys
-import json
 import time
-from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
-from pathlib import Path
-from datetime import datetime
 from contextlib import contextmanager
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from typing import Generator
 
 
@@ -32,7 +32,7 @@ class TradeLogFilter(logging.Filter):
         Returns:
             True if record.name == 'trades', False otherwise
         """
-        return record.name == 'trades'
+        return record.name == "trades"
 
 
 class TradingLogger:
@@ -58,16 +58,16 @@ class TradingLogger:
         Raises:
             OSError: If log directory creation fails
         """
-        self.log_level = config.get('log_level', 'INFO')
+        self.log_level = config.get("log_level", "INFO")
 
         # Always use project root's logs/ directory for consistency
         # regardless of execution location (PyCharm, terminal, background)
         project_root = Path(__file__).resolve().parent.parent.parent
-        default_log_dir = project_root / 'logs'
+        default_log_dir = project_root / "logs"
 
         # If config specifies log_dir, interpret as relative to project root
         # unless it's an absolute path
-        config_log_dir = config.get('log_dir', str(default_log_dir))
+        config_log_dir = config.get("log_dir", str(default_log_dir))
         self.log_dir = Path(config_log_dir)
         if not self.log_dir.is_absolute():
             self.log_dir = project_root / self.log_dir
@@ -96,20 +96,18 @@ class TradingLogger:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
         console_format = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'
+            "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
         )
         console_handler.setFormatter(console_format)
         root_logger.addHandler(console_handler)
 
         # File Handler - All levels, rotating (10MB max, 5 backups)
         file_handler = RotatingFileHandler(
-            self.log_dir / 'trading.log',
-            maxBytes=10*1024*1024,  # 10MB
-            backupCount=5
+            self.log_dir / "trading.log", maxBytes=10 * 1024 * 1024, backupCount=5  # 10MB
         )
         file_handler.setLevel(logging.DEBUG)
         file_format = logging.Formatter(
-            '%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s'
+            "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
         )
         file_handler.setFormatter(file_format)
         root_logger.addHandler(file_handler)
@@ -135,12 +133,8 @@ class TradingLogger:
                 'sl': 49500.0
             })
         """
-        logger = logging.getLogger('trades')
-        log_entry = {
-            'timestamp': datetime.utcnow().isoformat(),
-            'action': action,
-            **data
-        }
+        logger = logging.getLogger("trades")
+        log_entry = {"timestamp": datetime.utcnow().isoformat(), "action": action, **data}
         logger.info(json.dumps(log_entry))
 
 
@@ -181,9 +175,8 @@ def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
         Configured logger instance
     """
     import warnings
+
     warnings.warn(
-        "setup_logger() is deprecated. Use TradingLogger class.",
-        DeprecationWarning,
-        stacklevel=2
+        "setup_logger() is deprecated. Use TradingLogger class.", DeprecationWarning, stacklevel=2
     )
     return logging.getLogger(name)

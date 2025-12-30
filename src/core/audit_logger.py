@@ -4,16 +4,18 @@ Audit logging system for tracking all API operations, errors, and retries.
 This module provides structured logging in JSON Lines format for comprehensive
 audit trails of trading operations, errors, and system events.
 """
+
 import json
 import logging
-from pathlib import Path
 from datetime import datetime
-from typing import Dict, Any, Optional
 from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 
 class AuditEventType(Enum):
     """Types of audit events that can be logged."""
+
     # Order events
     ORDER_PLACED = "order_placed"
     ORDER_REJECTED = "order_rejected"
@@ -73,12 +75,12 @@ class AuditLogger:
         """
         # Always use project root's logs directory for consistency
         project_root = Path(__file__).resolve().parent.parent.parent
-        
+
         # If log_dir is relative, make it relative to project root
         self.log_dir = Path(log_dir)
         if not self.log_dir.is_absolute():
             self.log_dir = project_root / self.log_dir
-            
+
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         # Create daily log file
@@ -91,7 +93,7 @@ class AuditLogger:
 
         # Always create new file handler for this instance
         handler = logging.FileHandler(self.log_file)
-        handler.setFormatter(logging.Formatter('%(message)s'))
+        handler.setFormatter(logging.Formatter("%(message)s"))
         self.logger.addHandler(handler)
 
     def log_event(
@@ -103,7 +105,7 @@ class AuditLogger:
         response: Optional[Dict[str, Any]] = None,
         error: Optional[Dict[str, Any]] = None,
         retry_attempt: Optional[int] = None,
-        additional_data: Optional[Dict[str, Any]] = None
+        additional_data: Optional[Dict[str, Any]] = None,
     ):
         """
         Log an audit event in JSON format.
@@ -128,23 +130,23 @@ class AuditLogger:
             ... )
         """
         event = {
-            'timestamp': datetime.now().isoformat(),
-            'event_type': event_type.value,
-            'operation': operation,
+            "timestamp": datetime.now().isoformat(),
+            "event_type": event_type.value,
+            "operation": operation,
         }
 
         if symbol:
-            event['symbol'] = symbol
+            event["symbol"] = symbol
         if order_data:
-            event['order_data'] = order_data
+            event["order_data"] = order_data
         if response:
-            event['response'] = response
+            event["response"] = response
         if error:
-            event['error'] = error
+            event["error"] = error
         if retry_attempt is not None:
-            event['retry_attempt'] = retry_attempt
+            event["retry_attempt"] = retry_attempt
         if additional_data:
-            event['additional_data'] = additional_data
+            event["additional_data"] = additional_data
 
         # Write as single-line JSON
         self.logger.info(json.dumps(event))
@@ -163,7 +165,7 @@ class AuditLogger:
             operation="place_order",
             symbol=symbol,
             order_data=order_data,
-            response=response
+            response=response,
         )
 
     def log_order_rejected(self, symbol: str, order_data: Dict[str, Any], error: Dict[str, Any]):
@@ -180,16 +182,11 @@ class AuditLogger:
             operation="place_order",
             symbol=symbol,
             order_data=order_data,
-            error=error
+            error=error,
         )
 
     def log_retry_attempt(
-        self,
-        operation: str,
-        attempt: int,
-        max_retries: int,
-        error: Dict[str, Any],
-        delay: float
+        self, operation: str, attempt: int, max_retries: int, error: Dict[str, Any], delay: float
     ):
         """
         Log retry attempt.
@@ -206,17 +203,11 @@ class AuditLogger:
             operation=operation,
             error=error,
             retry_attempt=attempt,
-            additional_data={
-                'max_retries': max_retries,
-                'delay_seconds': delay
-            }
+            additional_data={"max_retries": max_retries, "delay_seconds": delay},
         )
 
     def log_rate_limit(
-        self,
-        operation: str,
-        error: Dict[str, Any],
-        weight_info: Optional[Dict] = None
+        self, operation: str, error: Dict[str, Any], weight_info: Optional[Dict] = None
     ):
         """
         Log rate limit error.
@@ -230,5 +221,5 @@ class AuditLogger:
             event_type=AuditEventType.RATE_LIMIT,
             operation=operation,
             error=error,
-            additional_data={'weight_info': weight_info} if weight_info else None
+            additional_data={"weight_info": weight_info} if weight_info else None,
         )

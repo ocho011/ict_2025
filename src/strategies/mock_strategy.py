@@ -106,12 +106,12 @@ class MockSMACrossoverStrategy(BaseStrategy):
         self.logger = logging.getLogger(__name__)
 
         # SMA periods
-        self.fast_period: int = config.get('fast_period', 10)
-        self.slow_period: int = config.get('slow_period', 20)
+        self.fast_period: int = config.get("fast_period", 10)
+        self.slow_period: int = config.get("slow_period", 20)
 
         # Risk management parameters
-        self.risk_reward_ratio: float = config.get('risk_reward_ratio', 2.0)
-        self.stop_loss_percent: float = config.get('stop_loss_percent', 0.01)
+        self.risk_reward_ratio: float = config.get("risk_reward_ratio", 2.0)
+        self.stop_loss_percent: float = config.get("stop_loss_percent", 0.01)
 
         # Internal state
         self._last_signal_type: Optional[SignalType] = None
@@ -202,8 +202,8 @@ class MockSMACrossoverStrategy(BaseStrategy):
         close_prices = np.array([c.close for c in self.candle_buffer])
 
         # Step 5: Calculate current SMAs
-        current_fast_sma = np.mean(close_prices[-self.fast_period:])
-        current_slow_sma = np.mean(close_prices[-self.slow_period:])
+        current_fast_sma = np.mean(close_prices[-self.fast_period :])
+        current_slow_sma = np.mean(close_prices[-self.slow_period :])
 
         # Step 6: Calculate previous SMAs (for crossover detection)
         # Need at least slow_period + 1 candles for previous calculation
@@ -215,8 +215,8 @@ class MockSMACrossoverStrategy(BaseStrategy):
             )
             return None
 
-        previous_fast_sma = np.mean(close_prices[-(self.fast_period + 1):-1])
-        previous_slow_sma = np.mean(close_prices[-(self.slow_period + 1):-1])
+        previous_fast_sma = np.mean(close_prices[-(self.fast_period + 1) : -1])
+        previous_slow_sma = np.mean(close_prices[-(self.slow_period + 1) : -1])
 
         # Step 7: Detect golden cross (fast crosses above slow)
         if previous_fast_sma <= previous_slow_sma and current_fast_sma > current_slow_sma:
@@ -272,7 +272,7 @@ class MockSMACrossoverStrategy(BaseStrategy):
             - Signal validates TP/SL relationships in __post_init__()
             - Strategy name automatically set to class name
         """
-        side = 'LONG' if signal_type == SignalType.LONG_ENTRY else 'SHORT'
+        side = "LONG" if signal_type == SignalType.LONG_ENTRY else "SHORT"
         entry_price = candle.close
 
         return Signal(
@@ -282,7 +282,7 @@ class MockSMACrossoverStrategy(BaseStrategy):
             take_profit=self.calculate_take_profit(entry_price, side),
             stop_loss=self.calculate_stop_loss(entry_price, side),
             strategy_name=self.__class__.__name__,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
         )
 
     def calculate_take_profit(self, entry_price: float, side: str) -> float:
@@ -335,7 +335,7 @@ class MockSMACrossoverStrategy(BaseStrategy):
         sl_distance = entry_price * self.stop_loss_percent
         tp_distance = sl_distance * self.risk_reward_ratio
 
-        if side == 'LONG':
+        if side == "LONG":
             return entry_price + tp_distance
         else:  # SHORT
             return entry_price - tp_distance
@@ -383,7 +383,7 @@ class MockSMACrossoverStrategy(BaseStrategy):
             - Typical values: 0.005 (0.5%) to 0.02 (2%)
             - Production strategies might use ATR or volatility-based SL
         """
-        if side == 'LONG':
+        if side == "LONG":
             return entry_price * (1 - self.stop_loss_percent)
         else:  # SHORT
             return entry_price * (1 + self.stop_loss_percent)
