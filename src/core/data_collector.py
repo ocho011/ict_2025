@@ -342,7 +342,7 @@ class BinanceDataCollector:
             raise ConnectionError(f"WebSocket initialization failed: {e}")
 
 
-    def _parse_rest_kline(self, kline_data: List) -> Candle:
+    def _parse_rest_kline(self, kline_array: List) -> Candle:
         """
         Parse REST API kline array into a Candle object.
 
@@ -353,13 +353,13 @@ class BinanceDataCollector:
         [10] taker_buy_quote_asset_volume, [11] ignore
 
         Args:
-            kline_data: Raw kline array from Binance REST API
+            kline_array: Raw kline array from Binance REST API
 
         Returns:
             Candle object with parsed and validated data
 
         Raises:
-            ValueError: If kline_data format is invalid
+            ValueError: If kline_array format is invalid
             IndexError: If required array indices are missing
         """
         try:
@@ -368,20 +368,20 @@ class BinanceDataCollector:
             candle = Candle(
                 symbol="",  # Will be set by caller
                 interval="",  # Will be set by caller
-                open_time=datetime.fromtimestamp(int(kline_data[0]) / 1000, tz=timezone.utc).replace(tzinfo=None),
-                close_time=datetime.fromtimestamp(int(kline_data[6]) / 1000, tz=timezone.utc).replace(tzinfo=None),
-                open=float(kline_data[1]),
-                high=float(kline_data[2]),
-                low=float(kline_data[3]),
-                close=float(kline_data[4]),
-                volume=float(kline_data[5]),
+                open_time=datetime.fromtimestamp(int(kline_array[0]) / 1000, tz=timezone.utc).replace(tzinfo=None),
+                close_time=datetime.fromtimestamp(int(kline_array[6]) / 1000, tz=timezone.utc).replace(tzinfo=None),
+                open=float(kline_array[1]),
+                high=float(kline_array[2]),
+                low=float(kline_array[3]),
+                close=float(kline_array[4]),
+                volume=float(kline_array[5]),
                 is_closed=True  # Historical candles are always closed
             )
             return candle
 
         except (IndexError, ValueError, TypeError) as e:
             self.logger.error(
-                f"Failed to parse REST kline data: {e} | Data: {kline_data}",
+                f"Failed to parse REST kline data: {e} | Data: {kline_array}",
                 exc_info=True
             )
             raise ValueError(f"Invalid kline data format: {e}")
