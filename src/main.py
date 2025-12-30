@@ -167,25 +167,33 @@ class TradingBot:
             backfill_success = self.data_collector.backfill_all(
                 limit=trading_config.backfill_limit
             )
-            if backfill_success:
-                self.logger.info("✅ Historical data backfill completed successfully")
 
-                # Step 5.6: Initialize strategy with historical data
-                self.logger.info("Initializing strategy with historical candles...")
-                historical_candles = self.data_collector.get_all_buffered_candles()
+            # Step 5.6: Retrieve buffered candles regardless of full/partial success
+            # This handles partial backfill scenarios where some pairs succeed
+            self.logger.info("Retrieving buffered historical candles...")
+            historical_candles = self.data_collector.get_all_buffered_candles()
 
-                if historical_candles:
-                    # Note: trading_engine is not yet created, so we'll initialize after Step 9
-                    # Store historical_candles for later initialization
-                    self._historical_candles = historical_candles
+            if historical_candles:
+                # Store for strategy initialization after TradingEngine creation
+                self._historical_candles = historical_candles
+
+                total_candles = sum(len(candles) for candles in historical_candles.values())
+                buffer_count = len(historical_candles)
+
+                # Log appropriate message based on backfill success
+                if backfill_success:
                     self.logger.info(
-                        f"Stored {sum(len(candles) for candles in historical_candles.values())} "
-                        f"candles from {len(historical_candles)} buffers for strategy initialization"
+                        f"✅ Full backfill successful: {total_candles} candles "
+                        f"from {buffer_count} buffers stored for strategy initialization"
                     )
                 else:
-                    self.logger.warning("No historical candles available after backfill")
+                    self.logger.warning(
+                        f"⚠️ Partial backfill: {total_candles} candles from {buffer_count} "
+                        f"successful buffers stored (some pairs failed but available data will be used)"
+                    )
             else:
-                self.logger.warning("⚠️ Some pairs failed to backfill (will use real-time data only)")
+                self.logger.warning("❌ No historical candles available - all backfill attempts failed")
+                self._historical_candles = None
         else:
             self.logger.info("Backfilling disabled (backfill_limit=0)")
             self._historical_candles = None  # No backfill data to initialize
