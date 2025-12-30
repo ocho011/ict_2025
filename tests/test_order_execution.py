@@ -609,6 +609,51 @@ class TestExecuteSignal:
             assert "code=-2019" in caplog.text
             assert "Margin is insufficient" in caplog.text
 
+    def test_execute_signal_cancels_existing_orders_before_tpsl(self, manager, mock_client, long_entry_signal):
+        """신규 TP/SL 주문 전 기존 주문 취소 확인"""
+        # Mock cancel_all_orders to track calls
+        with patch.object(manager, 'cancel_all_orders', return_value=2) as mock_cancel:
+            # Execute signal
+            manager.execute_signal(long_entry_signal, quantity=0.001)
+
+            # Verify cancel_all_orders was called with correct symbol
+            mock_cancel.assert_called_once_with('BTCUSDT')
+
+    def test_execute_signal_continues_if_cancel_fails(self, manager, mock_client, long_entry_signal, caplog):
+        """cancel_all_orders 실패 시에도 TP/SL 주문 진행 확인"""
+        # Mock cancel_all_orders to raise exception
+        with patch.object(manager, 'cancel_all_orders', side_effect=Exception("Cancel failed")):
+            with caplog.at_level(logging.WARNING):
+                # Should not raise - should continue with TP/SL placement
+                entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
+
+                # Verify execution succeeded despite cancellation failure
+                assert entry_order is not None
+
+                # Verify warning was logged
+                assert "Failed to cancel existing orders" in caplog.text
+                assert "Proceeding with TP/SL placement anyway" in caplog.text
+
+    def test_execute_signal_logs_cancelled_count(self, manager, mock_client, long_entry_signal, caplog):
+        """취소된 주문 개수 로깅 확인"""
+        # Mock cancel_all_orders to return count
+        with patch.object(manager, 'cancel_all_orders', return_value=3):
+            with caplog.at_level(logging.INFO):
+                manager.execute_signal(long_entry_signal, quantity=0.001)
+
+                # Verify cancellation count was logged
+                assert "Cancelled 3 existing orders before placing new TP/SL orders" in caplog.text
+
+    def test_execute_signal_close_signal_does_not_cancel_orders(self, manager, mock_client, close_long_signal):
+        """CLOSE 시그널은 주문 취소하지 않음"""
+        # Mock cancel_all_orders to track calls
+        with patch.object(manager, 'cancel_all_orders', return_value=0) as mock_cancel:
+            # Execute close signal
+            manager.execute_signal(close_long_signal, quantity=0.001)
+
+            # Verify cancel_all_orders was NOT called for close signals
+            mock_cancel.assert_not_called()
+
 
 class TestTPSLPlacement:
     """TP/SL 주문 배치 테스트 (Task 6.3)"""

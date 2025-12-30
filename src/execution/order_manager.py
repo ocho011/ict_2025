@@ -1215,6 +1215,21 @@ class OrderExecutionManager:
 
         # Only place TP/SL for entry signals (not for close signals)
         if signal.signal_type in (SignalType.LONG_ENTRY, SignalType.SHORT_ENTRY):
+            # Cancel all existing orders before placing new TP/SL orders
+            # This prevents orphaned TP/SL orders from previous positions
+            try:
+                cancelled_count = self.cancel_all_orders(signal.symbol)
+                if cancelled_count > 0:
+                    self.logger.info(
+                        f"Cancelled {cancelled_count} existing orders before placing new TP/SL orders"
+                    )
+            except Exception as e:
+                # Log warning but continue - don't fail the entire order due to cancellation failure
+                self.logger.warning(
+                    f"Failed to cancel existing orders: {e}. "
+                    f"Proceeding with TP/SL placement anyway."
+                )
+
             # Determine TP/SL side (opposite of entry side)
             # LONG_ENTRY: entry is BUY → TP/SL are SELL
             # SHORT_ENTRY: entry is SELL → TP/SL are BUY

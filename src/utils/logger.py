@@ -114,15 +114,8 @@ class TradingLogger:
         file_handler.setFormatter(file_format)
         root_logger.addHandler(file_handler)
 
-        # Trade Log - Separate file for trades only (daily rotation, 30-day retention)
-        trade_handler = TimedRotatingFileHandler(
-            self.log_dir / 'trades.log',
-            when='midnight',
-            backupCount=30
-        )
-        trade_handler.setLevel(logging.INFO)
-        trade_handler.addFilter(TradeLogFilter())
-        root_logger.addHandler(trade_handler)
+        # Note: Trade events are logged to logs/audit/*.jsonl via AuditLogger
+        # for structured compliance logging and analysis
 
     @staticmethod
     def log_trade(action: str, data: dict) -> None:

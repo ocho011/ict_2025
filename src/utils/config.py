@@ -46,6 +46,7 @@ class TradingConfig:
     take_profit_ratio: float
     stop_loss_percent: float
     backfill_limit: int = 100  # Default 100 candles
+    margin_type: str = 'ISOLATED'  # Default to ISOLATED margin (safer than CROSSED)
     ict_config: Optional[Dict[str, Any]] = None  # ICT strategy specific configuration
 
     def __post_init__(self):
@@ -74,6 +75,12 @@ class TradingConfig:
         if self.backfill_limit < 0 or self.backfill_limit > 1000:
             raise ConfigurationError(
                 f"Backfill limit must be 0-1000, got {self.backfill_limit}"
+            )
+
+        # Validate margin_type
+        if self.margin_type not in ('ISOLATED', 'CROSSED'):
+            raise ConfigurationError(
+                f"Margin type must be 'ISOLATED' or 'CROSSED', got {self.margin_type}"
             )
 
         # Validate symbol format

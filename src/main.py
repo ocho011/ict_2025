@@ -145,6 +145,7 @@ class TradingBot:
         self.logger.info(f"Intervals: {', '.join(trading_config.intervals)}")
         self.logger.info(f"Strategy: {trading_config.strategy}")
         self.logger.info(f"Leverage: {trading_config.leverage}x")
+        self.logger.info(f"Margin Type: {trading_config.margin_type}")
         self.logger.info(f"Max Risk per Trade: {trading_config.max_risk_per_trade * 100:.1f}%")
         self.logger.info("=" * 50)
 
@@ -236,7 +237,7 @@ class TradingBot:
         else:
             self.logger.info("No historical data to initialize (backfill disabled)")
 
-        # Step 10: Configure leverage
+        # Step 10: Configure leverage and margin type
 
         self.logger.info("Configuring leverage...")
         success = self.order_manager.set_leverage(
@@ -247,6 +248,18 @@ class TradingBot:
             self.logger.warning(
                 f"Failed to set leverage to {trading_config.leverage}x. "
                 "Using current account leverage."
+            )
+
+        # Configure margin type (ISOLATED by default for risk management)
+        self.logger.info(f"Configuring margin type to {trading_config.margin_type}...")
+        success = self.order_manager.set_margin_type(
+            trading_config.symbol,
+            trading_config.margin_type
+        )
+        if not success:
+            self.logger.warning(
+                f"Failed to set margin type to {trading_config.margin_type} for {trading_config.symbol}. "
+                "Using current margin type."
             )
 
         self.logger.info("✅ All components initialized successfully")

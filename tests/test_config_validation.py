@@ -475,6 +475,76 @@ class TestTradingConfigValidation:
                 stop_loss_percent=0.02,
             )
 
+    # Margin type validation tests
+    def test_margin_type_isolated_valid(self):
+        """ISOLATED margin type should be valid"""
+        config = TradingConfig(
+            symbol="BTCUSDT",
+            intervals=["1m"],
+            strategy="test",
+            leverage=10,
+            max_risk_per_trade=0.01,
+            take_profit_ratio=2.0,
+            stop_loss_percent=0.02,
+            margin_type='ISOLATED'
+        )
+        assert config.margin_type == 'ISOLATED'
+
+    def test_margin_type_crossed_valid(self):
+        """CROSSED margin type should be valid"""
+        config = TradingConfig(
+            symbol="BTCUSDT",
+            intervals=["1m"],
+            strategy="test",
+            leverage=10,
+            max_risk_per_trade=0.01,
+            take_profit_ratio=2.0,
+            stop_loss_percent=0.02,
+            margin_type='CROSSED'
+        )
+        assert config.margin_type == 'CROSSED'
+
+    def test_margin_type_default_isolated(self):
+        """Default margin type should be ISOLATED"""
+        config = TradingConfig(
+            symbol="BTCUSDT",
+            intervals=["1m"],
+            strategy="test",
+            leverage=10,
+            max_risk_per_trade=0.01,
+            take_profit_ratio=2.0,
+            stop_loss_percent=0.02
+        )
+        assert config.margin_type == 'ISOLATED'
+
+    def test_margin_type_invalid_raises(self):
+        """Invalid margin type should raise ConfigurationError"""
+        with pytest.raises(ConfigurationError, match="Margin type must be 'ISOLATED' or 'CROSSED'"):
+            TradingConfig(
+                symbol="BTCUSDT",
+                intervals=["1m"],
+                strategy="test",
+                leverage=10,
+                max_risk_per_trade=0.01,
+                take_profit_ratio=2.0,
+                stop_loss_percent=0.02,
+                margin_type='INVALID'
+            )
+
+    def test_margin_type_lowercase_raises(self):
+        """Lowercase margin type should raise ConfigurationError"""
+        with pytest.raises(ConfigurationError, match="Margin type must be 'ISOLATED' or 'CROSSED'"):
+            TradingConfig(
+                symbol="BTCUSDT",
+                intervals=["1m"],
+                strategy="test",
+                leverage=10,
+                max_risk_per_trade=0.01,
+                take_profit_ratio=2.0,
+                stop_loss_percent=0.02,
+                margin_type='isolated'  # lowercase not accepted
+            )
+
 
 class TestLoggingConfigValidation:
     """Test LoggingConfig validation rules"""
