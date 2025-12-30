@@ -212,14 +212,23 @@ class TradingBot:
 
         # Step 8: Create strategy instance via StrategyFactory
         self.logger.info(f"Creating strategy: {trading_config.strategy}...")
+
+        # Build strategy configuration
+        strategy_config = {
+            'buffer_size': 100,
+            'risk_reward_ratio': trading_config.take_profit_ratio,
+            'stop_loss_percent': trading_config.stop_loss_percent
+        }
+
+        # Add ICT-specific configuration if available
+        if trading_config.ict_config is not None:
+            strategy_config.update(trading_config.ict_config)
+            self.logger.info(f"ICT configuration loaded: use_killzones={trading_config.ict_config.get('use_killzones', True)}")
+
         self.strategy = StrategyFactory.create(
             name=trading_config.strategy,
             symbol=trading_config.symbol,
-            config={
-                'buffer_size': 100,
-                'risk_reward_ratio': trading_config.take_profit_ratio,
-                'stop_loss_percent': trading_config.stop_loss_percent
-            }
+            config=strategy_config
         )
 
         # Step 9: Initialize EventBus and TradingEngine

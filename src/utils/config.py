@@ -6,7 +6,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 from configparser import ConfigParser
-from typing import List
+from typing import List, Optional, Dict, Any
 from src.core.exceptions import ConfigurationError
 
 
@@ -46,6 +46,7 @@ class TradingConfig:
     take_profit_ratio: float
     stop_loss_percent: float
     backfill_limit: int = 100  # Default 100 candles
+    ict_config: Optional[Dict[str, Any]] = None  # ICT strategy specific configuration
 
     def __post_init__(self):
         # Validation
@@ -225,6 +226,21 @@ class ConfigManager:
 
         trading = config["trading"]
 
+        # Load ICT strategy specific configuration if available
+        ict_config = None
+        if "ict_strategy" in config:
+            ict_section = config["ict_strategy"]
+            ict_config = {
+                'buffer_size': ict_section.getint('buffer_size', 200),
+                'swing_lookback': ict_section.getint('swing_lookback', 5),
+                'displacement_ratio': ict_section.getfloat('displacement_ratio', 1.5),
+                'fvg_min_gap_percent': ict_section.getfloat('fvg_min_gap_percent', 0.001),
+                'ob_min_strength': ict_section.getfloat('ob_min_strength', 1.5),
+                'liquidity_tolerance': ict_section.getfloat('liquidity_tolerance', 0.001),
+                'rr_ratio': ict_section.getfloat('rr_ratio', 2.0),
+                'use_killzones': ict_section.getboolean('use_killzones', True),
+            }
+
         return TradingConfig(
             symbol=trading.get("symbol", "BTCUSDT"),
             intervals=trading.get("intervals", "1m,5m,15m").split(","),
@@ -233,7 +249,8 @@ class ConfigManager:
             max_risk_per_trade=trading.getfloat("max_risk_per_trade", 0.01),
             take_profit_ratio=trading.getfloat("take_profit_ratio", 2.0),
             stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
-            backfill_limit=trading.getint("backfill_limit", 100)
+            backfill_limit=trading.getint("backfill_limit", 100),
+            ict_config=ict_config
         )
 
     def validate(self) -> bool:
