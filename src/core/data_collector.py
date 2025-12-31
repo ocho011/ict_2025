@@ -26,7 +26,7 @@ class BinanceDataCollector:
     - REST API for historical candle retrieval
 
     The collector supports both testnet and mainnet environments, with automatic
-    symbol normalization and thread-safe buffer management using asyncio.Queue.
+    symbol normalization.
 
     Example:
         >>> # Explicit lifecycle management
@@ -359,8 +359,8 @@ class BinanceDataCollector:
         """
         Fetch historical kline data via Binance REST API.
 
-        Retrieves historical candlestick data for initial buffer population
-        or backfilling. All returned candles are marked as closed (is_closed=True).
+        Retrieves historical candlestick data for strategy initialization
+        or analysis. All returned candles are marked as closed (is_closed=True).
 
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT'). Will be normalized to uppercase.
@@ -423,24 +423,23 @@ class BinanceDataCollector:
 
     def backfill_all(self, limit: int = 100) -> bool:
         """
-        Backfill historical candles for all symbol/interval pairs.
+        Fetch historical candles for all symbol/interval pairs.
 
-        Fetches historical data for each configured symbol/interval combination
-        to populate buffers before starting real-time streaming. This enables
-        strategies to analyze immediately without waiting for real-time data
-        accumulation.
+        Utility method that fetches historical data for each configured
+        symbol/interval combination. The fetched data is NOT stored internally
+        and should be retrieved and managed by the caller (e.g., TradingEngine).
 
         Args:
             limit: Number of historical candles to fetch per pair (1-1000).
                   Default is 100. 0 means no backfilling.
 
         Returns:
-            bool: True if all pairs backfilled successfully, False if any failed
+            bool: True if all pairs fetched successfully, False if any failed
 
         Behavior:
             - Iterates through all symbols and intervals
             - Calls get_historical_candles() for each pair
-            - Buffers are automatically populated by get_historical_candles()
+            - Returns success/failure status only (data not stored)
             - Partial failures are logged but don't stop execution
             - Returns summary of success/failure counts
 
@@ -448,14 +447,14 @@ class BinanceDataCollector:
             >>> collector = BinanceDataCollector(...)
             >>> success = collector.backfill_all(limit=200)
             >>> if success:
-            ...     print("All pairs backfilled successfully")
+            ...     print("All pairs fetched successfully")
             >>> else:
-            ...     print("Some pairs failed to backfill")
+            ...     print("Some pairs failed to fetch")
 
         Note:
-            - Should be called BEFORE start_streaming()
+            - Legacy method for validation purposes
+            - TradingEngine handles actual historical data management
             - Each pair fetches independently (no parallelization)
-            - Failed pairs will rely on real-time data only
         """
         # Skip if limit is 0
         if limit == 0:
@@ -480,7 +479,7 @@ class BinanceDataCollector:
         for symbol in self.symbols:
             for interval in self.intervals:
                 try:
-                    # Fetch historical candles (automatically adds to buffer)
+                    # Fetch historical candles
                     candles = self.get_historical_candles(symbol, interval, limit)
                     success_count += 1
                     self.logger.info(
