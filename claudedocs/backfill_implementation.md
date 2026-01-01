@@ -22,15 +22,7 @@ Backfilling fetches historical candles via Binance REST API at startup, populati
 
 ## Design Decisions
 
-### 1. Implementation Location
-**Choice**: `BinanceDataCollector.backfill_all()` method
 
-**Rationale**:
-- DataCollector owns candle buffer management
-- Already has `get_historical_candles()` method for REST API calls
-- Encapsulates data collection logic in single component
-
-### 2. Execution Timing
 **Choice**: `TradingBot.initialize()` - Step 5.5 (after DataCollector creation, before WebSocket start)
 
 **Initialization Sequence**:
@@ -165,45 +157,14 @@ def _load_trading_config(self) -> TradingConfig:
     )
 ```
 
-#### 3. `src/core/data_collector.py`
-**New method**: `backfill_all(limit: int = 100) -> bool`
 
-**Key Features**:
-- Iterates through all symbol/interval pairs
-- Calls `get_historical_candles()` for each pair
-- Comprehensive logging (start, per-pair, summary)
-- Handles limit=0 case (skip backfilling)
-- Returns success/failure status
-
-**Code Structure** (~80 lines):
-```python
-def backfill_all(self, limit: int = 100) -> bool:
-    # 1. Validate limit
-    # 2. Log start with pair count
-    # 3. Initialize counters
-    # 4. Iterate symbol/interval pairs
-    #    - Fetch historical candles
-    #    - Log success/failure per pair
-    #    - Track failures
-    # 5. Summary logging
-    # 6. Return overall success status
-```
-
-#### 4. `src/main.py`
 **Integration in `initialize()` method**:
 ```python
 # Step 5.5: Backfill historical candles (if enabled)
 if trading_config.backfill_limit > 0:
-    self.logger.info(
-        f"Backfilling {trading_config.backfill_limit} historical candles..."
-    )
-    backfill_success = self.data_collector.backfill_all(
-        limit=trading_config.backfill_limit
-    )
-    if backfill_success:
-        self.logger.info("✅ Historical data backfill completed successfully")
-    else:
-        self.logger.warning("⚠️ Some pairs failed to backfill (will use real-time data only)")
+    self.logger.info(f"Backfilling {trading_config.backfill_limit} historical candles...")
+    # NOTE: backfill_all has been removed. TradingEngine now handles direct backfill.
+    # The relevant logic is now within TradingEngine.initialize_strategy_with_backfill
 else:
     self.logger.info("Backfilling disabled (backfill_limit=0)")
 ```
@@ -248,8 +209,7 @@ BTCUSDT 5m:
   Price range: 87781.80 - 89019.60
   ✅ Backfill successful
 
-✅ Backfilling test completed
-Backfill complete: 2/2 pairs successful
+
 ```
 
 ### Validation
@@ -309,20 +269,14 @@ backfill_limit = 0
 ### Successful Backfill
 ```
 INFO - Backfilling 100 historical candles...
-INFO - Starting backfill: 1 symbols × 2 intervals = 2 pairs
-INFO - ✅ Backfilled BTCUSDT 1m: 100 candles loaded
-INFO - ✅ Backfilled BTCUSDT 5m: 100 candles loaded
-INFO - ✅ Backfill complete: 2/2 pairs successful
-INFO - ✅ Historical data backfill completed successfully
+INFO - Initialized BTCUSDT 1m: 100 candles
+INFO - Initialized BTCUSDT 5m: 100 candles
 ```
 
 ### Partial Failure
 ```
 INFO - Backfilling 100 historical candles...
-INFO - Starting backfill: 1 symbols × 2 intervals = 2 pairs
-INFO - ✅ Backfilled BTCUSDT 1m: 100 candles loaded
 ERROR - ❌ Failed to backfill BTCUSDT 5m: Connection timeout
-WARNING - ⚠️ Partial backfill: 1/2 pairs successful (failed: BTCUSDT_5m)
 WARNING - ⚠️ Some pairs failed to backfill (will use real-time data only)
 ```
 
@@ -354,38 +308,11 @@ if self.backfill_limit < 0 or self.backfill_limit > 1000:
 - Failed pairs rely on real-time data accumulation
 - Degraded functionality, not broken functionality
 
----
 
-## Future Enhancements
-
-### Potential Improvements
-1. **Parallel Fetching**: Use asyncio.gather() for concurrent API calls (useful with 10+ pairs)
-2. **Smart Limits**: Auto-calculate limit based on strategy requirements
-3. **Cache Layer**: Store historical data locally to reduce API calls on restart
-4. **Incremental Updates**: Detect existing data and only fetch missing candles
-5. **Progress Reporting**: Show progress bar for large backfills
-
-### Not Implemented (YAGNI)
-- **Parallel processing**: Current use case too small (2 pairs)
-- **Persistent storage**: Simple restart is fast enough
-- **Retry logic**: Binance API is reliable enough
-- **Progress bar**: Backfill completes in < 1 second
-
----
 
 ## Integration Notes
 
-### Strategy Requirements
-Strategies can now rely on buffers being populated at startup:
-```python
-class MyStrategy(BaseStrategy):
-    def analyze(self, candle: Candle):
-        # Buffers already have historical data
-        buffer = self.data_collector.get_candle_buffer(candle.symbol, candle.interval)
-        if len(buffer) >= 100:  # Guaranteed at startup with backfill_limit=100
-            # Perform analysis requiring 100 candles
-            ...
-```
+
 
 ### Event Handling
 Backfilling happens **before** EventBus starts:

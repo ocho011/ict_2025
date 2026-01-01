@@ -36,8 +36,7 @@ WebSocket → callback → EventBus → TradingEngine → Strategy.update_buffer
 
 **Current Flow (main.py:162-196)**:
 ```python
-# Step 5.5: Backfill
-backfill_success = data_collector.backfill_all(limit=200)
+# Step 5.5: Backfill (Removed: backfill_all() no longer exists)
 
 # Step 5.6: Retrieve buffered candles
 historical_candles = data_collector.get_all_buffered_candles()
@@ -71,7 +70,7 @@ for symbol in trading_config.symbols:
 | `add_candle_to_buffer()` | WebSocket handler | Store candle in deque | **DELETE** (direct callback only) |
 | `get_candle_buffer()` | External query | Retrieve specific buffer | **DELETE** (strategy has data) |
 | `get_all_buffered_candles()` | Main.py:174 | Return all buffers | **DELETE** (see new flow above) |
-| `backfill_all()` | Main.py:167 | Fetch + auto-buffer | **REFACTOR** (fetch only, no buffering) |
+| backfill_all() | Main.py:167 | Fetch + auto-buffer | **DELETED** |
 | `get_historical_candles()` | Internal + external | Fetch + auto-buffer (line 448) | **REFACTOR** (remove line 448) |
 
 ---
@@ -471,32 +470,7 @@ def get_historical_candles(self, symbol, interval, limit):
 
 ---
 
-#### Step 2.5: Refactor backfill_all()
-```python
-# data_collector.py - OPTION A: Keep as convenience wrapper
-def backfill_all(self, limit: int = 100) -> bool:
-    """
-    Convenience wrapper for fetching all symbol/interval pairs.
-    Returns dict of candles ready for strategy initialization.
-    """
-    result = {}
-    for symbol in self.symbols:
-        for interval in self.intervals:
-            try:
-                candles = self.get_historical_candles(symbol, interval, limit)
-                buffer_key = f"{symbol}_{interval}"
-                result[buffer_key] = candles
-            except Exception as e:
-                self.logger.error(f"Failed to fetch {symbol} {interval}: {e}")
 
-    return result
-
-# OPTION B: Delete entirely (callers use get_historical_candles directly)
-```
-
-**Recommendation**: Keep OPTION A for backward compatibility
-
----
 
 ### Phase 3: Update Main.py Initialization
 

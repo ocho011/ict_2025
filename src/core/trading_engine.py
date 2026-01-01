@@ -752,4 +752,9 @@ class TradingEngine:
             self.logger.error(f"Error during shutdown: {e}", exc_info=True)
 
         finally:
+            # Stop AuditLogger to flush remaining audit logs
+            if self.audit_logger:
+                self.logger.info("Stopping AuditLogger and flushing audit logs...")
+                self.audit_logger.stop()
+
             self.logger.info("TradingEngine shutdown complete")

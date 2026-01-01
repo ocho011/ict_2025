@@ -3,12 +3,18 @@ Audit logging system for tracking all API operations, errors, and retries.
 
 This module provides structured logging in JSON Lines format for comprehensive
 audit trails of trading operations, errors, and system events.
+
+Performance optimization:
+- QueueHandler + QueueListener pattern for non-blocking I/O
+- Async logging prevents event loop blocking during audit trail writes
 """
 
 import json
 import logging
+import queue
 from datetime import datetime
 from enum import Enum
+from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -67,7 +73,12 @@ class AuditLogger:
 
     def __init__(self, log_dir: str = "logs/audit"):
         """
-        Initialize audit logger.
+        Initialize audit logger with async I/O.
+
+        Architecture:
+        1. QueueHandler attached to logger (fast, non-blocking queue.put())
+        2. QueueListener with FileHandler (runs in separate thread)
+        3. Audit log calls are microsecond-fast, actual I/O is async
 
         Args:
             log_dir: Directory for audit log files (default: logs/audit)
@@ -91,10 +102,29 @@ class AuditLogger:
         self.logger.setLevel(logging.INFO)
         self.logger.propagate = False  # Don't propagate to root logger
 
-        # Always create new file handler for this instance
-        handler = logging.FileHandler(self.log_file)
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        self.logger.addHandler(handler)
+        # Clear existing handlers (if any)
+        self.logger.handlers.clear()
+
+        # Step 1: Create queue for async logging
+        log_queue = queue.Queue(maxsize=-1)  # Unlimited queue size
+
+        # Step 2: Create FileHandler for QueueListener (runs in separate thread)
+        file_handler = logging.FileHandler(self.log_file)
+        file_handler.setFormatter(logging.Formatter("%(message)s"))
+
+        # Step 3: Create QueueListener with FileHandler
+        # Listener will process queue in separate thread
+        self.queue_listener = QueueListener(
+            log_queue,
+            file_handler,
+            respect_handler_level=True,
+        )
+        self.queue_listener.start()
+
+        # Step 4: Attach QueueHandler to logger
+        # All log calls now go to queue (fast, non-blocking)
+        queue_handler = QueueHandler(log_queue)
+        self.logger.addHandler(queue_handler)
 
     def log_event(
         self,
@@ -223,3 +253,16 @@ class AuditLogger:
             error=error,
             additional_data={"weight_info": weight_info} if weight_info else None,
         )
+
+    def stop(self) -> None:
+        """
+        Stop QueueListener and flush remaining audit logs.
+
+        Call this during shutdown to ensure all queued audit logs are written
+        to disk. The listener will process remaining queue items before stopping.
+
+        This is critical for audit compliance - ensures no log loss on shutdown.
+        """
+        if hasattr(self, 'queue_listener') and self.queue_listener:
+            self.queue_listener.stop()
+            self.queue_listener = None

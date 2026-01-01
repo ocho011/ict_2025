@@ -2,7 +2,8 @@
 Event-driven system coordinator with multi-queue support
 """
 
-import asyncio  # Used in future subtasks (4.2+)
+import asyncio
+
 import logging
 from collections import defaultdict
 from typing import Callable, Dict, List
@@ -12,23 +13,19 @@ from src.models.event import Event, EventType
 
 class EventBus:
     """
-    Central event coordination with subscriber registry.
+    Central event coordination with subscriber registry and multi-queue system.
 
-    This class implements the pub-sub pattern foundation for event-driven
-    architecture. In Subtask 4.1, we focus on subscriber management only.
-    Queue system and publishing will be added in subsequent subtasks.
+    This class implements the pub-sub pattern foundation for an event-driven
+    architecture, managing event routing, queueing, and distribution to handlers.
 
     Architecture:
         - Type-safe event routing via EventType enum
         - Multiple handlers per event type
         - Support for both sync and async handlers
         - Thread-safe subscriber storage with defaultdict
-
-    Lifecycle:
-        - Subtask 4.1: Subscriber registry and routing
-        - Subtask 4.2: Queue system and publishing
-        - Subtask 4.3: Async queue processors
-        - Subtask 4.4: Lifecycle management (start/stop/shutdown)
+        - Three priority queues (data, signal, order) for different event criticalities
+        - Asynchronous queue processors for non-blocking event handling
+        - Graceful lifecycle management for start, stop, and shutdown
     """
 
     def __init__(self):
@@ -66,6 +63,13 @@ class EventBus:
 
         # Monitoring: track dropped events per queue
         self._drop_count: Dict[str, int] = {"data": 0, "signal": 0, "order": 0}
+
+        # Define timeout strategy per queue type at class level for reusability and clarity.
+        self._TIMEOUT_MAP: Dict[str, Optional[float]] = {
+            "data": 1.0,  # Drop quickly for high-frequency data (e.g., 1 second)
+            "signal": 5.0,  # Wait longer for important signals (e.g., 5 seconds)
+            "order": None,  # Never timeout for critical orders (block indefinitely)
+        }
 
         self.logger.debug("EventBus initialized (queues will be created in start())")
 
@@ -113,8 +117,7 @@ class EventBus:
         """
         Retrieve all handlers registered for a specific event type.
 
-        This is a helper method used internally by event processors
-        (to be implemented in Subtask 4.3).
+        This is a helper method used internally by event processors.
 
         Args:
             event_type: The event type to get handlers for
@@ -199,47 +202,36 @@ class EventBus:
 
         queue = self._queues[queue_name]
 
-        # 3. Define timeout strategy per queue type
-        timeout_map = {
-            "data": 1.0,  # Drop quickly for high-frequency data
-            "signal": 5.0,  # Wait longer for important signals
-            "order": None,  # Never timeout for critical orders
-        }
-        timeout = timeout_map[queue_name]
+        # Get timeout strategy from class-level map
+        timeout = self._TIMEOUT_MAP[queue_name]
 
-        # 4. Attempt to publish with timeout
+        # Attempt to publish with timeout
         try:
             if timeout is None:
-                # Order queue: block indefinitely, never drop
+                # Order queue: block indefinitely, never drop critical events
                 await queue.put(event)
-                self.logger.debug(
-                    f"Published {event.event_type.value} to {queue_name} queue "
-                    f"(qsize={queue.qsize()})"
-                )
+                # Note: Debug logging removed from hot path for performance
             else:
                 # Data/Signal queues: timeout-based overflow handling
                 await asyncio.wait_for(queue.put(event), timeout=timeout)
-                self.logger.debug(
-                    f"Published {event.event_type.value} to {queue_name} queue "
-                    f"(qsize={queue.qsize()})"
-                )
+                # Note: Debug logging removed from hot path for performance
 
         except asyncio.TimeoutError:
-            # 5. Handle timeout based on queue criticality
+            # Handle timeout based on queue criticality
             if queue_name == "data":
-                # Data queue: drop is acceptable, log and continue
-                self._drop_count[queue_name] += 1
+                # Data queue: dropping events is acceptable under high load
                 self.logger.warning(
                     f"Dropped {event.event_type.value} from {queue_name} queue "
                     f"(full, timeout={timeout}s). "
                     f"Total drops: {self._drop_count[queue_name]}"
                 )
+                self._drop_count[queue_name] += 1
             else:
-                # Signal/Order queues: timeout is serious, re-raise
+                # Signal/Order queues: timeout is a serious indication of system overload
                 self.logger.error(
                     f"Failed to publish {event.event_type.value} to "
                     f"{queue_name} queue (timeout={timeout}s, "
-                    f"qsize={queue.qsize()}). System overload!"
+                    f"qsize={queue.qsize()}). System overloaded or blocked!"
                 )
                 raise
 
@@ -305,10 +297,7 @@ class EventBus:
                 # 2. Get handlers for this event type
                 handlers = self._get_handlers(event.event_type)
 
-                if not handlers:
-                    self.logger.debug(
-                        f"No handlers for {event.event_type.value} in {queue_name} queue"
-                    )
+                # Note: "No handlers" debug log removed from hot path for performance
 
                 # 3. Execute each handler sequentially with error isolation
                 for handler in handlers:
@@ -316,17 +305,10 @@ class EventBus:
 
                     try:
                         # Detect async vs sync handler
+                        # Note: Handler execution debug logs removed from hot path for performance
                         if asyncio.iscoroutinefunction(handler):
-                            self.logger.debug(
-                                f"Executing async handler '{handler_name}' "
-                                f"for {event.event_type.value}"
-                            )
                             await handler(event)
                         else:
-                            self.logger.debug(
-                                f"Executing sync handler '{handler_name}' "
-                                f"for {event.event_type.value}"
-                            )
                             handler(event)  # Direct call for sync handlers
 
                     except Exception as e:

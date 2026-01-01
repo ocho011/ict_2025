@@ -50,9 +50,9 @@ class TradingBot:
 
     Lifecycle:
         1. __init__() - Minimal constructor setup
-        2. initialize() - 10-step component initialization
-        3. run() - Async runtime loop (implemented in Subtask 10.5)
-        4. shutdown() - Graceful cleanup (implemented in Subtask 10.4)
+        2. initialize() - Component initialization
+        3. run() - Asynchronous runtime loop
+        4. shutdown() - Graceful cleanup
 
     Attributes:
         config_manager: Configuration management system
@@ -81,6 +81,7 @@ class TradingBot:
         self.strategy: Optional[BaseStrategy] = None
         self.trading_engine: Optional[TradingEngine] = None
         self.logger: Optional[logging.Logger] = None
+        self.trading_logger: Optional[TradingLogger] = None  # For cleanup
 
         # State management
         self._running: bool = False
@@ -94,7 +95,7 @@ class TradingBot:
         """
         Initialize all trading bot components in correct dependency order.
 
-        11-Step Initialization Sequence:
+        Initialization Sequence:
             1. ConfigManager - Load all configurations
             2. Validate - Ensure config is valid before proceeding
             3. TradingLogger - Setup logging infrastructure
@@ -133,7 +134,7 @@ class TradingBot:
             )
 
         # Step 3: Setup logging infrastructure
-        TradingLogger(logging_config.__dict__)
+        self.trading_logger = TradingLogger(logging_config.__dict__)
         self.logger = logging.getLogger(__name__)
 
         # Step 4: Log startup banner with environment info
@@ -156,7 +157,7 @@ class TradingBot:
             symbols=[trading_config.symbol],
             intervals=trading_config.intervals,
             is_testnet=api_config.is_testnet,
-            on_candle_callback=self._on_candle_received,  # Bridge to EventBus (Subtask 10.2)
+            on_candle_callback=self._on_candle_received,  # Bridge to EventBus
         )
 
         # Step 5.5: Store backfill limit for TradingEngine initialization
@@ -371,7 +372,11 @@ class TradingBot:
         4. Ensures shutdown() is called in finally block
         """
         self.logger.info("Starting trading system...")
-        await self.trading_engine.run()
+        try:
+            await self.trading_engine.run()
+        finally:
+            # Ensure TradingBot cleanup executes (QueueListener, lifecycle state, etc.)
+            await self.shutdown()
 
     async def shutdown(self) -> None:
         """
@@ -384,6 +389,10 @@ class TradingBot:
         4. Stops EventBus (drains queues and stops workers)
         5. Logs shutdown completion
         """
+        # Idempotency check - safe to call multiple times
+        if self._lifecycle_state in (LifecycleState.STOPPING, LifecycleState.STOPPED):
+            return
+
         # Transition to STOPPING state
         self._lifecycle_state = LifecycleState.STOPPING
         self.logger.info(f"Initiating shutdown (state={self._lifecycle_state.name})...")
@@ -398,6 +407,12 @@ class TradingBot:
             f"Shutdown complete (state={self._lifecycle_state.name}). "
             f"Total events dropped: {self._event_drop_count}"
         )
+
+        # Stop QueueListener to flush remaining logs
+        if self.trading_logger:
+            self.logger.info("Stopping QueueListener and flushing logs...")
+            self.trading_logger.stop()
+            # Note: Cannot log after stop() because QueueListener is shut down
 
 
 def main() -> None:

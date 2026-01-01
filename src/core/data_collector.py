@@ -7,6 +7,7 @@ historical data retrieval.
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
@@ -182,8 +183,6 @@ class BinanceDataCollector:
         try:
             # Step 0: Parse JSON string if needed
             if isinstance(message, str):
-                import json
-
                 message = json.loads(message)
 
             # Step 1: Validate message type
@@ -191,9 +190,7 @@ class BinanceDataCollector:
             if event_type != "kline":
                 # WebSocket initialization messages (subscription confirmations, etc.)
                 # are expected and can be safely ignored without logging
-                if event_type is not None:
-                    # Only log if it's an actual event type we don't recognize
-                    self.logger.debug(f"Received non-kline message: type='{event_type}'")
+                # Note: Debug logging removed for hot path performance
                 return
 
             # Step 2: Extract kline data
@@ -224,12 +221,8 @@ class BinanceDataCollector:
             if self.on_candle_callback:
                 self.on_candle_callback(candle)
 
-            # Step 7: Log debug info
-            self.logger.debug(
-                f"Parsed candle: {candle.symbol} {candle.interval} "
-                f"@ {candle.close_time.isoformat()} "
-                f"(close={candle.close}, closed={candle.is_closed})"
-            )
+            # Note: Debug logging removed from hot path for performance
+            # Candle updates occur 4+ times per second and logging adds ~500μs overhead
 
         except KeyError as e:
             # Missing required field in kline data
@@ -421,87 +414,7 @@ class BinanceDataCollector:
             )
             raise ConnectionError(f"REST API request failed: {e}")
 
-    def backfill_all(self, limit: int = 100) -> bool:
-        """
-        Fetch historical candles for all symbol/interval pairs.
 
-        Utility method that fetches historical data for each configured
-        symbol/interval combination. The fetched data is NOT stored internally
-        and should be retrieved and managed by the caller (e.g., TradingEngine).
-
-        Args:
-            limit: Number of historical candles to fetch per pair (1-1000).
-                  Default is 100. 0 means no backfilling.
-
-        Returns:
-            bool: True if all pairs fetched successfully, False if any failed
-
-        Behavior:
-            - Iterates through all symbols and intervals
-            - Calls get_historical_candles() for each pair
-            - Returns success/failure status only (data not stored)
-            - Partial failures are logged but don't stop execution
-            - Returns summary of success/failure counts
-
-        Example:
-            >>> collector = BinanceDataCollector(...)
-            >>> success = collector.backfill_all(limit=200)
-            >>> if success:
-            ...     print("All pairs fetched successfully")
-            >>> else:
-            ...     print("Some pairs failed to fetch")
-
-        Note:
-            - Legacy method for validation purposes
-            - TradingEngine handles actual historical data management
-            - Each pair fetches independently (no parallelization)
-        """
-        # Skip if limit is 0
-        if limit == 0:
-            self.logger.info("Backfill disabled (limit=0), skipping historical data fetch")
-            return True
-
-        # Validate limit
-        if limit < 0 or limit > 1000:
-            self.logger.error(f"Invalid backfill limit: {limit}. Must be 0-1000.")
-            return False
-
-        self.logger.info(
-            f"Starting backfill: {len(self.symbols)} symbols × {len(self.intervals)} intervals = "
-            f"{len(self.symbols) * len(self.intervals)} pairs"
-        )
-
-        success_count = 0
-        failed_pairs = []
-        total_pairs = len(self.symbols) * len(self.intervals)
-
-        # Iterate all symbol/interval combinations
-        for symbol in self.symbols:
-            for interval in self.intervals:
-                try:
-                    # Fetch historical candles
-                    candles = self.get_historical_candles(symbol, interval, limit)
-                    success_count += 1
-                    self.logger.info(
-                        f"✅ Backfilled {symbol} {interval}: {len(candles)} candles loaded"
-                    )
-                except Exception as e:
-                    # Log failure but continue with other pairs
-                    failed_pairs.append(f"{symbol}_{interval}")
-                    self.logger.error(f"❌ Failed to backfill {symbol} {interval}: {e}")
-
-        # Summary logging
-        if success_count == total_pairs:
-            self.logger.info(
-                f"✅ Backfill complete: {success_count}/{total_pairs} pairs successful"
-            )
-            return True
-        else:
-            self.logger.warning(
-                f"⚠️ Partial backfill: {success_count}/{total_pairs} pairs successful "
-                f"(failed: {', '.join(failed_pairs)})"
-            )
-            return False
 
     async def stop(self, timeout: float = 5.0) -> None:
         """

@@ -1,16 +1,22 @@
 """
 Logging configuration with multi-handler setup and structured trade logging
+
+Performance optimizations:
+- QueueHandler + QueueListener pattern for async logging
+- Non-blocking I/O for hot path operations
+- Thread-safe queue-based architecture
 """
 
 import json
 import logging
+import queue
 import sys
 import time
 from contextlib import contextmanager
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
+from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from pathlib import Path
-from typing import Generator
+from typing import Generator, Optional
 
 
 class TradeLogFilter(logging.Filter):
@@ -37,13 +43,19 @@ class TradeLogFilter(logging.Filter):
 
 class TradingLogger:
     """
-    Centralized logging system for trading operations
+    Centralized logging system for trading operations with async I/O
 
     Features:
     - Multi-handler logging (console, file, trade-specific)
     - Automatic log rotation (size-based and time-based)
     - Structured JSON logging for trade events
     - Performance measurement utilities
+    - QueueHandler + QueueListener for non-blocking I/O
+
+    Performance:
+    - Hot path logging is non-blocking via QueueHandler
+    - Actual I/O happens in separate thread via QueueListener
+    - Prevents event loop blocking and disk I/O latency
     """
 
     def __init__(self, config: dict):
@@ -73,18 +85,28 @@ class TradingLogger:
             self.log_dir = project_root / self.log_dir
 
         self.log_dir.mkdir(exist_ok=True)
+
+        # QueueListener for async logging (must be stored for cleanup)
+        self.queue_listener: Optional[QueueListener] = None
+
         self._setup_logging()
 
     def _setup_logging(self) -> None:
         """
-        Configure root logger with all handlers
+        Configure root logger with QueueHandler + QueueListener pattern
 
-        Sets up:
-        1. Console handler (INFO+, simple format)
-        2. Rotating file handler (DEBUG+, detailed format)
-        3. Trade-specific handler (INFO, JSON format, time-based rotation)
+        Architecture:
+        1. QueueHandler attached to root logger (fast, non-blocking)
+        2. QueueListener with actual I/O handlers (runs in separate thread)
+        3. Console handler (INFO+, simple format)
+        4. Rotating file handler (DEBUG+, detailed format)
 
-        Thread-safe: Uses logging module's built-in thread safety
+        Performance benefits:
+        - Hot path: O(1) queue.put() - microseconds
+        - I/O thread: Handles disk/console writes asynchronously
+        - No blocking on event loop or main thread
+
+        Thread-safe: Queue is thread-safe, listener runs in dedicated thread
         """
         root_logger = logging.getLogger()
         root_logger.setLevel(getattr(logging, self.log_level.upper()))
@@ -92,6 +114,10 @@ class TradingLogger:
         # Clear existing handlers to avoid duplicates
         root_logger.handlers.clear()
 
+        # Step 1: Create queue for async logging
+        log_queue = queue.Queue(maxsize=-1)  # Unlimited queue size
+
+        # Step 2: Create actual I/O handlers (will run in listener thread)
         # Console Handler - INFO and above
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
@@ -99,7 +125,6 @@ class TradingLogger:
             "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
         )
         console_handler.setFormatter(console_format)
-        root_logger.addHandler(console_handler)
 
         # File Handler - All levels, rotating (10MB max, 5 backups)
         file_handler = RotatingFileHandler(
@@ -110,10 +135,35 @@ class TradingLogger:
             "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
         )
         file_handler.setFormatter(file_format)
-        root_logger.addHandler(file_handler)
+
+        # Step 3: Create QueueListener with I/O handlers
+        # Listener will process queue in separate thread
+        self.queue_listener = QueueListener(
+            log_queue,
+            console_handler,
+            file_handler,
+            respect_handler_level=True,  # Honor each handler's level
+        )
+        self.queue_listener.start()
+
+        # Step 4: Attach QueueHandler to root logger
+        # All log calls now go to queue (fast, non-blocking)
+        queue_handler = QueueHandler(log_queue)
+        root_logger.addHandler(queue_handler)
 
         # Note: Trade events are logged to logs/audit/*.jsonl via AuditLogger
         # for structured compliance logging and analysis
+
+    def stop(self) -> None:
+        """
+        Stop QueueListener and flush remaining logs
+
+        Call this during shutdown to ensure all queued logs are written.
+        The listener will process remaining queue items before stopping.
+        """
+        if self.queue_listener:
+            self.queue_listener.stop()
+            self.queue_listener = None
 
     @staticmethod
     def log_trade(action: str, data: dict) -> None:
