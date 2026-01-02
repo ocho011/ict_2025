@@ -51,6 +51,18 @@ class AuditEventType(Enum):
     TRADE_EXECUTED = "trade_executed"
     TRADE_EXECUTION_FAILED = "trade_execution_failed"
 
+    # Liquidation events (emergency shutdown)
+    LIQUIDATION_STARTED = "liquidation_started"
+    LIQUIDATION_COMPLETE = "liquidation_complete"
+    LIQUIDATION_FAILED = "liquidation_failed"
+    LIQUIDATION_TIMEOUT = "liquidation_timeout"
+    LIQUIDATION_SKIPPED = "liquidation_skipped"
+    POSITION_CLOSE_SUCCESS = "position_close_success"
+    POSITION_CLOSE_FAILED = "position_close_failed"
+    ORDER_CANCEL_SUCCESS = "order_cancel_success"
+    ORDER_CANCEL_FAILED = "order_cancel_failed"
+    LIQUIDATION_STATE_CHANGE = "liquidation_state_change"
+
 
 class AuditLogger:
     """
@@ -136,6 +148,7 @@ class AuditLogger:
         error: Optional[Dict[str, Any]] = None,
         retry_attempt: Optional[int] = None,
         additional_data: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
     ):
         """
         Log an audit event in JSON format.
@@ -177,6 +190,8 @@ class AuditLogger:
             event["retry_attempt"] = retry_attempt
         if additional_data:
             event["additional_data"] = additional_data
+        if data:
+            event["data"] = data
 
         # Write as single-line JSON
         self.logger.info(json.dumps(event))

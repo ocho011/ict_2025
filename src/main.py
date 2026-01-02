@@ -24,6 +24,8 @@ from enum import Enum, auto
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
 from src.core.trading_engine import TradingEngine
+from src.execution.liquidation_config import LiquidationConfig
+from src.execution.liquidation_manager import LiquidationManager
 from src.execution.order_manager import OrderExecutionManager
 from src.models.candle import Candle
 from src.models.event import Event, EventType
@@ -80,6 +82,7 @@ class TradingBot:
         self.risk_manager: Optional[RiskManager] = None
         self.strategy: Optional[BaseStrategy] = None
         self.trading_engine: Optional[TradingEngine] = None
+        self.liquidation_manager: Optional[LiquidationManager] = None
         self.logger: Optional[logging.Logger] = None
         self.trading_logger: Optional[TradingLogger] = None  # For cleanup
 
@@ -259,6 +262,23 @@ class TradingBot:
                 f"{trading_config.symbol}. Using current margin type."
             )
 
+        # Step 11: Initialize LiquidationManager with security-first defaults
+        self.logger.info("Initializing LiquidationManager...")
+        liquidation_config = LiquidationConfig(
+            emergency_liquidation=True,  # Enable emergency liquidation by default
+            close_positions=True,        # Close all positions on shutdown
+            cancel_orders=True,          # Cancel all orders on shutdown
+            timeout_seconds=5.0,         # 5 second timeout for liquidation
+            max_retries=3,               # 3 retry attempts
+            retry_delay_seconds=0.5,     # 0.5 second base delay for exponential backoff
+        )
+
+        self.liquidation_manager = LiquidationManager(
+            order_manager=self.order_manager,
+            audit_logger=self.order_manager.audit_logger,  # Share audit logger
+            config=liquidation_config,
+        )
+
         self.logger.info("✅ All components initialized successfully")
         self.logger.debug(f"Lifecycle state: {self._lifecycle_state.name}")
 
@@ -380,14 +400,18 @@ class TradingBot:
 
     async def shutdown(self) -> None:
         """
-        Graceful shutdown - delegate to TradingEngine.
+        Graceful shutdown with emergency liquidation.
 
-        This method delegates shutdown to TradingEngine, which:
-        1. Checks idempotency (_running flag)
-        2. Sets _running flag to False
-        3. Stops DataCollector (closes WebSocket)
-        4. Stops EventBus (drains queues and stops workers)
-        5. Logs shutdown completion
+        Shutdown Sequence:
+        1. Execute emergency liquidation (if enabled)
+        2. Delegate to TradingEngine.shutdown()
+        3. Flush audit logs
+        4. Stop QueueListener
+
+        Fail-Safe Guarantee:
+        - Liquidation errors are logged but do NOT block shutdown
+        - Shutdown ALWAYS continues regardless of liquidation outcome
+        - Partial liquidation success is acceptable (logged for manual cleanup)
         """
         # Idempotency check - safe to call multiple times
         if self._lifecycle_state in (LifecycleState.STOPPING, LifecycleState.STOPPED):
@@ -395,8 +419,47 @@ class TradingBot:
 
         # Transition to STOPPING state
         self._lifecycle_state = LifecycleState.STOPPING
-        self.logger.info(f"Initiating shutdown (state={self._lifecycle_state.name})...")
+        self.logger.info(f"Initiating shutdown with liquidation (state={self._lifecycle_state.name})...")
 
+        # Step 1: Execute emergency liquidation (fail-safe: never blocks shutdown)
+        if self.liquidation_manager:
+            try:
+                self.logger.info("Executing emergency liquidation...")
+                liquidation_result = await self.liquidation_manager.execute_liquidation(
+                    symbols=[self.config_manager.trading_config.symbol]
+                )
+
+                # Log liquidation outcome
+                if liquidation_result.is_success():
+                    self.logger.info(
+                        f"✅ Liquidation completed successfully: "
+                        f"{liquidation_result.positions_closed} positions closed, "
+                        f"{liquidation_result.orders_cancelled} orders cancelled "
+                        f"in {liquidation_result.total_duration_seconds:.2f}s"
+                    )
+                elif liquidation_result.is_partial():
+                    self.logger.warning(
+                        f"⚠️  Partial liquidation: "
+                        f"{liquidation_result.positions_closed}/{liquidation_result.positions_closed + liquidation_result.positions_failed} positions closed, "
+                        f"{liquidation_result.orders_cancelled}/{liquidation_result.orders_cancelled + liquidation_result.orders_failed} orders cancelled. "
+                        f"Manual cleanup may be required. Error: {liquidation_result.error_message}"
+                    )
+                else:
+                    self.logger.error(
+                        f"❌ Liquidation failed: {liquidation_result.error_message}. "
+                        f"Manual position closure required on exchange."
+                    )
+
+            except Exception as e:
+                # CRITICAL: Never let liquidation errors block shutdown
+                self.logger.error(
+                    f"Emergency liquidation error (continuing shutdown anyway): {e}",
+                    exc_info=True,
+                )
+        else:
+            self.logger.warning("LiquidationManager not initialized, skipping emergency liquidation")
+
+        # Step 2: Delegate to TradingEngine shutdown
         await self.trading_engine.shutdown()
 
         # Transition to STOPPED state

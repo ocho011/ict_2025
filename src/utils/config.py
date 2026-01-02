@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from src.core.exceptions import ConfigurationError
+from src.execution.liquidation_config import LiquidationConfig
 
 
 @dataclass
@@ -141,6 +142,7 @@ class ConfigManager:
         self._api_config = None
         self._trading_config = None
         self._logging_config = None
+        self._liquidation_config = None
 
         # Load configurations
         self._load_configs()
@@ -150,6 +152,7 @@ class ConfigManager:
         self._api_config = self._load_api_config()
         self._trading_config = self._load_trading_config()
         self._logging_config = self._load_logging_config()
+        self._liquidation_config = self._load_liquidation_config()
 
     def _load_api_config(self) -> APIConfig:
         """
@@ -256,6 +259,7 @@ class ConfigManager:
             take_profit_ratio=trading.getfloat("take_profit_ratio", 2.0),
             stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
             backfill_limit=trading.getint("backfill_limit", 100),
+            margin_type=trading.get("margin_type", "ISOLATED"),
             ict_config=ict_config,
         )
 
@@ -334,3 +338,42 @@ class ConfigManager:
     def logging_config(self) -> LoggingConfig:
         """Get logging configuration"""
         return self._logging_config
+
+    def _load_liquidation_config(self) -> LiquidationConfig:
+        """
+        Load liquidation configuration from INI file.
+
+        Configuration Section: [liquidation]
+        Default Values: Security-first defaults (emergency_liquidation=True)
+
+        Returns:
+            LiquidationConfig: Validated liquidation configuration
+        """
+        config_file = self.config_dir / "trading_config.ini"
+
+        if not config_file.exists():
+            # If config file doesn't exist, use security-first defaults
+            return LiquidationConfig()
+
+        config = ConfigParser()
+        config.read(config_file)
+
+        if "liquidation" not in config:
+            # If [liquidation] section doesn't exist, use security-first defaults
+            return LiquidationConfig()
+
+        liquidation_section = config["liquidation"]
+
+        return LiquidationConfig(
+            emergency_liquidation=liquidation_section.getboolean("emergency_liquidation", True),
+            close_positions=liquidation_section.getboolean("close_positions", True),
+            cancel_orders=liquidation_section.getboolean("cancel_orders", True),
+            timeout_seconds=liquidation_section.getfloat("timeout_seconds", 5.0),
+            max_retries=liquidation_section.getint("max_retries", 3),
+            retry_delay_seconds=liquidation_section.getfloat("retry_delay_seconds", 0.5),
+        )
+
+    @property
+    def liquidation_config(self) -> LiquidationConfig:
+        """Get liquidation configuration"""
+        return self._liquidation_config

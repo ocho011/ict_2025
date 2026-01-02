@@ -1474,3 +1474,244 @@ class OrderExecutionManager:
                 )
         except Exception as e:
             raise OrderExecutionError(f"Unexpected error during order cancellation: {e}")
+
+    async def get_all_positions(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """
+        Query all open positions for given symbols.
+
+        Args:
+            symbols: List of trading symbols (e.g., ['BTCUSDT', 'ETHUSDT'])
+
+        Returns:
+            List of position dictionaries with keys:
+            - symbol: str
+            - positionAmt: str (quantity, negative for SHORT)
+            - entryPrice: str
+            - unrealizedProfit: str
+            - leverage: str
+
+        Raises:
+            OrderExecutionError: API call fails
+
+        Example:
+            >>> positions = await manager.get_all_positions(['BTCUSDT'])
+            >>> for pos in positions:
+            ...     print(f"{pos['symbol']}: {pos['positionAmt']} @ {pos['entryPrice']}")
+        """
+        self.logger.info(f"Querying positions for symbols: {symbols}")
+
+        try:
+            # Call Binance API without symbol parameter to get all positions
+            response = self.client.get_position_risk()
+
+            # Handle Binance API response structure
+            if isinstance(response, dict) and "data" in response:
+                position_list = response["data"]
+            elif isinstance(response, list):
+                position_list = response
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected response type: {type(response).__name__}"
+                )
+
+            # Filter to requested symbols with non-zero positions
+            filtered_positions = []
+            for pos_data in position_list:
+                symbol = pos_data.get("symbol")
+                position_amt = float(pos_data.get("positionAmt", 0))
+
+                # Only include positions for requested symbols with non-zero quantity
+                if symbol in symbols and position_amt != 0:
+                    filtered_positions.append({
+                        "symbol": symbol,
+                        "positionAmt": pos_data.get("positionAmt"),
+                        "entryPrice": pos_data.get("entryPrice"),
+                        "unrealizedProfit": pos_data.get("unRealizedProfit"),
+                        "leverage": pos_data.get("leverage"),
+                        "liquidationPrice": pos_data.get("liquidationPrice"),
+                    })
+
+            self.logger.info(f"Found {len(filtered_positions)} open positions")
+
+            # Audit log
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.POSITION_QUERY,
+                    operation="get_all_positions",
+                    data={
+                        "symbols": symbols,
+                        "positions_count": len(filtered_positions),
+                    },
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
+            return filtered_positions
+
+        except ClientError as e:
+            # Audit log API error
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="get_all_positions",
+                    error={
+                        "status_code": e.status_code,
+                        "error_code": e.error_code,
+                        "error_message": e.error_message,
+                    },
+                )
+            except Exception:
+                pass
+
+            raise OrderExecutionError(
+                f"Position query failed: code={e.error_code}, msg={e.error_message}"
+            )
+        except Exception as e:
+            raise OrderExecutionError(f"Unexpected error querying positions: {e}")
+
+    async def execute_market_close(
+        self,
+        symbol: str,
+        position_amt: float,
+        side: str,
+        reduce_only: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Close position with market order (reduceOnly=True).
+
+        Args:
+            symbol: Trading symbol
+            position_amt: Position size (absolute value)
+            side: "BUY" for closing SHORT, "SELL" for closing LONG
+            reduce_only: If True, only reduces position (default: True for security)
+
+        Returns:
+            Order response from Binance API with keys:
+            - success: bool
+            - order_id: str (if successful)
+            - error: str (if failed)
+
+        Raises:
+            ValidationError: Invalid parameters
+            OrderExecutionError: API call fails critically
+
+        Security:
+            reduceOnly=True is enforced by default to prevent accidental new positions.
+
+        Example:
+            >>> result = await manager.execute_market_close(
+            ...     symbol='BTCUSDT',
+            ...     position_amt=0.1,
+            ...     side='SELL',  # Closing LONG position
+            ... )
+            >>> if result['success']:
+            ...     print(f"Position closed: {result['order_id']}")
+        """
+        # Validate inputs
+        if not symbol or not isinstance(symbol, str):
+            raise ValidationError(f"Invalid symbol: {symbol}")
+        if position_amt <= 0:
+            raise ValidationError(f"Position amount must be > 0, got {position_amt}")
+        if side not in ("BUY", "SELL"):
+            raise ValidationError(f"Side must be BUY or SELL, got {side}")
+
+        # SECURITY: Enforce reduceOnly=True
+        if not reduce_only:
+            self.logger.warning(
+                "SECURITY: reduceOnly=False requested but overridden to True for safety"
+            )
+            reduce_only = True
+
+        self.logger.info(
+            f"Closing position: {symbol} {side} {position_amt} (reduceOnly={reduce_only})"
+        )
+
+        try:
+            # Place market order with reduceOnly
+            response = self.client.new_order(
+                symbol=symbol,
+                side=side,
+                type=OrderType.MARKET.value,
+                quantity=position_amt,
+                reduceOnly=reduce_only,
+            )
+
+            # Parse response
+            if isinstance(response, dict) and "data" in response:
+                order_data = response["data"]
+            elif isinstance(response, dict):
+                order_data = response
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected response type: {type(response).__name__}"
+                )
+
+            order_id = str(order_data.get("orderId"))
+            status = order_data.get("status")
+
+            # Audit log success
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.ORDER_PLACED,
+                    operation="execute_market_close",
+                    symbol=symbol,
+                    response={
+                        "order_id": order_id,
+                        "status": status,
+                        "side": side,
+                        "quantity": position_amt,
+                        "reduce_only": reduce_only,
+                    },
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
+            self.logger.info(
+                f"Position close order executed: ID={order_id}, status={status}"
+            )
+
+            return {
+                "success": True,
+                "order_id": order_id,
+                "status": status,
+            }
+
+        except ClientError as e:
+            # Audit log rejection
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.ORDER_REJECTED,
+                    operation="execute_market_close",
+                    symbol=symbol,
+                    error={
+                        "error_code": e.error_code,
+                        "error_message": e.error_message,
+                    },
+                )
+            except Exception:
+                pass
+
+            self.logger.error(
+                f"Market close order rejected: code={e.error_code}, msg={e.error_message}"
+            )
+
+            return {
+                "success": False,
+                "error": f"Order rejected: {e.error_message}",
+            }
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error during market close: {e}")
+
+            return {
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+            }
