@@ -126,6 +126,7 @@ class OrderExecutionManager:
 
     def __init__(
         self,
+        audit_logger: AuditLogger,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
         is_testnet: bool = True,
@@ -137,6 +138,7 @@ class OrderExecutionManager:
         (BINANCE_API_KEY, BINANCE_API_SECRET) and can be overridden via parameters.
 
         Args:
+            audit_logger: AuditLogger instance for structured logging
             api_key: Binance API key (uses BINANCE_API_KEY env var if None)
             api_secret: Binance API secret (uses BINANCE_API_SECRET env var if None)
             is_testnet: Whether to use testnet (default: True)
@@ -145,14 +147,20 @@ class OrderExecutionManager:
             ValueError: If API key or secret is not provided
 
         Example:
-            >>> # Using environment variables
+            >>> # Using environment variables with injected audit logger
             >>> import os
+            >>> from src.core.audit_logger import AuditLogger
             >>> os.environ['BINANCE_API_KEY'] = 'your_key'
             >>> os.environ['BINANCE_API_SECRET'] = 'your_secret'
-            >>> manager = OrderExecutionManager(is_testnet=True)
+            >>> audit_logger = AuditLogger(log_dir="logs/audit")
+            >>> manager = OrderExecutionManager(
+            ...     audit_logger=audit_logger,
+            ...     is_testnet=True
+            ... )
 
             >>> # Providing keys directly (for testing)
             >>> manager = OrderExecutionManager(
+            ...     audit_logger=audit_logger,
             ...     api_key='test_key',
             ...     api_secret='test_secret',
             ...     is_testnet=True
@@ -197,8 +205,8 @@ class OrderExecutionManager:
         self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
         self._cache_timestamp: Optional[datetime] = None
 
-        # Initialize audit logger and weight tracker
-        self.audit_logger = AuditLogger(log_dir="logs/audit")
+        # Inject audit logger and weight tracker
+        self.audit_logger = audit_logger
         self.weight_tracker = RequestWeightTracker()
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)

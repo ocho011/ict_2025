@@ -87,7 +87,7 @@ class TradingEngine:
         - _on_order_filled: Order → Position update (future)
     """
 
-    def __init__(self, audit_logger: Optional["AuditLogger"] = None) -> None:
+    def __init__(self, audit_logger: "AuditLogger") -> None:
         """
         Initialize TradingEngine with minimal setup.
 
@@ -96,7 +96,7 @@ class TradingEngine:
         bootstrap (TradingBot) and execution (TradingEngine).
 
         Args:
-            audit_logger: Optional AuditLogger instance for structured logging
+            audit_logger: AuditLogger instance for structured logging
 
         Attributes:
             logger: Logger instance for engine events
@@ -115,13 +115,16 @@ class TradingEngine:
 
         Process Flow:
             1. Create logger
-            2. Setup audit logger
+            2. Inject audit logger
             3. Set component placeholders to None
             4. Initialize state machine (CREATED)
             5. Wait for set_components() call
 
         Example:
             ```python
+            from src.core.audit_logger import AuditLogger
+            
+            audit_logger = AuditLogger(log_dir="logs/audit")
             engine = TradingEngine(audit_logger=audit_logger)
             engine.set_components(
                 event_bus=event_bus,
@@ -136,13 +139,8 @@ class TradingEngine:
         """
         self.logger = logging.getLogger(__name__)
 
-        # Setup audit logger
-        if audit_logger is not None:
-            self.audit_logger = audit_logger
-        else:
-            from src.core.audit_logger import AuditLogger
-
-            self.audit_logger = AuditLogger()
+        # Inject audit logger
+        self.audit_logger = audit_logger
 
         # Components (injected via set_components)
         self.event_bus: Optional[EventBus] = None

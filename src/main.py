@@ -21,6 +21,7 @@ if str(project_root) not in sys.path:
 
 from enum import Enum, auto
 
+from src.core.audit_logger import AuditLogger
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
 from src.core.trading_engine import TradingEngine
@@ -101,10 +102,11 @@ class TradingBot:
             2. Validate - Ensure config is valid before proceeding
             3. TradingLogger - Setup logging infrastructure
             4. Startup Banner - Log environment information
+            4.2. AuditLogger - Initialize audit logging system
             4.5. EventBus - Event coordination system (needed by TradingEngine)
             5. OrderExecutionManager - Order execution interface
             6. RiskManager - Risk validation and position sizing
-            7. TradingEngine - Core trading engine (needs EventBus, OrderManager)
+            7. TradingEngine - Core trading engine (needs EventBus, AuditLogger)
             8. StrategyFactory - Create strategy instance
             9. BinanceDataCollector - WebSocket client with callback to engine
             10. Component Injection - Wire components into TradingEngine
@@ -121,6 +123,7 @@ class TradingBot:
             - Logs comprehensive startup information
             - Fails fast on configuration errors
             - DataCollector callback now points to TradingEngine
+            - AuditLogger is created at TradingBot level and injected to all components
         """
         # Transition to STARTING state
         self._lifecycle_state = LifecycleState.STARTING
@@ -154,19 +157,24 @@ class TradingBot:
         self.logger.info(f"Max Risk per Trade: {trading_config.max_risk_per_trade * 100:.1f}%")
         self.logger.info("=" * 50)
 
+        # Step 4.2: Initialize AuditLogger (shared by all components)
+        self.logger.info("Initializing AuditLogger...")
+        self.audit_logger = AuditLogger(log_dir="logs/audit")
+
         # Step 4.5: Initialize EventBus (needed by TradingEngine)
         self.logger.info("Initializing EventBus...")
         self.event_bus = EventBus()
 
-        # Step 5: Initialize OrderExecutionManager (needed for audit_logger)
+        # Step 5: Initialize OrderExecutionManager with injected audit logger
         self.logger.info("Initializing OrderExecutionManager...")
         self.order_manager = OrderExecutionManager(
+            audit_logger=self.audit_logger,
             api_key=api_config.api_key,
             api_secret=api_config.api_secret,
             is_testnet=api_config.is_testnet,
         )
 
-        # Step 6: Initialize RiskManager
+        # Step 6: Initialize RiskManager with injected audit logger
         self.logger.info("Initializing RiskManager...")
         self.risk_manager = RiskManager(
             config={
@@ -175,13 +183,13 @@ class TradingBot:
                 "max_leverage": 20,  # Hard limit
                 "max_position_size_percent": 0.1,  # 10% of account
             },
-            audit_logger=self.order_manager.audit_logger,  # Share audit logger instance
+            audit_logger=self.audit_logger,
         )
 
-        # Step 7: Initialize TradingEngine (needs EventBus and audit_logger)
+        # Step 7: Initialize TradingEngine with injected audit logger
         self.logger.info("Initializing TradingEngine...")
         self.trading_engine = TradingEngine(
-            audit_logger=self.order_manager.audit_logger  # Share audit logger instance
+            audit_logger=self.audit_logger
         )
 
         # Step 8: Create strategy instance via StrategyFactory
@@ -261,7 +269,7 @@ class TradingBot:
                 f"{trading_config.symbol}. Using current margin type."
             )
 
-        # Step 12: Initialize LiquidationManager with security-first defaults
+        # Step 12: Initialize LiquidationManager with injected audit logger
         self.logger.info("Initializing LiquidationManager...")
         liquidation_config = LiquidationConfig(
             emergency_liquidation=True,  # Enable emergency liquidation by default
@@ -274,7 +282,7 @@ class TradingBot:
 
         self.liquidation_manager = LiquidationManager(
             order_manager=self.order_manager,
-            audit_logger=self.order_manager.audit_logger,  # Share audit logger
+            audit_logger=self.audit_logger,
             config=liquidation_config,
         )
 

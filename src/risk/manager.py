@@ -16,7 +16,7 @@ class RiskManager:
     Manages risk and calculates position sizes
     """
 
-    def __init__(self, config: dict, audit_logger: Optional["AuditLogger"] = None):
+    def __init__(self, config: dict, audit_logger: "AuditLogger"):
         """
         Initialize RiskManager with configuration.
 
@@ -26,7 +26,7 @@ class RiskManager:
                 - max_leverage: int (e.g., 20)
                 - default_leverage: int (e.g., 10)
                 - max_position_size_percent: float (e.g., 0.1 for 10%)
-            audit_logger: Optional AuditLogger instance for structured logging
+            audit_logger: AuditLogger instance for structured logging
         """
         self.max_risk_per_trade = config.get("max_risk_per_trade", 0.01)
         self.max_leverage = config.get("max_leverage", 20)
@@ -38,13 +38,8 @@ class RiskManager:
 
         self.logger = logging.getLogger(__name__)
 
-        # Setup audit logger
-        if audit_logger is not None:
-            self.audit_logger = audit_logger
-        else:
-            from src.core.audit_logger import AuditLogger
-
-            self.audit_logger = AuditLogger()
+        # Inject audit logger
+        self.audit_logger = audit_logger
 
     def calculate_position_size(
         self,

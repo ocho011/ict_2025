@@ -4,7 +4,7 @@ Unit tests for RiskManager - Subtask 7.1, 7.2, 7.3, 7.4
 
 import logging
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,7 +17,12 @@ class TestPositionSizeCalculation:
     """Test suite for subtask 7.1 - Position size calculation"""
 
     @pytest.fixture
-    def risk_manager(self):
+    def mock_audit_logger(self):
+        """Mock AuditLogger"""
+        return MagicMock()
+
+    @pytest.fixture
+    def risk_manager(self, mock_audit_logger):
         """Setup RiskManager with standard config"""
         config = {
             "max_risk_per_trade": 0.01,  # 1%
@@ -25,7 +30,7 @@ class TestPositionSizeCalculation:
             "default_leverage": 10,
             "max_position_size_percent": 0.1,  # 10%
         }
-        return RiskManager(config)
+        return RiskManager(config, audit_logger=mock_audit_logger)
 
     def test_normal_case_2_percent_sl(self, risk_manager):
         """

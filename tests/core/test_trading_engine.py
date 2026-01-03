@@ -7,7 +7,7 @@ Separation of Concerns pattern.
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -20,7 +20,8 @@ from src.models.signal import Signal, SignalType
 @pytest.fixture
 def trading_engine():
     """Create TradingEngine with mocked components."""
-    engine = TradingEngine()
+    mock_audit_logger = MagicMock()
+    engine = TradingEngine(audit_logger=mock_audit_logger)
 
     # Mock all required components
     engine.event_bus = Mock()

@@ -24,13 +24,18 @@ class TestOrderExecutionManager:
         return MagicMock()
 
     @pytest.fixture
-    def manager(self, mock_client):
+    def mock_audit_logger(self):
+        """Mock AuditLogger"""
+        return MagicMock()
+
+    @pytest.fixture
+    def manager(self, mock_client, mock_audit_logger):
         """OrderExecutionManager 인스턴스 (mock client 사용)"""
         with patch("src.execution.order_manager.UMFutures", return_value=mock_client):
             with patch.dict(
                 "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
             ):
-                return OrderExecutionManager(is_testnet=True)
+                return OrderExecutionManager(audit_logger=mock_audit_logger, is_testnet=True)
 
     # ==================== 초기화 테스트 ====================
 
@@ -39,28 +44,32 @@ class TestOrderExecutionManager:
         # UMFutures mock의 call_args에서 base_url 확인
         assert manager.client is not None
 
-    def test_init_mainnet_url(self):
+    def test_init_mainnet_url(self, mock_audit_logger):
         """Mainnet URL이 올바르게 설정되는지 검증"""
         with patch("src.execution.order_manager.UMFutures") as mock_um:
             with patch.dict(
                 "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
             ):
-                _manager = OrderExecutionManager(is_testnet=False)
+                _manager = OrderExecutionManager(audit_logger=mock_audit_logger, is_testnet=False)
 
                 # UMFutures가 mainnet URL로 호출되었는지 확인
                 call_args = mock_um.call_args
                 assert "fapi.binance.com" in call_args.kwargs["base_url"]
 
-    def test_init_without_api_keys(self):
+    def test_init_without_api_keys(self, mock_audit_logger):
         """API 키 없이 초기화 시 ValueError 발생"""
         with patch.dict("os.environ", {}, clear=True):
             with pytest.raises(ValueError, match="API credentials required"):
-                OrderExecutionManager()
+                OrderExecutionManager(audit_logger=mock_audit_logger)
 
-    def test_init_with_api_key_params(self):
+    def test_init_with_api_key_params(self, mock_audit_logger):
         """파라미터로 API 키 전달"""
         with patch("src.execution.order_manager.UMFutures"):
-            manager = OrderExecutionManager(api_key="param_key", api_secret="param_secret")
+            manager = OrderExecutionManager(
+                audit_logger=mock_audit_logger,
+                api_key="param_key",
+                api_secret="param_secret"
+            )
             # 예외 없이 초기화 완료
             assert manager is not None
 
