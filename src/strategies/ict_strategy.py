@@ -103,6 +103,19 @@ class ICTStrategy(BaseStrategy):
         # Minimum buffer size for ICT analysis
         self.min_periods = max(50, self.swing_lookback * 4)
 
+        # Condition statistics tracking (for tuning analysis)
+        self.condition_stats = {
+            "total_checks": 0,
+            "killzone_ok": 0,
+            "trend_ok": 0,
+            "zone_ok": 0,
+            "fvg_ob_ok": 0,
+            "inducement_ok": 0,
+            "displacement_ok": 0,
+            "all_conditions_ok": 0,
+            "signals_generated": 0,
+        }
+
     async def analyze(self, candle: Candle) -> Optional[Signal]:
         """
         Analyze candle using ICT methodology.
@@ -194,21 +207,50 @@ class ICTStrategy(BaseStrategy):
             self.candle_buffer, fvgs=bullish_fvgs + bearish_fvgs, obs=bullish_obs + bearish_obs
         )
 
+        # Condition tracking for tuning analysis
+        self.condition_stats["total_checks"] += 1
+
+        # Track killzone condition
+        in_killzone = not self.use_killzones or is_killzone_active(candle.open_time)
+        if in_killzone:
+            self.condition_stats["killzone_ok"] += 1
+
+        # Track trend condition
+        has_trend = trend is not None
+        if has_trend:
+            self.condition_stats["trend_ok"] += 1
+
         # LONG Entry Logic
         if trend == "bullish" and is_in_discount(current_price, range_low, range_high):
+            # Track zone condition (LONG: discount)
+            self.condition_stats["zone_ok"] += 1
+
             # Check for bullish FVG or OB nearby
             nearest_fvg = find_nearest_fvg(bullish_fvgs, current_price, direction="bullish")
             nearest_ob = find_nearest_ob(bullish_obs, current_price, direction="bullish")
+
+            # Track FVG/OB condition
+            has_fvg_ob = nearest_fvg is not None or nearest_ob is not None
+            if has_fvg_ob:
+                self.condition_stats["fvg_ob_ok"] += 1
 
             # Check for recent inducement (bearish fake move)
             recent_inducement = any(
                 ind.direction == "bearish" for ind in inducements[-3:] if inducements
             )
 
+            # Track inducement condition
+            if recent_inducement:
+                self.condition_stats["inducement_ok"] += 1
+
             # Check for recent displacement (bullish move)
             recent_displacement = any(
                 disp.direction == "bullish" for disp in displacements[-3:] if displacements
             )
+
+            # Track displacement condition
+            if recent_displacement:
+                self.condition_stats["displacement_ok"] += 1
 
             # Entry conditions:
             # 1. In discount zone (value)
@@ -216,6 +258,16 @@ class ICTStrategy(BaseStrategy):
             # 3. Recent bullish displacement (smart money buying)
             # 4. Near bullish FVG or OB (mitigation zone)
             if recent_inducement and recent_displacement and (nearest_fvg or nearest_ob):
+                # All conditions met
+                self.condition_stats["all_conditions_ok"] += 1
+                self.condition_stats["signals_generated"] += 1
+
+                # Log detailed condition state
+                self.logger.debug(
+                    f"ICT LONG Signal: trend={trend}, zone=discount, "
+                    f"fvg={nearest_fvg is not None}, ob={nearest_ob is not None}, "
+                    f"inducement={recent_inducement}, displacement={recent_displacement}"
+                )
                 entry_price = candle.close
                 side = "LONG"
 
@@ -248,19 +300,35 @@ class ICTStrategy(BaseStrategy):
 
         # SHORT Entry Logic
         elif trend == "bearish" and is_in_premium(current_price, range_low, range_high):
+            # Track zone condition (SHORT: premium)
+            self.condition_stats["zone_ok"] += 1
+
             # Check for bearish FVG or OB nearby
             nearest_fvg = find_nearest_fvg(bearish_fvgs, current_price, direction="bearish")
             nearest_ob = find_nearest_ob(bearish_obs, current_price, direction="bearish")
+
+            # Track FVG/OB condition
+            has_fvg_ob = nearest_fvg is not None or nearest_ob is not None
+            if has_fvg_ob:
+                self.condition_stats["fvg_ob_ok"] += 1
 
             # Check for recent inducement (bullish fake move)
             recent_inducement = any(
                 ind.direction == "bullish" for ind in inducements[-3:] if inducements
             )
 
+            # Track inducement condition
+            if recent_inducement:
+                self.condition_stats["inducement_ok"] += 1
+
             # Check for recent displacement (bearish move)
             recent_displacement = any(
                 disp.direction == "bearish" for disp in displacements[-3:] if displacements
             )
+
+            # Track displacement condition
+            if recent_displacement:
+                self.condition_stats["displacement_ok"] += 1
 
             # Entry conditions:
             # 1. In premium zone (expensive)
@@ -268,6 +336,16 @@ class ICTStrategy(BaseStrategy):
             # 3. Recent bearish displacement (smart money selling)
             # 4. Near bearish FVG or OB (mitigation zone)
             if recent_inducement and recent_displacement and (nearest_fvg or nearest_ob):
+                # All conditions met
+                self.condition_stats["all_conditions_ok"] += 1
+                self.condition_stats["signals_generated"] += 1
+
+                # Log detailed condition state
+                self.logger.debug(
+                    f"ICT SHORT Signal: trend={trend}, zone=premium, "
+                    f"fvg={nearest_fvg is not None}, ob={nearest_ob is not None}, "
+                    f"inducement={recent_inducement}, displacement={recent_displacement}"
+                )
                 entry_price = candle.close
                 side = "SHORT"
 
@@ -297,6 +375,17 @@ class ICTStrategy(BaseStrategy):
                         "displacement": recent_displacement,
                     },
                 )
+
+        # Log condition state when no signal generated (DEBUG level)
+        self.logger.debug(
+            f"ICT Conditions Check: trend={trend}, "
+            f"killzone={in_killzone}, "
+            f"in_zone={(trend == 'bullish' and is_in_discount(current_price, range_low, range_high)) or (trend == 'bearish' and is_in_premium(current_price, range_low, range_high))}, "
+            f"fvgs={len(bullish_fvgs) + len(bearish_fvgs)}, "
+            f"obs={len(bullish_obs) + len(bearish_obs)}, "
+            f"inducements={len(inducements)}, "
+            f"displacements={len(displacements)} - No signal"
+        )
 
         return None
 
@@ -372,3 +461,32 @@ class ICTStrategy(BaseStrategy):
         else:  # SHORT
             # SL above FVG/OB zone
             return zone_high + buffer
+
+    def get_condition_stats(self) -> dict:
+        """
+        Get condition statistics for tuning analysis.
+
+        Returns:
+            Dictionary with condition success rates
+        """
+        total = self.condition_stats["total_checks"]
+        if total == 0:
+            return self.condition_stats.copy()
+
+        stats = self.condition_stats.copy()
+        stats["success_rates"] = {
+            "killzone_rate": stats["killzone_ok"] / total if total > 0 else 0,
+            "trend_rate": stats["trend_ok"] / total if total > 0 else 0,
+            "zone_rate": stats["zone_ok"] / total if total > 0 else 0,
+            "fvg_ob_rate": stats["fvg_ob_ok"] / total if total > 0 else 0,
+            "inducement_rate": stats["inducement_ok"] / total if total > 0 else 0,
+            "displacement_rate": stats["displacement_ok"] / total if total > 0 else 0,
+            "all_conditions_rate": stats["all_conditions_ok"] / total if total > 0 else 0,
+            "signal_rate": stats["signals_generated"] / total if total > 0 else 0,
+        }
+        return stats
+
+    def reset_condition_stats(self) -> None:
+        """Reset condition statistics to zero."""
+        for key in self.condition_stats:
+            self.condition_stats[key] = 0
