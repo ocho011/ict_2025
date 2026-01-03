@@ -53,6 +53,9 @@ from src.models.candle import Candle
 from src.models.signal import Signal, SignalType
 from src.strategies.base import BaseStrategy
 
+# ICT Profile System
+from src.config.ict_profiles import get_profile_parameters, load_profile_from_name
+
 
 class ICTStrategy(BaseStrategy):
     """
@@ -83,22 +86,68 @@ class ICTStrategy(BaseStrategy):
 
     def __init__(self, symbol: str, config: dict) -> None:
         """
-        Initialize ICT strategy.
+        Initialize ICT strategy with profile-based parameter loading.
 
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT')
             config: Strategy configuration dictionary
+
+        Configuration Loading:
+            1. Load active_profile from config (default: "strict")
+            2. Load profile parameters as defaults
+            3. Override with explicit config values if provided
         """
         super().__init__(symbol, config)
 
-        # ICT-specific parameters
-        self.swing_lookback = config.get("swing_lookback", 5)
-        self.displacement_ratio = config.get("displacement_ratio", 1.5)
-        self.fvg_min_gap_percent = config.get("fvg_min_gap_percent", 0.001)
-        self.ob_min_strength = config.get("ob_min_strength", 1.5)
-        self.liquidity_tolerance = config.get("liquidity_tolerance", 0.001)
-        self.rr_ratio = config.get("rr_ratio", 2.0)
+        # Load profile-based parameters
+        profile_name = config.get("active_profile", "strict")
+
+        try:
+            profile = load_profile_from_name(profile_name)
+            profile_params = get_profile_parameters(profile)
+
+            self.logger.info(
+                f"Loading ICT profile: {profile_name.upper()} "
+                f"(Expected: {profile_params.get('signal_frequency', 'unknown')} signals/week)"
+            )
+
+            # Store active profile name
+            self.active_profile = profile_name
+
+        except ValueError as e:
+            self.logger.warning(
+                f"Invalid profile '{profile_name}': {e}. Using strict defaults."
+            )
+            profile_params = {}
+            self.active_profile = "strict"
+
+        # ICT-specific parameters (profile defaults + config overrides)
+        self.swing_lookback = config.get(
+            "swing_lookback", profile_params.get("swing_lookback", 5)
+        )
+        self.displacement_ratio = config.get(
+            "displacement_ratio", profile_params.get("displacement_ratio", 1.5)
+        )
+        self.fvg_min_gap_percent = config.get(
+            "fvg_min_gap_percent", profile_params.get("fvg_min_gap_percent", 0.001)
+        )
+        self.ob_min_strength = config.get(
+            "ob_min_strength", profile_params.get("ob_min_strength", 1.5)
+        )
+        self.liquidity_tolerance = config.get(
+            "liquidity_tolerance", profile_params.get("liquidity_tolerance", 0.001)
+        )
+        self.rr_ratio = config.get("rr_ratio", profile_params.get("rr_ratio", 2.0))
         self.use_killzones = config.get("use_killzones", True)
+
+        # Log loaded parameters
+        self.logger.info(
+            f"ICT Parameters: swing_lookback={self.swing_lookback}, "
+            f"displacement_ratio={self.displacement_ratio}, "
+            f"fvg_min_gap={self.fvg_min_gap_percent}, "
+            f"ob_min_strength={self.ob_min_strength}, "
+            f"liquidity_tolerance={self.liquidity_tolerance}"
+        )
 
         # Minimum buffer size for ICT analysis
         self.min_periods = max(50, self.swing_lookback * 4)
