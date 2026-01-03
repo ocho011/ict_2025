@@ -29,6 +29,30 @@ from src.strategies.multi_timeframe import MultiTimeframeStrategy
 from src.utils.config import ConfigManager
 
 
+from enum import Enum
+
+
+class EngineState(Enum):
+    """
+    State machine for TradingEngine lifecycle.
+    
+    State Transitions:
+        CREATED → INITIALIZED → RUNNING → STOPPING → STOPPED
+        
+    States:
+        CREATED: Initial state after __init__()
+        INITIALIZED: After set_components() called
+        RUNNING: Event loop active, run() executing
+        STOPPING: Shutdown initiated
+        STOPPED: Shutdown complete
+    """
+    CREATED = "created"
+    INITIALIZED = "initialized"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
+
+
 class TradingEngine:
     """
     Main application orchestrator for event-driven trading system.
@@ -84,12 +108,17 @@ class TradingEngine:
             risk_manager: Optional[RiskManager] (injected via set_components)
             config_manager: Optional[ConfigManager] (injected via set_components)
             _running: Runtime state flag
+            _event_loop: Event loop reference (captured in run())
+            _engine_state: Current engine lifecycle state
+            _ready_event: Synchronization barrier for run() startup
+            _event_drop_count: Counter for dropped events (Phase 2.2)
 
         Process Flow:
             1. Create logger
             2. Setup audit logger
             3. Set component placeholders to None
-            4. Wait for set_components() call
+            4. Initialize state machine (CREATED)
+            5. Wait for set_components() call
 
         Example:
             ```python
@@ -125,6 +154,14 @@ class TradingEngine:
 
         # Runtime state
         self._running: bool = False
+        
+        # Event loop management (Phase 2.1)
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._engine_state = EngineState.CREATED
+        self._ready_event = asyncio.Event()
+        
+        # Event handling (Phase 2.2)
+        self._event_drop_count = 0
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
@@ -136,7 +173,6 @@ class TradingEngine:
         order_manager: OrderExecutionManager,
         risk_manager: RiskManager,
         config_manager: ConfigManager,
-        trading_bot: "TradingBot",
     ) -> None:
         """
         Inject all required components in one call.
@@ -144,7 +180,8 @@ class TradingEngine:
         This method receives all dependencies from TradingBot and:
         1. Stores component references
         2. Registers event handlers
-        3. Logs successful injection
+        3. Transitions state to INITIALIZED
+        4. Logs successful injection
 
         Args:
             event_bus: EventBus instance for pub-sub coordination
@@ -153,13 +190,14 @@ class TradingEngine:
             order_manager: OrderExecutionManager for order execution
             risk_manager: RiskManager for validation and position sizing
             config_manager: ConfigManager for trading configuration
-            trading_bot: TradingBot instance for event loop reference
 
         Notes:
             - Must be called before run()
             - All components required (no None allowed)
             - Automatically registers event handlers after injection
-            - Called by TradingBot.initialize() Step 9
+            - Called by TradingBot.initialize() Step 10
+            - Transitions state: CREATED → INITIALIZED
+            - trading_bot parameter removed to break circular dependency
 
         Example:
             ```python
@@ -180,10 +218,13 @@ class TradingEngine:
         self.order_manager = order_manager
         self.risk_manager = risk_manager
         self.config_manager = config_manager
-        self.trading_bot = trading_bot
+        # self.trading_bot = trading_bot  # REMOVED: Circular dependency eliminated
 
         # Setup handlers AFTER all components available
         self._setup_event_handlers()
+
+        # State transition: CREATED → INITIALIZED
+        self._engine_state = EngineState.INITIALIZED
 
         self.logger.info("✅ TradingEngine components injected and handlers registered")
 
@@ -613,23 +654,170 @@ class TradingEngine:
         # For now, OrderManager.get_position() queries Binance API
         # Future: Maintain local position state for faster access
 
+    async def wait_until_ready(self, timeout: float = 5.0) -> bool:
+        """
+        Wait until TradingEngine has captured its event loop.
+        
+        Prevents race condition where DataCollector starts sending candles
+        before run() has executed and captured the event loop reference.
+        
+        This method blocks until:
+        - run() has executed and set _ready_event, OR
+        - timeout is exceeded (raises TimeoutError)
+        
+        Args:
+            timeout: Maximum seconds to wait (default: 5.0)
+            
+        Returns:
+            True if engine became ready within timeout
+            
+        Raises:
+            TimeoutError: If timeout exceeded before engine became ready
+            
+        Example:
+            ```python
+            # In TradingBot.run()
+            engine_task = asyncio.create_task(self.engine.run())
+            
+            # Wait for engine to be ready before starting DataCollector
+            await self.engine.wait_until_ready(timeout=5.0)
+            
+            # Now safe to start DataCollector
+            await self.data_collector.start_streaming()
+            ```
+            
+        Notes:
+            - Called by TradingBot before starting DataCollector
+            - Ensures event loop is captured before candles arrive
+            - Timeout prevents infinite blocking on engine failure
+        """
+        try:
+            await asyncio.wait_for(self._ready_event.wait(), timeout=timeout)
+            self.logger.info("TradingEngine is ready")
+            return True
+        except asyncio.TimeoutError:
+            self.logger.error(f"TradingEngine failed to become ready within {timeout}s")
+            raise TimeoutError(f"Engine not ready after {timeout}s")
+
+    def on_candle_received(self, candle: Candle) -> None:
+        """
+        Callback from BinanceDataCollector on every candle update.
+
+        Bridges WebSocket thread to EventBus using stored event loop reference.
+        Migrated from TradingBot as part of Phase 2.2 circular dependency refactoring.
+
+        Args:
+            candle: Candle data from WebSocket stream
+
+        Thread Safety:
+            Called from WebSocket thread. Uses stored event loop reference
+            with asyncio.run_coroutine_threadsafe() to schedule coroutine
+            in main thread's event loop.
+
+        State Handling:
+            - RUNNING: Accept and publish event
+            - INITIALIZED/STOPPING: Reject with debug log (expected during transitions)
+            - CREATED/STOPPED: Reject with warning (unexpected)
+
+        Event Drop Counting:
+            Increments _event_drop_count on rejection or publish failure.
+            Helps monitor system health and backpressure.
+
+        Event Types:
+            - CANDLE_CLOSED: Published when candle.is_closed is True
+            - CANDLE_UPDATE: Published for live updates (is_closed is False)
+
+        Performance Considerations:
+            - Minimal validation (Hot Path optimization)
+            - Direct state check without lock
+            - Fast rejection path for non-RUNNING states
+            - Thread-safe event loop scheduling
+        """
+
+        # Step 1: Check engine state
+        if self._engine_state != EngineState.RUNNING:
+            self._event_drop_count += 1
+
+            # Log level depends on whether rejection is expected
+            if self._engine_state in (EngineState.INITIALIZED, EngineState.STOPPING):
+                self.logger.debug(
+                    f"Event rejected (state={self._engine_state.name}): "
+                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                    f"Drops: {self._event_drop_count}"
+                )
+            else:
+                self.logger.warning(
+                    f"Event rejected in unexpected state ({self._engine_state.name}): "
+                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                    f"Drops: {self._event_drop_count}"
+                )
+            return
+
+        # Step 2: Verify event loop is available
+        if self._event_loop is None:
+            self._event_drop_count += 1
+            self.logger.error(
+                f"Event loop not set! Cannot publish: "
+                f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                f"Drops: {self._event_drop_count}"
+            )
+            return
+
+        # Step 3: Determine event type
+        event_type = EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
+
+        # Step 4: Create Event wrapper
+        event = Event(event_type, candle)
+
+        # Step 5: Publish to EventBus (thread-safe)
+        try:
+            asyncio.run_coroutine_threadsafe(
+                self.event_bus.publish(event, queue_name="data"), self._event_loop
+            )
+
+        except Exception as e:
+            self._event_drop_count += 1
+            self.logger.error(
+                f"Failed to publish event: {e} | "
+                f"{candle.symbol} {candle.interval} @ {candle.close}. "
+                f"Drops: {self._event_drop_count}",
+                exc_info=True,
+            )
+            return
+
+        # Step 6: Log success
+        if candle.is_closed:
+            self.logger.info(
+                f"📊 Candle closed: {candle.symbol} {candle.interval} "
+                f"@ {candle.close} → EventBus"
+            )
+        else:
+            # Heartbeat: log first update per minute
+            if candle.open_time.second < 5:
+                self.logger.info(
+                    f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
+                )
+
     async def run(self) -> None:
         """
         Start the trading engine and run until interrupted.
 
         Main runtime loop that:
-        1. Sets _running flag to True
-        2. Starts EventBus processors (3 queues)
-        3. Starts DataCollector streaming
-        4. Runs until interrupted
-        5. Triggers graceful shutdown
+        1. Captures event loop reference
+        2. Sets state to RUNNING and signals ready
+        3. Starts EventBus processors (3 queues)
+        4. Starts DataCollector streaming
+        5. Runs until interrupted
+        6. Triggers graceful shutdown
 
         Process Flow:
-            1. Set _running = True
-            2. Log startup message
-            3. Start EventBus and DataCollector concurrently
-            4. Block until KeyboardInterrupt or component failure
-            5. Trigger shutdown() in finally block
+            1. Capture event loop (FIRST - prevents race condition)
+            2. Set _engine_state = RUNNING
+            3. Signal _ready_event (allows DataCollector to proceed)
+            4. Log startup message
+            5. Start EventBus and DataCollector concurrently
+            6. Block until KeyboardInterrupt or component failure
+            7. Trigger shutdown() in finally block
 
         Error Handling:
             - KeyboardInterrupt: Graceful shutdown
@@ -647,12 +835,15 @@ class TradingEngine:
             - Blocks until stopped (main loop)
             - Always calls shutdown() (even on errors)
             - EventBus and DataCollector run concurrently
+            - Event loop captured before any async operations
         """
-        # Capture event loop and pass to TradingBot
-        loop = asyncio.get_running_loop()
-        self.trading_bot.set_event_loop(loop)
-        self.logger.debug(f"Event loop passed to TradingBot: {loop}")
-
+        # Capture event loop FIRST (Phase 2.1 - prevents race condition)
+        self._event_loop = asyncio.get_running_loop()
+        self._engine_state = EngineState.RUNNING
+        self._ready_event.set()  # Signal ready to DataCollector
+        
+        self.logger.info(f"TradingEngine event loop captured: {self._event_loop}")
+        
         self._running = True
         self.logger.info("Starting TradingEngine")
 
@@ -689,19 +880,25 @@ class TradingEngine:
         Gracefully shutdown all components with pending event processing.
 
         Shutdown Sequence:
-        1. Stop DataCollector (no new candle events)
-        2. EventBus.shutdown(timeout=10) drains all queues
-        3. All pending events processed or timeout logged
+        1. Transition to STOPPING state
+        2. Stop DataCollector (no new candle events)
+        3. EventBus.shutdown(timeout=10) drains all queues
+        4. All pending events processed or timeout logged
+        5. Transition to STOPPED state
+        6. Clear ready event
 
         Args:
             None
 
         Process Flow:
-            1. Log shutdown start
-            2. Stop DataCollector if configured
-            3. Wait briefly for final events to publish
-            4. Shutdown EventBus with 10s timeout per queue
-            5. Log shutdown complete
+            1. Set _engine_state = STOPPING
+            2. Log shutdown start
+            3. Stop DataCollector if configured
+            4. Wait briefly for final events to publish
+            5. Shutdown EventBus with 10s timeout per queue
+            6. Set _engine_state = STOPPED
+            7. Clear _ready_event
+            8. Log shutdown complete
 
         Error Handling:
             - DataCollector stop error: Log, continue
@@ -727,11 +924,15 @@ class TradingEngine:
             - Always called from run() finally block
             - Blocks until shutdown complete
             - Order events MUST be processed (critical)
+            - State transitions: RUNNING → STOPPING → STOPPED
         """
         # Idempotency check - safe to call multiple times
         if not self._running:
             return
 
+        # State transition: RUNNING → STOPPING
+        self._engine_state = EngineState.STOPPING
+        
         self._running = False
         self.logger.info("Shutting down TradingEngine")
 
@@ -756,5 +957,9 @@ class TradingEngine:
             if self.audit_logger:
                 self.logger.info("Stopping AuditLogger and flushing audit logs...")
                 self.audit_logger.stop()
+
+            # State transition: STOPPING → STOPPED
+            self._engine_state = EngineState.STOPPED
+            self._ready_event.clear()
 
             self.logger.info("TradingEngine shutdown complete")

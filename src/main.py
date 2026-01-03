@@ -89,10 +89,8 @@ class TradingBot:
         # State management
         self._running: bool = False
 
-        # Event loop reference and lifecycle state
-        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        # Lifecycle state
         self._lifecycle_state: LifecycleState = LifecycleState.INITIALIZING
-        self._event_drop_count: int = 0  # Monitor rejected events
 
     def initialize(self) -> None:
         """
@@ -103,13 +101,16 @@ class TradingBot:
             2. Validate - Ensure config is valid before proceeding
             3. TradingLogger - Setup logging infrastructure
             4. Startup Banner - Log environment information
-            5. BinanceDataCollector - WebSocket client with callback
-            5.5. Backfill Historical Data - Pre-populate candle buffers
-            6. OrderExecutionManager - Order execution interface
-            7. RiskManager - Risk validation and position sizing
+            4.5. EventBus - Event coordination system (needed by TradingEngine)
+            5. OrderExecutionManager - Order execution interface
+            6. RiskManager - Risk validation and position sizing
+            7. TradingEngine - Core trading engine (needs EventBus, OrderManager)
             8. StrategyFactory - Create strategy instance
-            9. EventBus - Event coordination system
-            10. Event Handlers + Leverage Setup
+            9. BinanceDataCollector - WebSocket client with callback to engine
+            10. Component Injection - Wire components into TradingEngine
+            10.5. Backfill Historical Data - Pre-populate candle buffers
+            11. Leverage Setup - Configure leverage and margin type
+            12. LiquidationManager - Emergency shutdown handler
 
         Raises:
             ValueError: If configuration validation fails
@@ -119,6 +120,7 @@ class TradingBot:
             - Uses testnet by default for safety
             - Logs comprehensive startup information
             - Fails fast on configuration errors
+            - DataCollector callback now points to TradingEngine
         """
         # Transition to STARTING state
         self._lifecycle_state = LifecycleState.STARTING
@@ -152,28 +154,11 @@ class TradingBot:
         self.logger.info(f"Max Risk per Trade: {trading_config.max_risk_per_trade * 100:.1f}%")
         self.logger.info("=" * 50)
 
-        # Step 5: Initialize BinanceDataCollector with candle callback
-        self.logger.info("Initializing BinanceDataCollector...")
-        self.data_collector = BinanceDataCollector(
-            api_key=api_config.api_key,
-            api_secret=api_config.api_secret,
-            symbols=[trading_config.symbol],
-            intervals=trading_config.intervals,
-            is_testnet=api_config.is_testnet,
-            on_candle_callback=self._on_candle_received,  # Bridge to EventBus
-        )
+        # Step 4.5: Initialize EventBus (needed by TradingEngine)
+        self.logger.info("Initializing EventBus...")
+        self.event_bus = EventBus()
 
-        # Step 5.5: Store backfill limit for TradingEngine initialization
-        # Historical data fetching is now delegated to TradingEngine during strategy init
-        self._backfill_limit = trading_config.backfill_limit
-        if trading_config.backfill_limit > 0:
-            self.logger.info(
-                f"Backfill configured: {trading_config.backfill_limit} candles per interval"
-            )
-        else:
-            self.logger.info("Backfilling disabled (backfill_limit=0)")
-
-        # Step 6: Initialize OrderExecutionManager
+        # Step 5: Initialize OrderExecutionManager (needed for audit_logger)
         self.logger.info("Initializing OrderExecutionManager...")
         self.order_manager = OrderExecutionManager(
             api_key=api_config.api_key,
@@ -181,7 +166,7 @@ class TradingBot:
             is_testnet=api_config.is_testnet,
         )
 
-        # Step 7: Initialize RiskManager
+        # Step 6: Initialize RiskManager
         self.logger.info("Initializing RiskManager...")
         self.risk_manager = RiskManager(
             config={
@@ -191,6 +176,12 @@ class TradingBot:
                 "max_position_size_percent": 0.1,  # 10% of account
             },
             audit_logger=self.order_manager.audit_logger,  # Share audit logger instance
+        )
+
+        # Step 7: Initialize TradingEngine (needs EventBus and audit_logger)
+        self.logger.info("Initializing TradingEngine...")
+        self.trading_engine = TradingEngine(
+            audit_logger=self.order_manager.audit_logger  # Share audit logger instance
         )
 
         # Step 8: Create strategy instance via StrategyFactory
@@ -215,14 +206,18 @@ class TradingBot:
             name=trading_config.strategy, symbol=trading_config.symbol, config=strategy_config
         )
 
-        # Step 9: Initialize EventBus and TradingEngine
-        self.logger.info("Initializing EventBus...")
-        self.event_bus = EventBus()
-
-        self.logger.info("Initializing TradingEngine...")
-        self.trading_engine = TradingEngine(
-            audit_logger=self.order_manager.audit_logger  # Share audit logger instance
+        # Step 9: Initialize BinanceDataCollector with engine callback
+        self.logger.info("Initializing BinanceDataCollector...")
+        self.data_collector = BinanceDataCollector(
+            api_key=api_config.api_key,
+            api_secret=api_config.api_secret,
+            symbols=[trading_config.symbol],
+            intervals=trading_config.intervals,
+            is_testnet=api_config.is_testnet,
+            on_candle_callback=self.trading_engine.on_candle_received,  # CHANGED: Direct to engine
         )
+
+        # Step 10: Inject components into TradingEngine
         self.trading_engine.set_components(
             event_bus=self.event_bus,
             data_collector=self.data_collector,
@@ -230,18 +225,22 @@ class TradingBot:
             order_manager=self.order_manager,
             risk_manager=self.risk_manager,
             config_manager=self.config_manager,
-            trading_bot=self,
+            # trading_bot=self,  # REMOVED: Circular dependency eliminated
         )
 
-        # Step 9.5: Initialize strategy with historical data (if backfill enabled)
+        # Step 10.5: Initialize strategy with historical data (if backfill enabled)
+        self._backfill_limit = trading_config.backfill_limit
         if self._backfill_limit > 0:
+            self.logger.info(
+                f"Backfill configured: {trading_config.backfill_limit} candles per interval"
+            )
             self.logger.info("Initializing strategy with historical data...")
             self.trading_engine.initialize_strategy_with_backfill(limit=self._backfill_limit)
             self.logger.info("✅ Strategy initialized with historical data")
         else:
-            self.logger.info("No historical data to initialize (backfill disabled)")
+            self.logger.info("Backfilling disabled (backfill_limit=0)")
 
-        # Step 10: Configure leverage and margin type
+        # Step 11: Configure leverage and margin type
 
         self.logger.info("Configuring leverage...")
         success = self.order_manager.set_leverage(trading_config.symbol, trading_config.leverage)
@@ -262,7 +261,7 @@ class TradingBot:
                 f"{trading_config.symbol}. Using current margin type."
             )
 
-        # Step 11: Initialize LiquidationManager with security-first defaults
+        # Step 12: Initialize LiquidationManager with security-first defaults
         self.logger.info("Initializing LiquidationManager...")
         liquidation_config = LiquidationConfig(
             emergency_liquidation=True,  # Enable emergency liquidation by default
@@ -282,105 +281,6 @@ class TradingBot:
         self.logger.info("✅ All components initialized successfully")
         self.logger.debug(f"Lifecycle state: {self._lifecycle_state.name}")
 
-    def set_event_loop(self, loop: asyncio.AbstractEventLoop) -> None:
-        """
-        Set event loop reference from TradingEngine.
-
-        Called by TradingEngine.run() to provide the main thread's event loop
-        reference for thread-safe event publishing from WebSocket callbacks.
-
-        Args:
-            loop: Event loop from asyncio.get_running_loop()
-        """
-        self._event_loop = loop
-        self._lifecycle_state = LifecycleState.RUNNING
-
-        self.logger.info(f"✅ Event loop registered, lifecycle state: {self._lifecycle_state.name}")
-
-    def _on_candle_received(self, candle: Candle) -> None:
-        """
-        Callback from BinanceDataCollector on every candle update.
-
-        Bridges WebSocket thread to EventBus using stored event loop reference.
-
-        Args:
-            candle: Candle data from WebSocket stream
-
-        Thread Safety:
-            Called from WebSocket thread. Uses stored event loop reference
-            with asyncio.run_coroutine_threadsafe() to schedule coroutine
-            in main thread's event loop.
-
-        State Handling:
-            - RUNNING: Accept and publish event
-            - STARTING/STOPPING: Reject with debug log (expected)
-            - INITIALIZING/STOPPED: Reject with warning (unexpected)
-        """
-
-        # Step 1: Check lifecycle state
-        if self._lifecycle_state != LifecycleState.RUNNING:
-            self._event_drop_count += 1
-
-            # Log level depends on whether rejection is expected
-            if self._lifecycle_state in (LifecycleState.STARTING, LifecycleState.STOPPING):
-                self.logger.debug(
-                    f"Event rejected (state={self._lifecycle_state.name}): "
-                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                    f"Drops: {self._event_drop_count}"
-                )
-            else:
-                self.logger.warning(
-                    f"Event rejected in unexpected state ({self._lifecycle_state.name}): "
-                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                    f"Drops: {self._event_drop_count}"
-                )
-            return
-
-        # Step 2: Verify event loop is available
-        if self._event_loop is None:
-            self._event_drop_count += 1
-            self.logger.error(
-                f"Event loop not set! Cannot publish: "
-                f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                f"Drops: {self._event_drop_count}"
-            )
-            return
-
-        # Step 3: Determine event type
-        event_type = EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
-
-        # Step 4: Create Event wrapper
-        event = Event(event_type, candle)
-
-        # Step 5: Publish to EventBus (thread-safe)
-        try:
-            asyncio.run_coroutine_threadsafe(
-                self.event_bus.publish(event, queue_name="data"), self._event_loop
-            )
-
-        except Exception as e:
-            self._event_drop_count += 1
-            self.logger.error(
-                f"Failed to publish event: {e} | "
-                f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                f"Drops: {self._event_drop_count}",
-                exc_info=True,
-            )
-            return
-
-        # Step 6: Log success
-        if candle.is_closed:
-            self.logger.info(
-                f"📊 Candle closed: {candle.symbol} {candle.interval} "
-                f"@ {candle.close} → EventBus"
-            )
-        else:
-            # Heartbeat: log first update per minute
-            if candle.open_time.second < 5:
-                self.logger.info(
-                    f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
-                )
-
     async def run(self) -> None:
         """
         Start trading system - delegate to TradingEngine.
@@ -391,8 +291,13 @@ class TradingBot:
         3. Handles CancelledError for graceful shutdown
         4. Ensures shutdown() is called in finally block
         """
+        # Set lifecycle state to RUNNING (previously done in set_event_loop)
+        self._lifecycle_state = LifecycleState.RUNNING
+        self.logger.info(f"✅ TradingBot lifecycle state: {self._lifecycle_state.name}")
+        
         self.logger.info("Starting trading system...")
         try:
+            # Run TradingEngine (which now manages its own event loop)
             await self.trading_engine.run()
         finally:
             # Ensure TradingBot cleanup executes (QueueListener, lifecycle state, etc.)
@@ -465,11 +370,8 @@ class TradingBot:
         # Transition to STOPPED state
         self._lifecycle_state = LifecycleState.STOPPED
 
-        # Log final statistics
-        self.logger.info(
-            f"Shutdown complete (state={self._lifecycle_state.name}). "
-            f"Total events dropped: {self._event_drop_count}"
-        )
+        # Log shutdown completion
+        self.logger.info(f"Shutdown complete (state={self._lifecycle_state.name})")
 
         # Stop QueueListener to flush remaining logs
         if self.trading_logger:
