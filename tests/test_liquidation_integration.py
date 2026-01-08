@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 from decimal import Decimal
 
 from src.core.audit_logger import AuditLogger, AuditEventType
-from src.execution.liquidation_config import LiquidationConfig
+from src.utils.config import LiquidationConfig
 from src.execution.liquidation_manager import (
     LiquidationManager,
     LiquidationState,

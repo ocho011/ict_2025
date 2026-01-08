@@ -15,12 +15,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from src.core.audit_logger import AuditLogger
-from src.execution.liquidation_config import LiquidationConfig
 from src.execution.liquidation_manager import (
     LiquidationManager,
     LiquidationState,
     LiquidationResult,
 )
+from src.utils.config import LiquidationConfig
 
 
 @pytest.fixture

@@ -15,7 +15,7 @@ import pytest
 
 from src.core.audit_logger import AuditEventType, AuditLogger
 from src.execution.config_validator import LiquidationConfigValidator, ValidationLevel
-from src.execution.liquidation_config import LiquidationConfig
+from src.utils.config import LiquidationConfig
 from src.execution.liquidation_manager import LiquidationManager, LiquidationState
 
 

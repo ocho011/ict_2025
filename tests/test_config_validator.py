@@ -14,7 +14,7 @@ from src.execution.config_validator import (
     ValidationResult,
     ValidationType,
 )
-from src.execution.liquidation_config import LiquidationConfig
+from src.utils.config import LiquidationConfig
 
 
 class TestValidationIssue:

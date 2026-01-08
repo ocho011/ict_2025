@@ -25,8 +25,8 @@ from src.core.audit_logger import AuditLogger
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
 from src.core.trading_engine import TradingEngine
-from src.execution.liquidation_config import LiquidationConfig
 from src.execution.liquidation_manager import LiquidationManager
+from src.utils.config import ConfigManager, LiquidationConfig
 from src.execution.order_manager import OrderExecutionManager
 from src.models.candle import Candle
 from src.models.event import Event, EventType

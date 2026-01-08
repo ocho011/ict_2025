@@ -12,7 +12,7 @@ Test Coverage:
 
 import pytest
 from src.core.exceptions import ConfigurationError
-from src.execution.liquidation_config import LiquidationConfig
+from src.utils.config import LiquidationConfig
 
 
 class TestLiquidationConfigDefaults:

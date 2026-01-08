@@ -22,7 +22,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from src.core.audit_logger import AuditLogger, AuditEventType
-from src.execution.liquidation_config import LiquidationConfig
+from src.utils.config import LiquidationConfig
 
 
 class LiquidationState(Enum):
