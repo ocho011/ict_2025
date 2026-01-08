@@ -274,9 +274,13 @@ class ICTStrategy(BaseStrategy):
             # Track zone condition (LONG: discount)
             self.condition_stats["zone_ok"] += 1
 
-            # Check for bullish FVG or OB nearby
-            nearest_fvg = find_nearest_fvg(bullish_fvgs, current_price, direction="bullish")
-            nearest_ob = find_nearest_ob(bullish_obs, current_price, direction="bullish")
+            # Check for bullish FVG or OB nearby (prefer those BELOW current price for support)
+            # Mitigation means price is dipping INTO the zone from above
+            candidate_fvgs = [f for f in bullish_fvgs if f.gap_low < current_price]
+            candidate_obs = [ob for ob in bullish_obs if ob.low < current_price]
+            
+            nearest_fvg = find_nearest_fvg(candidate_fvgs, current_price, direction="bullish")
+            nearest_ob = find_nearest_ob(candidate_obs, current_price, direction="bullish")
 
             # Track FVG/OB condition
             has_fvg_ob = nearest_fvg is not None or nearest_ob is not None
@@ -352,9 +356,13 @@ class ICTStrategy(BaseStrategy):
             # Track zone condition (SHORT: premium)
             self.condition_stats["zone_ok"] += 1
 
-            # Check for bearish FVG or OB nearby
-            nearest_fvg = find_nearest_fvg(bearish_fvgs, current_price, direction="bearish")
-            nearest_ob = find_nearest_ob(bearish_obs, current_price, direction="bearish")
+            # Check for bearish FVG or OB nearby (prefer those ABOVE current price for resistance)
+            # Mitigation means price is rising INTO the zone from below
+            candidate_fvgs = [f for f in bearish_fvgs if f.gap_high > current_price]
+            candidate_obs = [ob for ob in bearish_obs if ob.high > current_price]
+            
+            nearest_fvg = find_nearest_fvg(candidate_fvgs, current_price, direction="bearish")
+            nearest_ob = find_nearest_ob(candidate_obs, current_price, direction="bearish")
 
             # Track FVG/OB condition
             has_fvg_ob = nearest_fvg is not None or nearest_ob is not None
@@ -467,9 +475,13 @@ class ICTStrategy(BaseStrategy):
         reward_amount = risk_amount * self.rr_ratio
 
         if side == "LONG":
-            return entry_price + reward_amount
+            tp = entry_price + reward_amount
+            # Safety: TP must be > entry_price
+            return tp if tp > entry_price else entry_price * 1.02
         else:  # SHORT
-            return entry_price - reward_amount
+            tp = entry_price - reward_amount
+            # Safety: TP must be < entry_price
+            return tp if tp < entry_price else entry_price * 0.98
 
     def calculate_stop_loss(
         self, entry_price: float, side: str, nearest_fvg=None, nearest_ob=None
@@ -506,10 +518,14 @@ class ICTStrategy(BaseStrategy):
 
         if side == "LONG":
             # SL below FVG/OB zone
-            return zone_low - buffer
+            sl = zone_low - buffer
+            # Safety: SL must be < entry_price
+            return sl if sl < entry_price else entry_price * 0.99
         else:  # SHORT
             # SL above FVG/OB zone
-            return zone_high + buffer
+            sl = zone_high + buffer
+            # Safety: SL must be > entry_price
+            return sl if sl > entry_price else entry_price * 1.01
 
     def get_condition_stats(self) -> dict:
         """

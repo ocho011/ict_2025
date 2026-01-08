@@ -10,6 +10,7 @@ Coordinates:
 
 import asyncio
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -160,6 +161,7 @@ class TradingEngine:
         
         # Event handling (Phase 2.2)
         self._event_drop_count = 0
+        self._heartbeat_gap_logged = False
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
@@ -790,11 +792,10 @@ class TradingEngine:
                 f"@ {candle.close} → EventBus"
             )
         else:
-            # Heartbeat: log first update per minute
-            if candle.open_time.second < 5:
-                self.logger.info(
-                    f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
-                )
+            # Log continuous live data updates as requested by user
+            self.logger.info(
+                f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
+            )
 
     async def run(self) -> None:
         """

@@ -148,7 +148,13 @@ class ConfigManager:
         self._load_configs()
 
     def _load_configs(self):
-        """Load all configuration files"""
+        """
+        Load all configuration files using internal helper methods.
+        
+        Each loader utilizes ConfigParser to read INI files. After the '.read()' 
+        method is called, the instance acts as a structured data container that 
+        permits efficient keyed access and automatic type conversion (int, float, bool).
+        """
         self._api_config = self._load_api_config()
         self._trading_config = self._load_trading_config()
         self._logging_config = self._load_logging_config()

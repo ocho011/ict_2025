@@ -191,12 +191,6 @@ class OrderExecutionManager:
 
         # Configure logger
         self.logger = logging.getLogger(__name__)
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
 
         # Initialize state tracking
         self._open_orders: Dict[str, List[Order]] = {}
@@ -208,6 +202,20 @@ class OrderExecutionManager:
         # Inject audit logger and weight tracker
         self.audit_logger = audit_logger
         self.weight_tracker = RequestWeightTracker()
+
+    def _unwrap_response(self, response: Any) -> Any:
+        """
+        Unwrap Binance API response if show_limit_usage=True is enabled.
+
+        Args:
+            response: Raw response from UMFutures client
+
+        Returns:
+            Unwrapped data (either response['data'] or response itself)
+        """
+        if isinstance(response, dict) and "data" in response:
+            return response["data"]
+        return response
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def set_leverage(self, symbol: str, leverage: int) -> bool:
@@ -492,18 +500,11 @@ class OrderExecutionManager:
                 self.weight_tracker.update_from_response(response.headers)
 
             # Handle Binance API response structure
-            # Response can be either:
-            # 1. Dict with 'data' field: {'limit_usage': {...}, 'data': {'symbols': [...]}}
-            # 2. Dict directly: {'symbols': [...]}
-            if isinstance(response, dict) and "data" in response:
-                # Response wrapped in 'data' field
-                exchange_data = response["data"]
-            elif isinstance(response, dict):
-                # Direct dict response
-                exchange_data = response
-            else:
+            exchange_data = self._unwrap_response(response)
+
+            if not isinstance(exchange_data, dict):
                 raise OrderExecutionError(
-                    f"Unexpected exchange info response type: {type(response).__name__}"
+                    f"Unexpected exchange info response type: {type(exchange_data).__name__}"
                 )
 
             # Validate symbols field exists
@@ -693,18 +694,11 @@ class OrderExecutionManager:
         """
         try:
             # Handle Binance API response structure
-            # Response can be either:
-            # 1. Dict with 'data' field: {'limit_usage': {...}, 'data': {...}}
-            # 2. Dict directly: {...}
-            if isinstance(response, dict) and "data" in response:
-                # Response wrapped in 'data' field
-                order_data = response["data"]
-            elif isinstance(response, dict):
-                # Direct dict response
-                order_data = response
-            else:
+            order_data = self._unwrap_response(response)
+
+            if not isinstance(order_data, dict):
                 raise OrderExecutionError(
-                    f"Unexpected order response type: {type(response).__name__}"
+                    f"Unexpected order response type: {type(order_data).__name__}"
                 )
 
             # Extract required fields
@@ -1196,24 +1190,16 @@ class OrderExecutionManager:
                 return None
 
             # Handle Binance API response structure
-            # Response can be either:
-            # 1. Dict with 'data' field: {'limit_usage': {...}, 'data': [...]}
-            # 2. List directly: [...]
-            if isinstance(response, dict) and "data" in response:
-                # Extract position list from 'data' field
-                position_list = response["data"]
-                if not position_list or len(position_list) == 0:
+            unwrapped = self._unwrap_response(response)
+
+            if isinstance(unwrapped, list):
+                # Direct list response or unwrapped data list
+                if len(unwrapped) == 0:
                     self.logger.info(f"No active position for {symbol} (empty data)")
                     return None
-                position_data = position_list[0]  # First element
-            elif isinstance(response, list):
-                # Direct list response
-                if len(response) == 0:
-                    self.logger.info(f"No active position for {symbol} (empty list)")
-                    return None
-                position_data = response[0]
+                position_data = unwrapped[0]
             else:
-                raise OrderExecutionError(f"Unexpected response type: {type(response).__name__}")
+                raise OrderExecutionError(f"Unexpected response type: {type(unwrapped).__name__}")
 
             # Extract position amount
             position_amt = float(position_data.get("positionAmt", 0))
@@ -1340,16 +1326,12 @@ class OrderExecutionManager:
             response = self.client.account()
 
             # 3. Extract account data
-            # Handle Binance API response structure (similar to position API)
-            if isinstance(response, dict) and "data" in response:
-                # Response wrapped in 'data' field
-                account_data = response["data"]
-            elif isinstance(response, dict):
-                # Direct dict response
-                account_data = response
-            else:
+            # Handle Binance API response structure
+            account_data = self._unwrap_response(response)
+
+            if not isinstance(account_data, dict):
                 raise OrderExecutionError(
-                    f"Unexpected account response type: {type(response).__name__}"
+                    f"Unexpected account response type: {type(account_data).__name__}"
                 )
 
             # 4. Extract assets array
@@ -1434,15 +1416,16 @@ class OrderExecutionManager:
 
             # 4. Parse response
             cancelled_count = 0
+            unwrapped = self._unwrap_response(response)
 
-            if isinstance(response, list):
+            if isinstance(unwrapped, list):
                 # Response is a list of cancelled order objects
-                cancelled_count = len(response)
+                cancelled_count = len(unwrapped)
                 self.logger.info(f"Cancelled {cancelled_count} orders for {symbol}")
-            elif isinstance(response, dict) and response.get("code") == 200:
-                # Response is a success message (no orders to cancel)
+            elif isinstance(unwrapped, dict) and unwrapped.get("code") == 200:
+                # Response is a success message (no orders to cancel or success msg)
                 cancelled_count = 0
-                self.logger.info(f"No open orders to cancel for {symbol}")
+                self.logger.info(f"Success: {unwrapped.get('msg', 'Orders cancelled')} for {symbol}")
             else:
                 # Unexpected response format
                 self.logger.warning(f"Unexpected response format: {response}")

@@ -66,6 +66,7 @@ class TradingBot:
         strategy: Trading strategy implementation
         logger: Application logger
         _running: Bot runtime state flag
+        _stop_event: Event to trigger graceful shutdown (Method 1)
     """
 
     def __init__(self) -> None:
@@ -89,6 +90,7 @@ class TradingBot:
 
         # State management
         self._running: bool = False
+        self._stop_event: Optional[asyncio.Event] = None  # Signal for synchronized shutdown wait
 
         # Lifecycle state
         self._lifecycle_state: LifecycleState = LifecycleState.INITIALIZING
@@ -195,7 +197,9 @@ class TradingBot:
         # Step 8: Create strategy instance via StrategyFactory
         self.logger.info(f"Creating strategy: {trading_config.strategy}...")
 
-        # Build strategy configuration
+        # Build analytical configuration for the strategy engine.
+        # This filtered subset isolates strategy logic from execution/risk concerns,
+        # ensuring the strategy only receives variables needed for signal generation.
         strategy_config = {
             "buffer_size": 100,
             "risk_reward_ratio": trading_config.take_profit_ratio,
@@ -205,6 +209,8 @@ class TradingBot:
         # Add ICT-specific configuration if available
         if trading_config.ict_config is not None:
             strategy_config.update(trading_config.ict_config)
+            # Log Killzone status as it's the primary gateway for ICT trading activity, 
+            # fundamentally defining the bot's operating hours and risk profile.
             self.logger.info(
                 f"ICT configuration loaded: "
                 f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
@@ -301,12 +307,24 @@ class TradingBot:
         """
         # Set lifecycle state to RUNNING (previously done in set_event_loop)
         self._lifecycle_state = LifecycleState.RUNNING
+        self._stop_event = asyncio.Event()
         self.logger.info(f"✅ TradingBot lifecycle state: {self._lifecycle_state.name}")
         
         self.logger.info("Starting trading system...")
         try:
-            # Run TradingEngine (which now manages its own event loop)
-            await self.trading_engine.run()
+            # Run TradingEngine in a task
+            engine_task = asyncio.create_task(self.trading_engine.run())
+            
+            # Wait for either engine to finish or stop event to trigger
+            done, pending = await asyncio.wait(
+                [engine_task, asyncio.create_task(self._stop_event.wait())],
+                return_when=asyncio.FIRST_COMPLETED
+            )
+            
+            # If the engine task is still running (stop event triggered first),
+            # it will be stopped gracefully by the subsequent shutdown() call 
+            # which sets engine._running = False.
+            
         finally:
             # Ensure TradingBot cleanup executes (QueueListener, lifecycle state, etc.)
             await self.shutdown()
@@ -381,12 +399,6 @@ class TradingBot:
         # Log shutdown completion
         self.logger.info(f"Shutdown complete (state={self._lifecycle_state.name})")
 
-        # Stop QueueListener to flush remaining logs
-        if self.trading_logger:
-            self.logger.info("Stopping QueueListener and flushing logs...")
-            self.trading_logger.stop()
-            # Note: Cannot log after stop() because QueueListener is shut down
-
 
 def main() -> None:
     """
@@ -409,9 +421,10 @@ def main() -> None:
 
     bot = TradingBot()
 
-    # Setup signal handlers for graceful shutdown
+    # Setup signal handlers for graceful shutdown using Event
     def signal_handler(_sig, _frame):
-        asyncio.create_task(bot.shutdown())
+        if bot._stop_event:
+            bot._stop_event.set()
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
@@ -455,6 +468,12 @@ def main() -> None:
         logger.info(f"Session End Time: {session_end.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"Session Duration: {session_duration}")
         logger.info("=" * 80)
+
+        # FINAL STEP: Stop QueueListener to flush remaining logs
+        if bot.trading_logger:
+            # Use root logger directly for final message as QueueListener might be stopping
+            bot.logger.info("Shutting down logging system...")
+            bot.trading_logger.stop()
 
 
 if __name__ == "__main__":

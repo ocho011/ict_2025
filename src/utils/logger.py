@@ -19,6 +19,37 @@ from pathlib import Path
 from typing import Generator, Optional
 
 
+class ColorFormatter(logging.Formatter):
+    """
+    Custom formatter providing ANSI color codes for console output.
+    """
+
+    # ANSI escape sequences for colors
+    GREY = "\x1b[38;20m"
+    YELLOW = "\x1b[33;20m"
+    RED = "\x1b[31;20m"
+    BOLD_RED = "\x1b[31;1m"
+    CYAN = "\x1b[36;20m"
+    RESET = "\x1b[0m"
+    GREEN = "\x1b[32;20m"
+
+    # Base format string
+    LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
+
+    FORMATS = {
+        logging.DEBUG: CYAN + LOG_FORMAT + RESET,
+        logging.INFO: GREEN + LOG_FORMAT + RESET,
+        logging.WARNING: YELLOW + LOG_FORMAT + RESET,
+        logging.ERROR: RED + LOG_FORMAT + RESET,
+        logging.CRITICAL: BOLD_RED + LOG_FORMAT + RESET,
+    }
+
+    def format(self, record):
+        log_fmt = self.FORMATS.get(record.levelno, self.LOG_FORMAT)
+        formatter = logging.Formatter(log_fmt)
+        return formatter.format(record)
+
+
 class TradeLogFilter(logging.Filter):
     """
     Filter to isolate trade events from general logging
@@ -121,10 +152,7 @@ class TradingLogger:
         # Console Handler - INFO and above
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setLevel(logging.INFO)
-        console_format = logging.Formatter(
-            "%(asctime)s | %(levelname)-8s | %(name)s:%(lineno)d | %(message)s"
-        )
-        console_handler.setFormatter(console_format)
+        console_handler.setFormatter(ColorFormatter())
 
         # File Handler - All levels, rotating (10MB max, 5 backups)
         file_handler = RotatingFileHandler(
@@ -150,6 +178,10 @@ class TradingLogger:
         # All log calls now go to queue (fast, non-blocking)
         queue_handler = QueueHandler(log_queue)
         root_logger.addHandler(queue_handler)
+
+        # Step 5: Silence external library noise (e.g. websocket closing warnings)
+        logging.getLogger("binance").setLevel(logging.ERROR)
+        logging.getLogger("urllib3").setLevel(logging.ERROR)
 
         # Note: Trade events are logged to logs/audit/*.jsonl via AuditLogger
         # for structured compliance logging and analysis
