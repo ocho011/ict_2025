@@ -97,35 +97,34 @@ class TradingBot:
 
     def initialize(self) -> None:
         """
-        Initialize all trading bot components in correct dependency order.
+        Initialize trading bot components with simplified responsibility (Issue #5 Refactoring).
 
-        Initialization Sequence:
-            1. ConfigManager - Load all configurations
-            2. Validate - Ensure config is valid before proceeding
-            3. TradingLogger - Setup logging infrastructure
-            4. Startup Banner - Log environment information
-            4.2. AuditLogger - Initialize audit logging system
-            4.5. EventBus - Event coordination system (needed by TradingEngine)
-            5. OrderExecutionManager - Order execution interface
-            6. RiskManager - Risk validation and position sizing
-            7. TradingEngine - Core trading engine (needs EventBus, AuditLogger)
-            8. StrategyFactory - Create strategy instance
-            9. BinanceDataCollector - WebSocket client with callback to engine
-            10. Component Injection - Wire components into TradingEngine
-            10.5. Backfill Historical Data - Pre-populate candle buffers
-            11. Leverage Setup - Configure leverage and margin type
-            12. LiquidationManager - Emergency shutdown handler
+        TradingBot now handles only lifecycle and common utilities:
+        1. ConfigManager - Load all configurations
+        2. Validate - Ensure config is valid before proceeding
+        3. TradingLogger - Setup logging infrastructure
+        4. AuditLogger - Initialize audit logging system
+        5. EventBus - Event coordination system
+        6. TradingEngine - Delegate component creation to engine
+        7. Backfill - Initialize strategy with historical data
+        8. LiquidationManager - Emergency shutdown handler
+
+        TradingEngine now owns:
+        - OrderExecutionManager creation
+        - RiskManager creation
+        - Strategy creation
+        - DataCollector creation
+        - Leverage configuration
+        - Component wiring
 
         Raises:
             ValueError: If configuration validation fails
             Exception: For any component initialization failure
 
         Note:
-            - Uses testnet by default for safety
-            - Logs comprehensive startup information
-            - Fails fast on configuration errors
-            - DataCollector callback now points to TradingEngine
-            - AuditLogger is created at TradingBot level and injected to all components
+            - Simplified from 150+ lines to ~50 lines
+            - Clear separation: Bot = lifecycle, Engine = trading logic
+            - AuditLogger created at Bot level and injected to Engine
         """
         # Transition to STARTING state
         self._lifecycle_state = LifecycleState.STARTING
@@ -149,7 +148,7 @@ class TradingBot:
 
         # Step 4: Log startup banner with environment info
         self.logger.info("=" * 50)
-        self.logger.info("ICT Trading Bot Starting...")
+        self.logger.info("ICT Trading Bot Starting (Issue #5 Refactored)...")
         self.logger.info(f"Environment: {'TESTNET' if api_config.is_testnet else 'MAINNET'}")
         self.logger.info(f"Symbol: {trading_config.symbol}")
         self.logger.info(f"Intervals: {', '.join(trading_config.intervals)}")
@@ -159,90 +158,34 @@ class TradingBot:
         self.logger.info(f"Max Risk per Trade: {trading_config.max_risk_per_trade * 100:.1f}%")
         self.logger.info("=" * 50)
 
-        # Step 4.2: Initialize AuditLogger (shared by all components)
+        # Step 5: Initialize AuditLogger (shared by all components)
         self.logger.info("Initializing AuditLogger...")
         self.audit_logger = AuditLogger(log_dir="logs/audit")
 
-        # Step 4.5: Initialize EventBus (needed by TradingEngine)
+        # Step 6: Initialize EventBus
         self.logger.info("Initializing EventBus...")
         self.event_bus = EventBus()
 
-        # Step 5: Initialize OrderExecutionManager with injected audit logger
-        self.logger.info("Initializing OrderExecutionManager...")
-        self.order_manager = OrderExecutionManager(
-            audit_logger=self.audit_logger,
-            api_key=api_config.api_key,
-            api_secret=api_config.api_secret,
-            is_testnet=api_config.is_testnet,
-        )
-
-        # Step 6: Initialize RiskManager with injected audit logger
-        self.logger.info("Initializing RiskManager...")
-        self.risk_manager = RiskManager(
-            config={
-                "max_risk_per_trade": trading_config.max_risk_per_trade,
-                "default_leverage": trading_config.leverage,
-                "max_leverage": 20,  # Hard limit
-                "max_position_size_percent": 0.1,  # 10% of account
-            },
-            audit_logger=self.audit_logger,
-        )
-
-        # Step 7: Initialize TradingEngine with injected audit logger
+        # Step 7: Initialize TradingEngine and delegate component creation
         self.logger.info("Initializing TradingEngine...")
-        self.trading_engine = TradingEngine(
-            audit_logger=self.audit_logger
-        )
+        self.trading_engine = TradingEngine(audit_logger=self.audit_logger)
 
-        # Step 8: Create strategy instance via StrategyFactory
-        self.logger.info(f"Creating strategy: {trading_config.strategy}...")
-
-        # Build analytical configuration for the strategy engine.
-        # This filtered subset isolates strategy logic from execution/risk concerns,
-        # ensuring the strategy only receives variables needed for signal generation.
-        strategy_config = {
-            "buffer_size": 100,
-            "risk_reward_ratio": trading_config.take_profit_ratio,
-            "stop_loss_percent": trading_config.stop_loss_percent,
-        }
-
-        # Add ICT-specific configuration if available
-        if trading_config.ict_config is not None:
-            strategy_config.update(trading_config.ict_config)
-            # Log Killzone status as it's the primary gateway for ICT trading activity, 
-            # fundamentally defining the bot's operating hours and risk profile.
-            self.logger.info(
-                f"ICT configuration loaded: "
-                f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
-            )
-
-        self.strategy = StrategyFactory.create(
-            name=trading_config.strategy, symbol=trading_config.symbol, config=strategy_config
-        )
-
-        # Step 9: Initialize BinanceDataCollector with engine callback
-        self.logger.info("Initializing BinanceDataCollector...")
-        self.data_collector = BinanceDataCollector(
+        self.logger.info("Delegating component initialization to TradingEngine...")
+        self.trading_engine.initialize_components(
+            config_manager=self.config_manager,
+            event_bus=self.event_bus,
             api_key=api_config.api_key,
             api_secret=api_config.api_secret,
-            symbols=[trading_config.symbol],
-            intervals=trading_config.intervals,
             is_testnet=api_config.is_testnet,
-            on_candle_callback=self.trading_engine.on_candle_received,  # CHANGED: Direct to engine
         )
 
-        # Step 10: Inject components into TradingEngine
-        self.trading_engine.set_components(
-            event_bus=self.event_bus,
-            data_collector=self.data_collector,
-            strategy=self.strategy,
-            order_manager=self.order_manager,
-            risk_manager=self.risk_manager,
-            config_manager=self.config_manager,
-            # trading_bot=self,  # REMOVED: Circular dependency eliminated
-        )
+        # Get references to components created by TradingEngine (for LiquidationManager)
+        self.order_manager = self.trading_engine.order_manager
+        self.data_collector = self.trading_engine.data_collector
+        self.strategy = self.trading_engine.strategy
+        self.risk_manager = self.trading_engine.risk_manager
 
-        # Step 10.5: Initialize strategy with historical data (if backfill enabled)
+        # Step 8: Initialize strategy with historical data (if backfill enabled)
         self._backfill_limit = trading_config.backfill_limit
         if self._backfill_limit > 0:
             self.logger.info(
@@ -254,28 +197,7 @@ class TradingBot:
         else:
             self.logger.info("Backfilling disabled (backfill_limit=0)")
 
-        # Step 11: Configure leverage and margin type
-
-        self.logger.info("Configuring leverage...")
-        success = self.order_manager.set_leverage(trading_config.symbol, trading_config.leverage)
-        if not success:
-            self.logger.warning(
-                f"Failed to set leverage to {trading_config.leverage}x. "
-                "Using current account leverage."
-            )
-
-        # Configure margin type (ISOLATED by default for risk management)
-        self.logger.info(f"Configuring margin type to {trading_config.margin_type}...")
-        success = self.order_manager.set_margin_type(
-            trading_config.symbol, trading_config.margin_type
-        )
-        if not success:
-            self.logger.warning(
-                f"Failed to set margin type to {trading_config.margin_type} for "
-                f"{trading_config.symbol}. Using current margin type."
-            )
-
-        # Step 12: Initialize LiquidationManager with injected audit logger
+        # Step 9: Initialize LiquidationManager
         self.logger.info("Initializing LiquidationManager...")
         liquidation_config = LiquidationConfig(
             emergency_liquidation=True,  # Enable emergency liquidation by default

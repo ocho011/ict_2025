@@ -60,11 +60,12 @@ def trading_engine():
 
 
 class TestTradingEngineInit:
-    """Test TradingEngine initialization and setup."""
+    """Test TradingEngine initialization and setup (Updated for Issue #5)."""
 
     def test_init_creates_empty_components(self):
         """Verify __init__ creates placeholders for components."""
-        engine = TradingEngine()
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
 
         assert engine.event_bus is None
         assert engine.data_collector is None
@@ -75,8 +76,9 @@ class TestTradingEngineInit:
         assert engine._running is False
 
     def test_set_components_injects_all_dependencies(self):
-        """Verify set_components() injects all required components."""
-        engine = TradingEngine()
+        """Verify set_components() injects all required components (DEPRECATED)."""
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Create mocks
         mock_event_bus = Mock()
@@ -86,9 +88,8 @@ class TestTradingEngineInit:
         mock_order_manager = Mock()
         mock_risk_manager = Mock()
         mock_config_manager = Mock()
-        mock_trading_bot = Mock()
 
-        # Inject components
+        # Inject components (without trading_bot - removed in Issue #5)
         engine.set_components(
             event_bus=mock_event_bus,
             data_collector=mock_collector,
@@ -96,7 +97,6 @@ class TestTradingEngineInit:
             order_manager=mock_order_manager,
             risk_manager=mock_risk_manager,
             config_manager=mock_config_manager,
-            trading_bot=mock_trading_bot,
         )
 
         # Verify injection
@@ -108,14 +108,15 @@ class TestTradingEngineInit:
         assert engine.config_manager is mock_config_manager
 
     def test_set_components_registers_handlers(self):
-        """Verify set_components() registers event handlers."""
-        engine = TradingEngine()
+        """Verify set_components() registers event handlers (DEPRECATED)."""
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Create mock EventBus
         mock_event_bus = Mock()
         mock_event_bus.subscribe = Mock()
 
-        # Inject components
+        # Inject components (without trading_bot - removed in Issue #5)
         engine.set_components(
             event_bus=mock_event_bus,
             data_collector=Mock(),
@@ -123,7 +124,6 @@ class TestTradingEngineInit:
             order_manager=Mock(),
             risk_manager=Mock(),
             config_manager=Mock(),
-            trading_bot=Mock(),
         )
 
         # Verify handlers subscribed
