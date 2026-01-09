@@ -7,13 +7,11 @@ Performance optimizations:
 - Thread-safe queue-based architecture
 """
 
-import json
 import logging
 import queue
 import sys
 import time
 from contextlib import contextmanager
-from datetime import datetime
 from logging.handlers import QueueHandler, QueueListener, RotatingFileHandler
 from pathlib import Path
 from typing import Generator, Optional
@@ -48,28 +46,6 @@ class ColorFormatter(logging.Formatter):
         log_fmt = self.FORMATS.get(record.levelno, self.LOG_FORMAT)
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
-
-
-class TradeLogFilter(logging.Filter):
-    """
-    Filter to isolate trade events from general logging
-
-    Only allows log records with logger name 'trades' to pass through
-    to the trade-specific handler, preventing pollution of trade logs
-    with system messages.
-    """
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        """
-        Determine if log record should be processed
-
-        Args:
-            record: Log record to evaluate
-
-        Returns:
-            True if record.name == 'trades', False otherwise
-        """
-        return record.name == "trades"
 
 
 class TradingLogger:
@@ -196,28 +172,6 @@ class TradingLogger:
         if self.queue_listener:
             self.queue_listener.stop()
             self.queue_listener = None
-
-    @staticmethod
-    def log_trade(action: str, data: dict) -> None:
-        """
-        Log trade events in structured JSON format
-
-        Args:
-            action: Trade action type (SIGNAL_GENERATED, ORDER_FILLED, etc.)
-            data: Trade-specific data dictionary
-
-        Example:
-            TradingLogger.log_trade('SIGNAL_GENERATED', {
-                'symbol': 'BTCUSDT',
-                'type': 'LONG_ENTRY',
-                'entry': 50000.0,
-                'tp': 51000.0,
-                'sl': 49500.0
-            })
-        """
-        logger = logging.getLogger("trades")
-        log_entry = {"timestamp": datetime.utcnow().isoformat(), "action": action, **data}
-        logger.info(json.dumps(log_entry))
 
 
 @contextmanager

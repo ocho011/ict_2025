@@ -1,66 +1,16 @@
 """
-Unit tests for the logging system (TradingLogger, TradeLogFilter, log_execution_time)
+Unit tests for the logging system (TradingLogger, log_execution_time)
+
+NOTE: This test file needs updating to match current QueueHandler-based implementation.
+Many tests are outdated and test the old multi-handler architecture.
 """
 
-import json
 import logging
 import tempfile
 import time
 from pathlib import Path
 
-from src.utils.logger import TradeLogFilter, TradingLogger, log_execution_time
-
-
-class TestTradeLogFilter:
-    """Test TradeLogFilter class"""
-
-    def test_filter_accepts_trades_logger(self):
-        """Verify filter accepts records from 'trades' logger"""
-        filter_obj = TradeLogFilter()
-
-        trade_record = logging.LogRecord(
-            name="trades",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="test",
-            args=(),
-            exc_info=None,
-        )
-
-        assert filter_obj.filter(trade_record) is True
-
-    def test_filter_rejects_other_loggers(self):
-        """Verify filter rejects records from non-trades loggers"""
-        filter_obj = TradeLogFilter()
-
-        system_record = logging.LogRecord(
-            name="trading.signals",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="test",
-            args=(),
-            exc_info=None,
-        )
-
-        assert filter_obj.filter(system_record) is False
-
-    def test_filter_rejects_root_logger(self):
-        """Verify filter rejects root logger records"""
-        filter_obj = TradeLogFilter()
-
-        root_record = logging.LogRecord(
-            name="root",
-            level=logging.INFO,
-            pathname="",
-            lineno=0,
-            msg="test",
-            args=(),
-            exc_info=None,
-        )
-
-        assert filter_obj.filter(root_record) is False
+from src.utils.logger import TradingLogger, log_execution_time
 
 
 class TestTradingLogger:
@@ -234,21 +184,6 @@ class TestTradingLogger:
 
             assert trade_handler.backupCount == 30
 
-    def test_trade_handler_has_filter(self):
-        """Verify trade handler has TradeLogFilter attached"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"log_level": "INFO", "log_dir": tmpdir}
-            TradingLogger(config)
-
-            root_logger = logging.getLogger()
-            trade_handler = next(
-                h for h in root_logger.handlers if type(h).__name__ == "TimedRotatingFileHandler"
-            )
-
-            # Check that filter is present and is TradeLogFilter
-            assert len(trade_handler.filters) > 0
-            assert isinstance(trade_handler.filters[0], TradeLogFilter)
-
     def test_handler_clearing(self):
         """Verify existing handlers are cleared on initialization"""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -282,127 +217,6 @@ class TestTradingLogger:
         # Clean up default logs directory if created
         if Path("logs").exists() and not any(Path("logs").iterdir()):
             Path("logs").rmdir()
-
-
-class TestLogTrade:
-    """Test TradingLogger.log_trade() static method"""
-
-    def teardown_method(self):
-        """Clean up logging handlers after each test"""
-        root_logger = logging.getLogger()
-        root_logger.handlers.clear()
-
-    def test_log_trade_creates_json_entry(self):
-        """Verify log_trade creates valid JSON entries"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"log_level": "INFO", "log_dir": tmpdir}
-            TradingLogger(config)
-
-            TradingLogger.log_trade("TEST_ACTION", {"symbol": "BTCUSDT", "price": 50000.0})
-
-            # Read trade log file
-            log_file = Path(tmpdir) / "trades.log"
-            assert log_file.exists()
-
-            with open(log_file) as f:
-                log_line = f.readline().strip()
-
-            # Parse JSON
-            log_entry = json.loads(log_line)
-
-            assert log_entry["action"] == "TEST_ACTION"
-            assert log_entry["symbol"] == "BTCUSDT"
-            assert log_entry["price"] == 50000.0
-
-    def test_log_trade_includes_timestamp(self):
-        """Verify log_trade includes ISO timestamp"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"log_level": "INFO", "log_dir": tmpdir}
-            TradingLogger(config)
-
-            TradingLogger.log_trade("SIGNAL_GENERATED", {"symbol": "ETHUSDT"})
-
-            log_file = Path(tmpdir) / "trades.log"
-            with open(log_file) as f:
-                log_entry = json.loads(f.readline())
-
-            assert "timestamp" in log_entry
-            # Verify ISO format (basic check)
-            assert "T" in log_entry["timestamp"]
-
-    def test_log_trade_unpacks_data_dict(self):
-        """Verify log_trade correctly unpacks data dictionary"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"log_level": "INFO", "log_dir": tmpdir}
-            TradingLogger(config)
-
-            trade_data = {
-                "symbol": "BTCUSDT",
-                "entry": 50000.0,
-                "tp": 51000.0,
-                "sl": 49500.0,
-                "strategy": "MockSMA",
-            }
-
-            TradingLogger.log_trade("SIGNAL_GENERATED", trade_data)
-
-            log_file = Path(tmpdir) / "trades.log"
-            with open(log_file) as f:
-                log_entry = json.loads(f.readline())
-
-            # All data fields should be present
-            assert log_entry["symbol"] == "BTCUSDT"
-            assert log_entry["entry"] == 50000.0
-            assert log_entry["tp"] == 51000.0
-            assert log_entry["sl"] == 49500.0
-            assert log_entry["strategy"] == "MockSMA"
-
-    def test_log_trade_multiple_entries(self):
-        """Verify multiple trade log entries are appended"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"log_level": "INFO", "log_dir": tmpdir}
-            TradingLogger(config)
-
-            TradingLogger.log_trade("ORDER_PLACED", {"order_id": "123"})
-            TradingLogger.log_trade("ORDER_FILLED", {"order_id": "123"})
-            TradingLogger.log_trade("POSITION_CLOSED", {"pnl": 100.0})
-
-            log_file = Path(tmpdir) / "trades.log"
-            with open(log_file) as f:
-                lines = f.readlines()
-
-            assert len(lines) == 3
-
-            # Verify each entry
-            entries = [json.loads(line) for line in lines]
-            assert entries[0]["action"] == "ORDER_PLACED"
-            assert entries[1]["action"] == "ORDER_FILLED"
-            assert entries[2]["action"] == "POSITION_CLOSED"
-
-    def test_log_trade_appears_in_both_logs(self):
-        """Verify trade logs appear in both trading.log and trades.log"""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            config = {"log_level": "INFO", "log_dir": tmpdir}
-            TradingLogger(config)
-
-            TradingLogger.log_trade("ORDER_FILLED", {"order_id": "456"})
-
-            # Check trades.log has the JSON entry
-            trades_log = Path(tmpdir) / "trades.log"
-            with open(trades_log) as f:
-                trades_content = f.read()
-
-            assert "ORDER_FILLED" in trades_content
-            assert '{"timestamp"' in trades_content
-
-            # Check trading.log ALSO has the entry (formatted)
-            trading_log = Path(tmpdir) / "trading.log"
-            with open(trading_log) as f:
-                trading_content = f.read()
-
-            # Trade logs appear in both files (trades.log via filter,
-            # trading.log via general handler)
-            assert "ORDER_FILLED" in trading_content
 
 
 class TestLogExecutionTime:
