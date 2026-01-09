@@ -127,7 +127,7 @@ class TradingLogger:
         # Step 2: Create actual I/O handlers (will run in listener thread)
         # Console Handler - INFO and above
         console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
+        console_handler.setLevel(getattr(logging, self.log_level.upper()))
         console_handler.setFormatter(ColorFormatter())
 
         # File Handler - All levels, rotating (10MB max, 5 backups)

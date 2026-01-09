@@ -484,16 +484,26 @@ class ConfigManager:
         ict_config = None
         if "ict_strategy" in config:
             ict_section = config["ict_strategy"]
+            # Only include active_profile and use_killzones as required fields
+            # Other parameters should come from the profile unless explicitly set in INI
             ict_config = {
+                "active_profile": ict_section.get("active_profile", "strict"),
                 "buffer_size": ict_section.getint("buffer_size", 200),
-                "swing_lookback": ict_section.getint("swing_lookback", 5),
-                "displacement_ratio": ict_section.getfloat("displacement_ratio", 1.5),
-                "fvg_min_gap_percent": ict_section.getfloat("fvg_min_gap_percent", 0.001),
-                "ob_min_strength": ict_section.getfloat("ob_min_strength", 1.5),
-                "liquidity_tolerance": ict_section.getfloat("liquidity_tolerance", 0.001),
-                "rr_ratio": ict_section.getfloat("rr_ratio", 2.0),
                 "use_killzones": ict_section.getboolean("use_killzones", True),
             }
+            # Only add individual parameters if explicitly set (not commented out)
+            optional_params = [
+                ("swing_lookback", "getint"),
+                ("displacement_ratio", "getfloat"),
+                ("fvg_min_gap_percent", "getfloat"),
+                ("ob_min_strength", "getfloat"),
+                ("liquidity_tolerance", "getfloat"),
+                ("rr_ratio", "getfloat"),
+            ]
+            for param_name, getter_method in optional_params:
+                if ict_section.get(param_name) is not None:
+                    getter = getattr(ict_section, getter_method)
+                    ict_config[param_name] = getter(param_name)
 
         return TradingConfig(
             symbol=trading.get("symbol", "BTCUSDT"),

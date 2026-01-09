@@ -196,17 +196,19 @@ class ICTStrategy(BaseStrategy):
 
         # Check sufficient data
         if not self.is_buffer_ready(self.min_periods):
+            self.logger.debug(f"Buffer not ready: {len(self.candle_buffer)}/{self.min_periods}")
             return None
 
-        # Step 1: Kill Zone Filter
         if self.use_killzones:
             if not is_killzone_active(candle.open_time):
+                self.logger.debug(f"Outside Killzone: {candle.open_time}")
                 return None  # Outside optimal trading times
 
         # Step 2: Trend Analysis (Market Structure)
         trend = get_current_trend(self.candle_buffer, swing_lookback=self.swing_lookback)
 
         if trend is None:
+            self.logger.debug(f"No clear trend detected (swing_lookback={self.swing_lookback})")
             return None  # No clear trend
 
         # Step 3: Premium/Discount Zone

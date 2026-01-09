@@ -653,6 +653,8 @@ class TradingEngine:
         # Step 3: Update position tracking (future enhancement)
         # For now, OrderManager.get_position() queries Binance API
         # Future: Maintain local position state for faster access
+        # For now, OrderManager.get_position() queries Binance API
+        # Future: Maintain local position state for faster access
 
     async def wait_until_ready(self, timeout: float = 5.0) -> bool:
         """

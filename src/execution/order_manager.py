@@ -517,19 +517,23 @@ class OrderExecutionManager:
             for symbol_data in exchange_data["symbols"]:
                 symbol = symbol_data["symbol"]
 
-                # Find PRICE_FILTER in symbol filters
+                # Find PRICE_FILTER and LOT_SIZE in symbol filters
                 price_filter = None
+                lot_filter = None
                 for filter_item in symbol_data["filters"]:
                     if filter_item["filterType"] == "PRICE_FILTER":
                         price_filter = filter_item
-                        break
+                    elif filter_item["filterType"] == "LOT_SIZE":
+                        lot_filter = filter_item
 
-                if price_filter:
-                    tick_size = float(price_filter["tickSize"])
+                if price_filter or lot_filter:
                     self._exchange_info_cache[symbol] = {
-                        "tickSize": tick_size,
-                        "minPrice": float(price_filter["minPrice"]),
-                        "maxPrice": float(price_filter["maxPrice"]),
+                        "tickSize": float(price_filter["tickSize"]) if price_filter else 0.01,
+                        "minPrice": float(price_filter["minPrice"]) if price_filter else 0.0,
+                        "maxPrice": float(price_filter["maxPrice"]) if price_filter else 0.0,
+                        "stepSize": float(lot_filter["stepSize"]) if lot_filter else 0.001,
+                        "minQty": float(lot_filter["minQty"]) if lot_filter else 0.0,
+                        "maxQty": float(lot_filter["maxQty"]) if lot_filter else 0.0,
                     }
                     symbols_parsed += 1
 
@@ -603,6 +607,69 @@ class OrderExecutionManager:
             f"This may cause order rejection for non-standard pairs."
         )
         return 0.01  # Default for USDT pairs
+
+    def _get_step_size(self, symbol: str) -> float:
+        """
+        Get step size (quantity precision) for symbol from exchange info (cached).
+
+        Args:
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+
+        Returns:
+            Step size as float (e.g., 0.001)
+
+        Note:
+            Falls back to 0.001 (3 decimals) if symbol not found
+        """
+        # 1. Check cache validity
+        if self._is_cache_expired():
+            self._refresh_exchange_info()
+
+        # 2. Look up symbol in cache
+        if symbol in self._exchange_info_cache:
+            step_size = self._exchange_info_cache[symbol].get("stepSize", 0.001)
+            self.logger.debug(f"Cache hit for {symbol}: stepSize={step_size}")
+            return step_size
+
+        # 3. Symbol not found - graceful fallback
+        self.logger.warning(
+            f"Symbol {symbol} not found in exchange info. "
+            f"Using default stepSize=0.001 (3 decimals). "
+            f"This may cause order rejection."
+        )
+        return 0.001  # Default
+
+    def _format_quantity(self, quantity: float, symbol: str) -> str:
+        """
+        Format quantity according to symbol's step size specification.
+
+        Args:
+            quantity: Raw quantity value
+            symbol: Trading symbol (e.g., 'BTCUSDT')
+
+        Returns:
+            Quantity formatted as string with symbol-specific precision
+
+        Example:
+            >>> manager._format_quantity(10.123456, 'XRPUSDT')
+            '10.1'  # 1 decimal for XRPUSDT
+        """
+        # 1. Get symbol-specific step size (with caching)
+        step_size = self._get_step_size(symbol)
+
+        # 2. Calculate decimal precision from step size
+        decimal_places = self._calculate_precision(step_size)
+
+        # 3. Format quantity with calculated precision
+        formatted = f"{quantity:.{decimal_places}f}"
+
+        # 4. Log formatting (debug level)
+        self.logger.debug(
+            f"Formatted quantity for {symbol}: {quantity} → {formatted} "
+            f"(stepSize={step_size}, precision={decimal_places})"
+        )
+
+        return formatted
 
     def _determine_order_side(self, signal: Signal) -> OrderSide:
         """
@@ -1023,11 +1090,14 @@ class OrderExecutionManager:
         )
 
         # Prepare order parameters for market entry order
+        # Format quantity according to symbol's step size (precision)
+        formatted_qty = self._format_quantity(quantity, signal.symbol)
+
         order_params = {
             "symbol": signal.symbol,
             "side": side.value,
             "type": OrderType.MARKET.value,
-            "quantity": quantity,
+            "quantity": formatted_qty,
             "reduceOnly": reduce_only,
         }
 
