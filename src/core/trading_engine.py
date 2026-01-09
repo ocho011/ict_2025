@@ -728,10 +728,10 @@ class TradingEngine:
 
     async def _on_order_filled(self, event: Event) -> None:
         """
-        Handle order fill notification.
+        Handle order fill notification (Issue #9: Enhanced with orphan order prevention).
 
-        Logs order fills for tracking and monitoring.
-        In future iterations, will update position tracking.
+        Logs order fills for tracking and monitoring. When a TP/SL order is filled,
+        automatically cancels any remaining orders for the symbol to prevent orphaned orders.
 
         Args:
             event: Event containing Order data
@@ -744,6 +744,7 @@ class TradingEngine:
             f"Order filled: ID={order.order_id}, "
             f"Symbol={order.symbol}, "
             f"Side={order.side.value}, "
+            f"Type={order.order_type.value}, "
             f"Quantity={order.quantity}, "
             f"Price={order.price}"
         )
@@ -767,9 +768,36 @@ class TradingEngine:
         except Exception as e:
             self.logger.warning(f"Audit logging failed: {e}")
 
-        # Step 3: Update position tracking (future enhancement)
-        # For now, OrderManager.get_position() queries Binance API
-        # Future: Maintain local position state for faster access
+        # Step 3: Handle TP/SL fills - cancel remaining orders (Issue #9)
+        from src.models.order import OrderType
+
+        if order.order_type in (OrderType.STOP_MARKET, OrderType.TAKE_PROFIT_MARKET):
+            # TP or SL was hit - position is closed
+            # Cancel any remaining orders (the other TP/SL) to prevent orphaned orders
+            self.logger.info(
+                f"{order.order_type.value} filled for {order.symbol} - "
+                f"cancelling remaining orders to prevent orphans"
+            )
+
+            try:
+                cancelled_count = self.order_manager.cancel_all_orders(order.symbol)
+                if cancelled_count > 0:
+                    self.logger.info(
+                        f"TP/SL hit: cancelled {cancelled_count} remaining orders "
+                        f"for {order.symbol}"
+                    )
+                else:
+                    self.logger.info(
+                        f"TP/SL hit: no remaining orders to cancel for {order.symbol}"
+                    )
+            except Exception as e:
+                # Log error but don't crash - orphaned orders are a data issue, not a critical failure
+                self.logger.error(
+                    f"Failed to cancel remaining orders after TP/SL fill: {e}. "
+                    f"Manual cleanup may be required for {order.symbol}."
+                )
+
+        # Step 4: Update position tracking (future enhancement)
         # For now, OrderManager.get_position() queries Binance API
         # Future: Maintain local position state for faster access
 
