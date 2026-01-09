@@ -1174,9 +1174,9 @@ class OrderExecutionManager:
         # Check if TP/SL orders are needed
         tpsl_orders: list[Order] = []
 
-        # Only place TP/SL for entry signals (not for close signals)
+        # Handle different signal types
         if signal.signal_type in (SignalType.LONG_ENTRY, SignalType.SHORT_ENTRY):
-            # Cancel all existing orders before placing new TP/SL orders
+            # Entry signals: Cancel existing orders before placing new TP/SL orders
             # This prevents orphaned TP/SL orders from previous positions
             try:
                 cancelled_count = self.cancel_all_orders(signal.symbol)
@@ -1214,6 +1214,27 @@ class OrderExecutionManager:
                 self.logger.warning(
                     f"Partial TP/SL placement: entry filled but "
                     f"only {len(tpsl_orders)}/2 exit orders placed"
+                )
+
+        elif signal.signal_type in (SignalType.CLOSE_LONG, SignalType.CLOSE_SHORT):
+            # Close signals: Cancel all remaining TP/SL orders (Issue #9)
+            # Position is being closed, so any remaining TP/SL orders should be cancelled
+            try:
+                cancelled_count = self.cancel_all_orders(signal.symbol)
+                if cancelled_count > 0:
+                    self.logger.info(
+                        f"Position closed: cancelled {cancelled_count} remaining "
+                        f"TP/SL orders for {signal.symbol}"
+                    )
+                else:
+                    self.logger.info(
+                        f"Position closed: no remaining orders to cancel for {signal.symbol}"
+                    )
+            except Exception as e:
+                # Log warning - failure to cancel shouldn't block position closure
+                self.logger.warning(
+                    f"Failed to cancel remaining orders after position closure: {e}. "
+                    f"Manual cleanup may be required."
                 )
 
         # Return entry order and TP/SL orders
