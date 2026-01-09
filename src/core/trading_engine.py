@@ -165,6 +165,140 @@ class TradingEngine:
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
+    def initialize_components(
+        self,
+        config_manager: ConfigManager,
+        event_bus: EventBus,
+        api_key: str,
+        api_secret: str,
+        is_testnet: bool,
+    ) -> None:
+        """
+        Initialize all trading components (Step 1-1: Issue #5 Refactoring).
+
+        TradingEngine now owns the responsibility of creating and assembling
+        trading-specific components (Strategy, DataCollector, OrderManager, RiskManager).
+        This simplifies TradingBot to only handle lifecycle and common utilities.
+
+        Args:
+            config_manager: Configuration management system
+            event_bus: EventBus instance for pub-sub coordination
+            api_key: Binance API key
+            api_secret: Binance API secret
+            is_testnet: Whether to use testnet
+
+        Component Creation Order:
+            1. ConfigManager injection
+            2. EventBus injection
+            3. OrderExecutionManager
+            4. RiskManager
+            5. Strategy (via StrategyFactory)
+            6. BinanceDataCollector
+            7. Event handler registration
+
+        State Transition:
+            CREATED → INITIALIZED
+
+        Notes:
+            - Must be called before run()
+            - Replaces old set_components() pattern
+            - Components are created internally, not injected
+        """
+        self.logger.info("Initializing TradingEngine components...")
+
+        # Step 1: Store config and event bus
+        self.config_manager = config_manager
+        self.event_bus = event_bus
+        trading_config = config_manager.trading_config
+
+        # Step 2: Initialize OrderExecutionManager
+        self.logger.info("Creating OrderExecutionManager...")
+        from src.execution.order_manager import OrderExecutionManager
+        self.order_manager = OrderExecutionManager(
+            audit_logger=self.audit_logger,
+            api_key=api_key,
+            api_secret=api_secret,
+            is_testnet=is_testnet,
+        )
+
+        # Step 3: Initialize RiskManager
+        self.logger.info("Creating RiskManager...")
+        from src.risk.manager import RiskManager
+        self.risk_manager = RiskManager(
+            config={
+                "max_risk_per_trade": trading_config.max_risk_per_trade,
+                "default_leverage": trading_config.leverage,
+                "max_leverage": 20,  # Hard limit
+                "max_position_size_percent": 0.1,  # 10% of account
+            },
+            audit_logger=self.audit_logger,
+        )
+
+        # Step 4: Create strategy instance via StrategyFactory
+        self.logger.info(f"Creating strategy: {trading_config.strategy}...")
+        from src.strategies import StrategyFactory
+
+        strategy_config = {
+            "buffer_size": 100,
+            "risk_reward_ratio": trading_config.take_profit_ratio,
+            "stop_loss_percent": trading_config.stop_loss_percent,
+        }
+
+        # Add ICT-specific configuration if available
+        if trading_config.ict_config is not None:
+            strategy_config.update(trading_config.ict_config)
+            self.logger.info(
+                f"ICT configuration loaded: "
+                f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
+            )
+
+        self.strategy = StrategyFactory.create(
+            name=trading_config.strategy,
+            symbol=trading_config.symbol,
+            config=strategy_config
+        )
+
+        # Step 5: Initialize BinanceDataCollector
+        self.logger.info("Creating BinanceDataCollector...")
+        from src.core.data_collector import BinanceDataCollector
+        self.data_collector = BinanceDataCollector(
+            api_key=api_key,
+            api_secret=api_secret,
+            symbols=[trading_config.symbol],
+            intervals=trading_config.intervals,
+            is_testnet=is_testnet,
+            on_candle_callback=self.on_candle_received,
+        )
+
+        # Step 6: Setup event handlers
+        self._setup_event_handlers()
+
+        # Step 7: Configure leverage and margin type
+        self.logger.info("Configuring leverage...")
+        success = self.order_manager.set_leverage(
+            trading_config.symbol, trading_config.leverage
+        )
+        if not success:
+            self.logger.warning(
+                f"Failed to set leverage to {trading_config.leverage}x. "
+                "Using current account leverage."
+            )
+
+        self.logger.info(f"Configuring margin type to {trading_config.margin_type}...")
+        success = self.order_manager.set_margin_type(
+            trading_config.symbol, trading_config.margin_type
+        )
+        if not success:
+            self.logger.warning(
+                f"Failed to set margin type to {trading_config.margin_type} for "
+                f"{trading_config.symbol}. Using current margin type."
+            )
+
+        # Step 8: State transition
+        self._engine_state = EngineState.INITIALIZED
+
+        self.logger.info("✅ TradingEngine components initialized successfully")
+
     def set_components(
         self,
         event_bus: EventBus,
@@ -175,13 +309,10 @@ class TradingEngine:
         config_manager: ConfigManager,
     ) -> None:
         """
-        Inject all required components in one call.
+        [DEPRECATED] Inject all required components in one call.
 
-        This method receives all dependencies from TradingBot and:
-        1. Stores component references
-        2. Registers event handlers
-        3. Transitions state to INITIALIZED
-        4. Logs successful injection
+        This method is deprecated as of Issue #5 refactoring.
+        Use initialize_components() instead, which creates components internally.
 
         Args:
             event_bus: EventBus instance for pub-sub coordination
@@ -192,33 +323,19 @@ class TradingEngine:
             config_manager: ConfigManager for trading configuration
 
         Notes:
-            - Must be called before run()
-            - All components required (no None allowed)
-            - Automatically registers event handlers after injection
-            - Called by TradingBot.initialize() Step 10
-            - Transitions state: CREATED → INITIALIZED
-            - trading_bot parameter removed to break circular dependency
-
-        Example:
-            ```python
-            engine = TradingEngine()
-            engine.set_components(
-                event_bus=self.event_bus,
-                data_collector=self.data_collector,
-                strategy=self.strategy,
-                order_manager=self.order_manager,
-                risk_manager=self.risk_manager,
-                config_manager=self.config_manager
-            )
-            ```
+            - Kept for backward compatibility during transition
+            - Will be removed in future version
         """
+        self.logger.warning(
+            "set_components() is deprecated. Use initialize_components() instead."
+        )
+
         self.event_bus = event_bus
         self.data_collector = data_collector
         self.strategy = strategy
         self.order_manager = order_manager
         self.risk_manager = risk_manager
         self.config_manager = config_manager
-        # self.trading_bot = trading_bot  # REMOVED: Circular dependency eliminated
 
         # Setup handlers AFTER all components available
         self._setup_event_handlers()
