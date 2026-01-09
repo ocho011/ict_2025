@@ -1,10 +1,13 @@
 """
 Unit tests for retry_with_backoff decorator (Task 6.6).
 """
-import pytest
+
 from unittest.mock import Mock, patch
+
+import pytest
 from binance.error import ClientError, ServerError
-from src.core.retry import retry_with_backoff, RETRYABLE_ERROR_CODES, RETRYABLE_HTTP_STATUS
+
+from src.core.retry import retry_with_backoff
 
 
 class TestRetryDecorator:
@@ -14,9 +17,13 @@ class TestRetryDecorator:
         """Test retry behavior on HTTP 429 rate limit error."""
         mock_func = Mock()
         mock_func.side_effect = [
-            ClientError(status_code=429, error_code=-1003, error_message="Rate limit exceeded", header={}),
-            ClientError(status_code=429, error_code=-1003, error_message="Rate limit exceeded", header={}),
-            {"orderId": 12345, "status": "NEW"}  # Success on 3rd attempt
+            ClientError(
+                status_code=429, error_code=-1003, error_message="Rate limit exceeded", header={}
+            ),
+            ClientError(
+                status_code=429, error_code=-1003, error_message="Rate limit exceeded", header={}
+            ),
+            {"orderId": 12345, "status": "NEW"},  # Success on 3rd attempt
         ]
 
         @retry_with_backoff(max_retries=3, initial_delay=0.1)
@@ -32,8 +39,10 @@ class TestRetryDecorator:
         """Test retry behavior on Binance error code -1003."""
         mock_func = Mock()
         mock_func.side_effect = [
-            ClientError(status_code=418, error_code=-1003, error_message="Way too many requests", header={}),
-            {"orderId": 67890}
+            ClientError(
+                status_code=418, error_code=-1003, error_message="Way too many requests", header={}
+            ),
+            {"orderId": 67890},
         ]
 
         @retry_with_backoff(max_retries=2, initial_delay=0.1)
@@ -49,10 +58,7 @@ class TestRetryDecorator:
         """Test no retry on fatal errors like invalid API key (-2015)."""
         mock_func = Mock()
         mock_func.side_effect = ClientError(
-            status_code=401,
-            error_code=-2015,
-            error_message="Invalid API key",
-            header={}
+            status_code=401, error_code=-2015, error_message="Invalid API key", header={}
         )
 
         @retry_with_backoff(max_retries=3, initial_delay=0.1)
@@ -73,7 +79,7 @@ class TestRetryDecorator:
             status_code=400,
             error_code=-1102,
             error_message="Mandatory parameter 'symbol' was not sent",
-            header={}
+            header={},
         )
 
         @retry_with_backoff(max_retries=3, initial_delay=0.1)
@@ -92,7 +98,7 @@ class TestRetryDecorator:
         mock_func.side_effect = [
             ServerError(status_code=500, message="Internal server error"),
             ServerError(status_code=503, message="Service unavailable"),
-            {"orderId": 99999}
+            {"orderId": 99999},
         ]
 
         @retry_with_backoff(max_retries=3, initial_delay=0.1)
@@ -111,10 +117,11 @@ class TestRetryDecorator:
             ServerError(status_code=500, message="Internal error"),
             ServerError(status_code=500, message="Internal error"),
             ServerError(status_code=500, message="Internal error"),
-            {"orderId": 12345}
+            {"orderId": 12345},
         ]
 
-        with patch('time.sleep') as mock_sleep:
+        with patch("time.sleep") as mock_sleep:
+
             @retry_with_backoff(max_retries=3, initial_delay=1.0, backoff_factor=2.0)
             def api_call():
                 return mock_func()
@@ -161,7 +168,7 @@ class TestRetryDecorator:
         mock_func = Mock()
         mock_func.side_effect = [
             ClientError(status_code=429, error_code=-1003, error_message="Rate limit", header={}),
-            {"success": True}
+            {"success": True},
         ]
 
         @retry_with_backoff(max_retries=5, initial_delay=0.5, backoff_factor=3.0)
@@ -175,6 +182,7 @@ class TestRetryDecorator:
 
     def test_decorator_preserves_function_metadata(self):
         """Test that decorator preserves original function metadata."""
+
         @retry_with_backoff(max_retries=2)
         def my_api_call(symbol: str, quantity: float):
             """Place an order."""

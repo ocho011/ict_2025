@@ -8,8 +8,10 @@ Tests graceful shutdown behavior:
 - Logging verification
 """
 
-import pytest
 from unittest.mock import AsyncMock, Mock
+
+import pytest
+
 from src.main import TradingBot
 
 
@@ -56,14 +58,13 @@ async def test_shutdown_can_be_called_multiple_times(trading_bot):
     assert trading_bot.trading_engine.shutdown.call_count == 2
 
 
-
-
 @pytest.mark.asyncio
 async def test_shutdown_logs_correctly(trading_bot, caplog):
     """Verify shutdown logs correctly."""
     # Use real logger for this test (not mocked)
     import logging
-    trading_bot.logger = logging.getLogger('test_shutdown')
+
+    trading_bot.logger = logging.getLogger("test_shutdown")
     trading_bot.logger.setLevel(logging.INFO)
 
     # Act
@@ -71,5 +72,5 @@ async def test_shutdown_logs_correctly(trading_bot, caplog):
 
     # Assert
     log_messages = [rec.message for rec in caplog.records]
-    assert any('Initiating shutdown' in msg for msg in log_messages)
-    assert any('Shutdown complete' in msg for msg in log_messages)
+    assert any("Initiating shutdown" in msg for msg in log_messages)
+    assert any("Shutdown complete" in msg for msg in log_messages)

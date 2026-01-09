@@ -4,6 +4,7 @@ Base indicator interface
 
 from abc import ABC, abstractmethod
 from typing import Any
+
 import pandas as pd
 
 
@@ -26,4 +27,3 @@ class BaseIndicator(ABC):
         Returns:
             Calculated indicator value(s)
         """
-        pass

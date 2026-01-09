@@ -2,24 +2,20 @@
 Order execution and management with Binance Futures API integration.
 """
 
-import os
 import logging
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, List, Any
+import os
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
 
-from binance.um_futures import UMFutures
 from binance.error import ClientError, ServerError
+from binance.um_futures import UMFutures
 
-from src.models.order import Order, OrderSide, OrderType, OrderStatus
+from src.core.audit_logger import AuditEventType, AuditLogger
+from src.core.exceptions import OrderExecutionError, OrderRejectedError, ValidationError
+from src.core.retry import retry_with_backoff
+from src.models.order import Order, OrderSide, OrderStatus, OrderType
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
-from src.core.exceptions import (
-    OrderExecutionError,
-    ValidationError,
-    OrderRejectedError
-)
-from src.core.retry import retry_with_backoff
-from src.core.audit_logger import AuditLogger, AuditEventType
 
 
 class RequestWeightTracker:
@@ -57,7 +53,7 @@ class RequestWeightTracker:
             return
 
         # Extract weight from headers
-        weight_str = response_headers.get('X-MBX-USED-WEIGHT-1M')
+        weight_str = response_headers.get("X-MBX-USED-WEIGHT-1M")
         if weight_str:
             try:
                 self.current_weight = int(weight_str)
@@ -89,83 +85,92 @@ class RequestWeightTracker:
             Dictionary with weight usage information
         """
         return {
-            'current_weight': self.current_weight,
-            'weight_limit': self.weight_limit,
-            'usage_percent': (self.current_weight / self.weight_limit * 100),
-            'safe_to_proceed': self.check_limit()
+            "current_weight": self.current_weight,
+            "weight_limit": self.weight_limit,
+            "usage_percent": (self.current_weight / self.weight_limit * 100),
+            "safe_to_proceed": self.check_limit(),
         }
 
 
 class OrderExecutionManager:
     """
-    Binance Futures 주문 실행 관리자.
+    Binance Futures order execution manager.
 
-    Market 주문 실행, TP/SL 자동 배치, 포지션 관리, 레버리지 설정 등을 담당합니다.
+    Handles market order execution, automatic TP/SL placement, position management,
+    and leverage configuration.
 
     Attributes:
-        client (UMFutures): Binance UMFutures REST API 클라이언트
-        logger (logging.Logger): 로거 인스턴스
-        _open_orders (Dict[str, List[Order]]): 오픈 주문 추적 (심볼별)
+        client (UMFutures): Binance UMFutures REST API client
+        logger (logging.Logger): Logger instance
+        _open_orders (Dict[str, List[Order]]): Open orders tracking per symbol
 
     Example:
-        >>> # 환경변수 사용 (권장)
+        >>> # Using environment variables (recommended)
         >>> manager = OrderExecutionManager(is_testnet=True)
 
-        >>> # 직접 키 제공
+        >>> # Providing keys directly
         >>> manager = OrderExecutionManager(
         ...     api_key='your_key',
         ...     api_secret='your_secret',
         ...     is_testnet=False
         ... )
 
-        >>> # 레버리지 설정
+        >>> # Set leverage
         >>> manager.set_leverage('BTCUSDT', 10)
         True
 
-        >>> # 마진 타입 설정
+        >>> # Set margin type
         >>> manager.set_margin_type('BTCUSDT', 'ISOLATED')
         True
     """
 
     def __init__(
         self,
+        audit_logger: AuditLogger,
         api_key: Optional[str] = None,
         api_secret: Optional[str] = None,
-        is_testnet: bool = True
+        is_testnet: bool = True,
     ) -> None:
         """
-        OrderExecutionManager 초기화.
+        Initialize OrderExecutionManager.
 
-        API 키는 환경변수(BINANCE_API_KEY, BINANCE_API_SECRET)에서 자동으로 로드되며,
-        파라미터로 전달하여 override할 수 있습니다.
+        API keys are automatically loaded from environment variables
+        (BINANCE_API_KEY, BINANCE_API_SECRET) and can be overridden via parameters.
 
         Args:
-            api_key: Binance API 키 (None이면 환경변수 BINANCE_API_KEY 사용)
-            api_secret: Binance API 시크릿 (None이면 환경변수 BINANCE_API_SECRET 사용)
-            is_testnet: Testnet 사용 여부 (기본값: True)
+            audit_logger: AuditLogger instance for structured logging
+            api_key: Binance API key (uses BINANCE_API_KEY env var if None)
+            api_secret: Binance API secret (uses BINANCE_API_SECRET env var if None)
+            is_testnet: Whether to use testnet (default: True)
 
         Raises:
-            ValueError: API 키 또는 시크릿이 제공되지 않은 경우
+            ValueError: If API key or secret is not provided
 
         Example:
-            >>> # 환경변수 사용
+            >>> # Using environment variables with injected audit logger
             >>> import os
+            >>> from src.core.audit_logger import AuditLogger
             >>> os.environ['BINANCE_API_KEY'] = 'your_key'
             >>> os.environ['BINANCE_API_SECRET'] = 'your_secret'
-            >>> manager = OrderExecutionManager(is_testnet=True)
-
-            >>> # 직접 키 제공 (테스트 용도)
+            >>> audit_logger = AuditLogger(log_dir="logs/audit")
             >>> manager = OrderExecutionManager(
+            ...     audit_logger=audit_logger,
+            ...     is_testnet=True
+            ... )
+
+            >>> # Providing keys directly (for testing)
+            >>> manager = OrderExecutionManager(
+            ...     audit_logger=audit_logger,
             ...     api_key='test_key',
             ...     api_secret='test_secret',
             ...     is_testnet=True
             ... )
         """
-        # API 키 로딩 (환경변수 우선, 파라미터로 override 가능)
-        api_key_value = api_key or os.getenv('BINANCE_API_KEY')
-        api_secret_value = api_secret or os.getenv('BINANCE_API_SECRET')
+        # Load API keys (environment variables with parameter override)
+        api_key_value = api_key or os.getenv("BINANCE_API_KEY")
+        api_secret_value = api_secret or os.getenv("BINANCE_API_SECRET")
 
-        # 필수 검증
+        # Validate required credentials
         if not api_key_value or not api_secret_value:
             raise ValueError(
                 "API credentials required. "
@@ -173,62 +178,64 @@ class OrderExecutionManager:
                 "or pass api_key and api_secret parameters."
             )
 
-        # Base URL 선택
-        base_url = (
-            "https://testnet.binancefuture.com"
-            if is_testnet
-            else "https://fapi.binance.com"
-        )
+        # Select base URL
+        base_url = "https://testnet.binancefuture.com" if is_testnet else "https://fapi.binance.com"
 
-        # UMFutures 클라이언트 초기화 (Task 6.6: enable weight tracking)
+        # Initialize UMFutures client with weight tracking enabled
         self.client = UMFutures(
             key=api_key_value,
             secret=api_secret_value,
             base_url=base_url,
-            show_limit_usage=True  # Enable weight usage tracking in headers
+            show_limit_usage=True,  # Enable weight usage tracking in headers
         )
 
-        # 로거 설정
+        # Configure logger
         self.logger = logging.getLogger(__name__)
-        if not self.logger.handlers:
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-            )
-            handler.setFormatter(formatter)
-            self.logger.addHandler(handler)
-            self.logger.setLevel(logging.INFO)
 
-        # 상태 초기화
+        # Initialize state tracking
         self._open_orders: Dict[str, List[Order]] = {}
 
-        # Exchange info cache (Task 6.5)
+        # Exchange info cache with 24h TTL
         self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
         self._cache_timestamp: Optional[datetime] = None
 
-        # Task 6.6: Initialize audit logger and weight tracker
-        self.audit_logger = AuditLogger(log_dir='logs/audit')
+        # Inject audit logger and weight tracker
+        self.audit_logger = audit_logger
         self.weight_tracker = RequestWeightTracker()
+
+    def _unwrap_response(self, response: Any) -> Any:
+        """
+        Unwrap Binance API response if show_limit_usage=True is enabled.
+
+        Args:
+            response: Raw response from UMFutures client
+
+        Returns:
+            Unwrapped data (either response['data'] or response itself)
+        """
+        if isinstance(response, dict) and "data" in response:
+            return response["data"]
+        return response
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def set_leverage(self, symbol: str, leverage: int) -> bool:
         """
-        심볼의 레버리지 설정.
+        Set leverage for a symbol.
 
-        Binance Futures는 심볼별로 레버리지를 설정할 수 있으며,
-        1x부터 125x까지 지원합니다 (심볼에 따라 다름).
+        Binance Futures allows symbol-specific leverage configuration,
+        supporting 1x to 125x (varies by symbol).
 
         Args:
-            symbol: 거래 쌍 (예: 'BTCUSDT', 'ETHUSDT')
-            leverage: 레버리지 배수 (1-125)
+            symbol: Trading pair (e.g., 'BTCUSDT', 'ETHUSDT')
+            leverage: Leverage multiplier (1-125)
 
         Returns:
-            성공 여부 (True: 성공, False: 실패)
+            Success status (True: success, False: failure)
 
         Note:
-            - Hedge Mode에서는 LONG과 SHORT 포지션이 동일한 레버리지를 사용합니다.
-            - 레버리지 변경은 오픈 포지션이 없을 때 권장됩니다.
-            - Task 6.6: Retry logic with exponential backoff on transient failures
+            - In Hedge Mode, LONG and SHORT positions use the same leverage
+            - Leverage changes are recommended when no open positions exist
+            - Implements retry logic with exponential backoff on transient failures
 
         Example:
             >>> manager.set_leverage('BTCUSDT', 10)
@@ -237,47 +244,44 @@ class OrderExecutionManager:
             >>> manager.set_leverage('ETHUSDT', 20)
             True
 
-            >>> # 잘못된 레버리지 (API가 거부)
+            >>> # Invalid leverage (API will reject)
             >>> manager.set_leverage('BTCUSDT', 200)
             False
         """
         try:
-            # Binance API 호출
-            response = self.client.change_leverage(
-                symbol=symbol,
-                leverage=leverage
-            )
+            # Call Binance API
+            response = self.client.change_leverage(symbol=symbol, leverage=leverage)
 
-            # Task 6.6: Update weight tracker from response headers
-            if hasattr(response, 'headers'):
+            # Update weight tracker from response headers
+            if hasattr(response, "headers"):
                 self.weight_tracker.update_from_response(response.headers)
 
-            # Task 6.6: Audit log success
+            # Audit log success
             self.audit_logger.log_event(
                 event_type=AuditEventType.LEVERAGE_SET,
                 operation="set_leverage",
                 symbol=symbol,
-                response={'leverage': leverage, 'status': 'success'}
+                response={"leverage": leverage, "status": "success"},
             )
 
-            # 성공 로깅
+            # Log success
             self.logger.info(f"Leverage set to {leverage}x for {symbol}")
             return True
 
         except ClientError as e:
-            # Task 6.6: Audit log error
+            # Audit log API error
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_leverage",
                 symbol=symbol,
                 error={
-                    'status_code': e.status_code,
-                    'error_code': e.error_code,
-                    'error_message': e.error_message
-                }
+                    "status_code": e.status_code,
+                    "error_code": e.error_code,
+                    "error_message": e.error_message,
+                },
             )
 
-            # Binance API 오류 (4xx)
+            # Binance API error (4xx status codes)
             self.logger.error(
                 f"Failed to set leverage for {symbol}: "
                 f"code={e.error_code}, msg={e.error_message}"
@@ -285,15 +289,12 @@ class OrderExecutionManager:
             return False
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_leverage",
                 symbol=symbol,
-                error={
-                    'status_code': e.status_code,
-                    'message': e.message
-                }
+                error={"status_code": e.status_code, "message": e.message},
             )
 
             self.logger.error(
@@ -303,94 +304,83 @@ class OrderExecutionManager:
             return False
 
         except Exception as e:
-            # 예상치 못한 오류
-            self.logger.error(
-                f"Unexpected error setting leverage for {symbol}: {e}"
-            )
+            # Unexpected errors
+            self.logger.error(f"Unexpected error setting leverage for {symbol}: {e}")
             return False
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
-    def set_margin_type(
-        self,
-        symbol: str,
-        margin_type: str = 'ISOLATED'
-    ) -> bool:
+    def set_margin_type(self, symbol: str, margin_type: str = "ISOLATED") -> bool:
         """
-        마진 타입 설정 (ISOLATED 또는 CROSSED).
+        Set margin type (ISOLATED or CROSSED).
 
-        - ISOLATED: 포지션별로 독립적인 마진 사용
-        - CROSSED: 계좌 전체 잔고를 마진으로 사용
+        - ISOLATED: Independent margin per position
+        - CROSSED: Use entire account balance as margin
 
         Args:
-            symbol: 거래 쌍 (예: 'BTCUSDT')
-            margin_type: 'ISOLATED' 또는 'CROSSED' (기본값: 'ISOLATED')
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            margin_type: 'ISOLATED' or 'CROSSED' (default: 'ISOLATED')
 
         Returns:
-            성공 여부 (True: 성공, False: 실패)
+            Success status (True: success, False: failure)
 
         Note:
-            - 이미 설정된 마진 타입으로 변경 시도 시 "No need to change" 에러는 무시됩니다.
-            - Hedge Mode에서는 LONG과 SHORT 포지션이 동일한 마진 타입을 사용합니다.
-            - ISOLATED 마진에서는 LONG과 SHORT가 독립적인 마진을 가집니다.
-            - Task 6.6: Retry logic with exponential backoff on transient failures
+            - "No need to change" errors are silently ignored when already set
+            - In Hedge Mode, LONG and SHORT positions use the same margin type
+            - With ISOLATED margin, LONG and SHORT have independent margins
+            - Implements retry logic with exponential backoff on transient failures
 
         Example:
-            >>> # ISOLATED 마진 설정 (권장)
+            >>> # Set ISOLATED margin (recommended)
             >>> manager.set_margin_type('BTCUSDT', 'ISOLATED')
             True
 
-            >>> # CROSSED 마진 설정
+            >>> # Set CROSSED margin
             >>> manager.set_margin_type('ETHUSDT', 'CROSSED')
             True
 
-            >>> # 이미 설정된 경우 (여전히 True 반환)
+            >>> # Already set (still returns True)
             >>> manager.set_margin_type('BTCUSDT', 'ISOLATED')
             True
         """
         try:
-            # Binance API 호출
-            response = self.client.change_margin_type(
-                symbol=symbol,
-                marginType=margin_type
-            )
+            # Call Binance API
+            response = self.client.change_margin_type(symbol=symbol, marginType=margin_type)
 
-            # Task 6.6: Update weight tracker
-            if hasattr(response, 'headers'):
+            # Update weight tracker from response headers
+            if hasattr(response, "headers"):
                 self.weight_tracker.update_from_response(response.headers)
 
-            # Task 6.6: Audit log success
+            # Audit log success
             self.audit_logger.log_event(
                 event_type=AuditEventType.MARGIN_TYPE_SET,
                 operation="set_margin_type",
                 symbol=symbol,
-                response={'margin_type': margin_type, 'status': 'success'}
+                response={"margin_type": margin_type, "status": "success"},
             )
 
-            # 성공 로깅
+            # Log success
             self.logger.info(f"Margin type set to {margin_type} for {symbol}")
             return True
 
         except ClientError as e:
-            # "No need to change" 에러는 성공으로 간주
-            if 'No need to change margin type' in e.error_message:
-                self.logger.debug(
-                    f"Margin type already set to {margin_type} for {symbol}"
-                )
+            # Treat "No need to change" error as success
+            if "No need to change margin type" in e.error_message:
+                self.logger.debug(f"Margin type already set to {margin_type} for {symbol}")
                 return True
 
-            # Task 6.6: Audit log error
+            # Audit log API error
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_margin_type",
                 symbol=symbol,
                 error={
-                    'status_code': e.status_code,
-                    'error_code': e.error_code,
-                    'error_message': e.error_message
-                }
+                    "status_code": e.status_code,
+                    "error_code": e.error_code,
+                    "error_message": e.error_message,
+                },
             )
 
-            # 다른 ClientError는 실패
+            # Other ClientErrors are failures
             self.logger.error(
                 f"Failed to set margin type for {symbol}: "
                 f"code={e.error_code}, msg={e.error_message}"
@@ -398,15 +388,12 @@ class OrderExecutionManager:
             return False
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_margin_type",
                 symbol=symbol,
-                error={
-                    'status_code': e.status_code,
-                    'message': e.message
-                }
+                error={"status_code": e.status_code, "message": e.message},
             )
 
             self.logger.error(
@@ -416,10 +403,8 @@ class OrderExecutionManager:
             return False
 
         except Exception as e:
-            # 예상치 못한 오류
-            self.logger.error(
-                f"Unexpected error setting margin type for {symbol}: {e}"
-            )
+            # Unexpected errors
+            self.logger.error(f"Unexpected error setting margin type for {symbol}: {e}")
             return False
 
     def _format_price(self, price: float, symbol: str) -> str:
@@ -482,13 +467,13 @@ class OrderExecutionManager:
             0
         """
         # Convert to string to count decimal places
-        tick_str = f"{tick_size:.10f}".rstrip('0')  # Remove trailing zeros
+        tick_str = f"{tick_size:.10f}".rstrip("0")  # Remove trailing zeros
 
-        if '.' not in tick_str:
+        if "." not in tick_str:
             return 0  # Integer tick size
 
         # Count digits after decimal point
-        decimal_part = tick_str.split('.')[1]
+        decimal_part = tick_str.split(".")[1]
         precision = len(decimal_part)
 
         return precision
@@ -507,51 +492,62 @@ class OrderExecutionManager:
         self.logger.info("Fetching exchange information from Binance")
 
         try:
-            # 1. Call Binance API
+            # Call Binance API to fetch exchange info
             response = self.client.exchange_info()
 
-            # Task 6.6: Update weight tracker
-            if hasattr(response, 'headers'):
+            # Update weight tracker from response headers
+            if hasattr(response, "headers"):
                 self.weight_tracker.update_from_response(response.headers)
 
-            # 2. Parse symbols and extract tick sizes
-            symbols_parsed = 0
-            for symbol_data in response['symbols']:
-                symbol = symbol_data['symbol']
+            # Handle Binance API response structure
+            exchange_data = self._unwrap_response(response)
 
-                # Find PRICE_FILTER
+            if not isinstance(exchange_data, dict):
+                raise OrderExecutionError(
+                    f"Unexpected exchange info response type: {type(exchange_data).__name__}"
+                )
+
+            # Validate symbols field exists
+            if "symbols" not in exchange_data:
+                self.logger.error(f"Exchange info keys: {list(exchange_data.keys())}")
+                raise OrderExecutionError("Exchange info response missing 'symbols' field")
+
+            # Parse symbols and extract tick sizes
+            symbols_parsed = 0
+            for symbol_data in exchange_data["symbols"]:
+                symbol = symbol_data["symbol"]
+
+                # Find PRICE_FILTER in symbol filters
                 price_filter = None
-                for filter_item in symbol_data['filters']:
-                    if filter_item['filterType'] == 'PRICE_FILTER':
+                for filter_item in symbol_data["filters"]:
+                    if filter_item["filterType"] == "PRICE_FILTER":
                         price_filter = filter_item
                         break
 
                 if price_filter:
-                    tick_size = float(price_filter['tickSize'])
+                    tick_size = float(price_filter["tickSize"])
                     self._exchange_info_cache[symbol] = {
-                        'tickSize': tick_size,
-                        'minPrice': float(price_filter['minPrice']),
-                        'maxPrice': float(price_filter['maxPrice'])
+                        "tickSize": tick_size,
+                        "minPrice": float(price_filter["minPrice"]),
+                        "maxPrice": float(price_filter["maxPrice"]),
                     }
                     symbols_parsed += 1
 
-            # 3. Update cache timestamp
+            # Update cache timestamp
             self._cache_timestamp = datetime.now()
 
-            self.logger.info(
-                f"Exchange info cached: {symbols_parsed} symbols loaded"
-            )
+            self.logger.info(f"Exchange info cached: {symbols_parsed} symbols loaded")
 
         except ClientError as e:
-            # Task 6.6: Audit log error
+            # Audit log API error
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="_refresh_exchange_info",
                 error={
-                    'status_code': e.status_code,
-                    'error_code': e.error_code,
-                    'error_message': e.error_message
-                }
+                    "status_code": e.status_code,
+                    "error_code": e.error_code,
+                    "error_message": e.error_message,
+                },
             )
 
             self.logger.error(f"Failed to fetch exchange info: {e}")
@@ -560,14 +556,11 @@ class OrderExecutionManager:
             )
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="_refresh_exchange_info",
-                error={
-                    'status_code': e.status_code,
-                    'message': e.message
-                }
+                error={"status_code": e.status_code, "message": e.message},
             )
 
             self.logger.error(f"Server error fetching exchange info: {e}")
@@ -599,7 +592,7 @@ class OrderExecutionManager:
 
         # 2. Look up symbol in cache
         if symbol in self._exchange_info_cache:
-            tick_size = self._exchange_info_cache[symbol]['tickSize']
+            tick_size = self._exchange_info_cache[symbol]["tickSize"]
             self.logger.debug(f"Cache hit for {symbol}: tickSize={tick_size}")
             return tick_size
 
@@ -643,17 +636,12 @@ class OrderExecutionManager:
         }
 
         if signal.signal_type not in mapping:
-            raise ValidationError(
-                f"Unknown signal type: {signal.signal_type}"
-            )
+            raise ValidationError(f"Unknown signal type: {signal.signal_type}")
 
         return mapping[signal.signal_type]
 
     def _parse_order_response(
-        self,
-        response: Dict[str, Any],
-        symbol: str,
-        side: OrderSide
+        self, response: Dict[str, Any], symbol: str, side: OrderSide
     ) -> Order:
         """
         Parse Binance API response into Order object.
@@ -705,35 +693,40 @@ class OrderExecutionManager:
             >>> assert order.status == OrderStatus.FILLED
         """
         try:
+            # Handle Binance API response structure
+            order_data = self._unwrap_response(response)
+
+            if not isinstance(order_data, dict):
+                raise OrderExecutionError(
+                    f"Unexpected order response type: {type(order_data).__name__}"
+                )
+
             # Extract required fields
-            order_id = str(response["orderId"])
-            status_str = response["status"]
+            order_id = str(order_data["orderId"])
+            status_str = order_data["status"]
 
             # For MARKET orders: origQty is filled quantity
             # For STOP/TP orders: origQty may be "0" when using closePosition
-            quantity = float(response.get("origQty", "0"))
+            quantity = float(order_data.get("origQty", "0"))
 
             # Parse execution price (avgPrice for market orders)
-            avg_price = float(response.get("avgPrice", "0"))
+            avg_price = float(order_data.get("avgPrice", "0"))
 
             # Convert timestamp (milliseconds → datetime)
-            timestamp_ms = response["updateTime"]
-            timestamp = datetime.fromtimestamp(
-                timestamp_ms / 1000,
-                tz=timezone.utc
-            )
+            timestamp_ms = order_data["updateTime"]
+            timestamp = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
 
             # Map Binance status string to OrderStatus enum
             status = OrderStatus[status_str]  # Raises KeyError if invalid
 
             # Determine order type from response
-            order_type_str = response.get("type", "MARKET")
+            order_type_str = order_data.get("type", "MARKET")
             order_type = OrderType[order_type_str]
 
             # Extract stop price for STOP/TP orders
             stop_price = None
-            if "stopPrice" in response and response["stopPrice"]:
-                stop_price = float(response["stopPrice"])
+            if "stopPrice" in order_data and order_data["stopPrice"]:
+                stop_price = float(order_data["stopPrice"])
 
             # Create Order object
             return Order(
@@ -744,25 +737,17 @@ class OrderExecutionManager:
                 price=avg_price if avg_price > 0 else None,
                 stop_price=stop_price,
                 order_id=order_id,
-                client_order_id=response.get("clientOrderId"),
+                client_order_id=order_data.get("clientOrderId"),
                 status=status,
-                timestamp=timestamp
+                timestamp=timestamp,
             )
 
         except KeyError as e:
-            raise OrderExecutionError(
-                f"Missing required field in API response: {e}"
-            )
+            raise OrderExecutionError(f"Missing required field in API response: {e}")
         except (ValueError, TypeError) as e:
-            raise OrderExecutionError(
-                f"Invalid data type in API response: {e}"
-            )
+            raise OrderExecutionError(f"Invalid data type in API response: {e}")
 
-    def _place_tp_order(
-        self,
-        signal: Signal,
-        side: OrderSide
-    ) -> Optional[Order]:
+    def _place_tp_order(self, signal: Signal, side: OrderSide) -> Optional[Order]:
         """
         Place TAKE_PROFIT_MARKET order for position exit.
 
@@ -794,19 +779,15 @@ class OrderExecutionManager:
             # Place TAKE_PROFIT_MARKET order via Binance API
             response = self.client.new_order(
                 symbol=signal.symbol,
-                side=side.value,                      # SELL for long, BUY for short
+                side=side.value,  # SELL for long, BUY for short
                 type=OrderType.TAKE_PROFIT_MARKET.value,  # "TAKE_PROFIT_MARKET"
-                stopPrice=stop_price_str,             # Trigger price (formatted)
-                closePosition="true",                 # Close entire position
-                workingType="MARK_PRICE"              # Use mark price for trigger
+                stopPrice=stop_price_str,  # Trigger price (formatted)
+                closePosition="true",  # Close entire position
+                workingType="MARK_PRICE",  # Use mark price for trigger
             )
 
             # Parse API response into Order object
-            order = self._parse_order_response(
-                response=response,
-                symbol=signal.symbol,
-                side=side
-            )
+            order = self._parse_order_response(response=response, symbol=signal.symbol, side=side)
 
             # Override order_type and stop_price (response may not have correct values)
             order.order_type = OrderType.TAKE_PROFIT_MARKET
@@ -814,32 +795,66 @@ class OrderExecutionManager:
 
             # Log successful placement
             self.logger.info(
-                f"TP order placed: ID={order.order_id}, "
-                f"stopPrice={stop_price_str}"
+                f"TP order placed: ID={order.order_id}, " f"stopPrice={stop_price_str}"
             )
+
+            # Audit log: TP order placed successfully
+            try:
+                self.audit_logger.log_order_placed(
+                    symbol=signal.symbol,
+                    order_data={
+                        "order_type": "TAKE_PROFIT_MARKET",
+                        "side": side.value,
+                        "stop_price": signal.take_profit,
+                        "close_position": True,
+                    },
+                    response={"order_id": order.order_id, "status": order.status.value},
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
 
             return order
 
         except ClientError as e:
             # Binance API error (4xx) - log but don't raise
-            self.logger.error(
-                f"TP order rejected: code={e.error_code}, "
-                f"msg={e.error_message}"
-            )
+            self.logger.error(f"TP order rejected: code={e.error_code}, " f"msg={e.error_message}")
+
+            # Audit log: TP order rejected
+            try:
+                self.audit_logger.log_order_rejected(
+                    symbol=signal.symbol,
+                    order_data={
+                        "order_type": "TAKE_PROFIT_MARKET",
+                        "side": side.value,
+                        "stop_price": signal.take_profit,
+                    },
+                    error={"error_code": e.error_code, "error_message": e.error_message},
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
         except Exception as e:
             # Unexpected error - log but don't raise
-            self.logger.error(
-                f"TP order placement failed: {type(e).__name__}: {e}"
-            )
+            self.logger.error(f"TP order placement failed: {type(e).__name__}: {e}")
+
+            # Audit log: API error during TP order placement
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="place_tp_order",
+                    symbol=signal.symbol,
+                    error={"error_type": type(e).__name__, "error_message": str(e)},
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
-    def _place_sl_order(
-        self,
-        signal: Signal,
-        side: OrderSide
-    ) -> Optional[Order]:
+    def _place_sl_order(self, signal: Signal, side: OrderSide) -> Optional[Order]:
         """
         Place STOP_MARKET order for position exit.
 
@@ -871,19 +886,15 @@ class OrderExecutionManager:
             # Place STOP_MARKET order via Binance API
             response = self.client.new_order(
                 symbol=signal.symbol,
-                side=side.value,                      # SELL for long, BUY for short
-                type=OrderType.STOP_MARKET.value,     # "STOP_MARKET"
-                stopPrice=stop_price_str,             # Trigger price (formatted)
-                closePosition="true",                 # Close entire position
-                workingType="MARK_PRICE"              # Use mark price for trigger
+                side=side.value,  # SELL for long, BUY for short
+                type=OrderType.STOP_MARKET.value,  # "STOP_MARKET"
+                stopPrice=stop_price_str,  # Trigger price (formatted)
+                closePosition="true",  # Close entire position
+                workingType="MARK_PRICE",  # Use mark price for trigger
             )
 
             # Parse API response into Order object
-            order = self._parse_order_response(
-                response=response,
-                symbol=signal.symbol,
-                side=side
-            )
+            order = self._parse_order_response(response=response, symbol=signal.symbol, side=side)
 
             # Override order_type and stop_price
             order.order_type = OrderType.STOP_MARKET
@@ -891,33 +902,68 @@ class OrderExecutionManager:
 
             # Log successful placement
             self.logger.info(
-                f"SL order placed: ID={order.order_id}, "
-                f"stopPrice={stop_price_str}"
+                f"SL order placed: ID={order.order_id}, " f"stopPrice={stop_price_str}"
             )
+
+            # Audit log: SL order placed successfully
+            try:
+                self.audit_logger.log_order_placed(
+                    symbol=signal.symbol,
+                    order_data={
+                        "order_type": "STOP_MARKET",
+                        "side": side.value,
+                        "stop_price": signal.stop_loss,
+                        "close_position": True,
+                    },
+                    response={"order_id": order.order_id, "status": order.status.value},
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
 
             return order
 
         except ClientError as e:
             # Binance API error - log but don't raise
-            self.logger.error(
-                f"SL order rejected: code={e.error_code}, "
-                f"msg={e.error_message}"
-            )
+            self.logger.error(f"SL order rejected: code={e.error_code}, " f"msg={e.error_message}")
+
+            # Audit log: SL order rejected
+            try:
+                self.audit_logger.log_order_rejected(
+                    symbol=signal.symbol,
+                    order_data={
+                        "order_type": "STOP_MARKET",
+                        "side": side.value,
+                        "stop_price": signal.stop_loss,
+                    },
+                    error={"error_code": e.error_code, "error_message": e.error_message},
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
         except Exception as e:
             # Unexpected error - log but don't raise
-            self.logger.error(
-                f"SL order placement failed: {type(e).__name__}: {e}"
-            )
+            self.logger.error(f"SL order placement failed: {type(e).__name__}: {e}")
+
+            # Audit log: API error during SL order placement
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="place_sl_order",
+                    symbol=signal.symbol,
+                    error={"error_type": type(e).__name__, "error_message": str(e)},
+                )
+            except Exception:
+                pass  # Don't double-log
+
             return None
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def execute_signal(
-        self,
-        signal: Signal,
-        quantity: float,
-        reduce_only: bool = False
+        self, signal: Signal, quantity: float, reduce_only: bool = False
     ) -> tuple[Order, list[Order]]:
         """
         Execute trading signal by placing market order with TP/SL orders.
@@ -944,7 +990,7 @@ class OrderExecutionManager:
         Note:
             TP/SL placement failures are logged but don't raise exceptions.
             Entry order must succeed; TP/SL failures result in partial execution.
-            Task 6.6: Retry logic with exponential backoff on transient failures.
+            Implements retry logic with exponential backoff on transient failures.
 
         Example:
             >>> signal = Signal(
@@ -962,54 +1008,52 @@ class OrderExecutionManager:
             Entry ID: 123456789
             TP/SL placed: 2
         """
-        # 1. Validate inputs
+        # Validate inputs
         if quantity <= 0:
             raise ValidationError(f"Quantity must be > 0, got {quantity}")
 
-        # 2. Determine order side from signal type
+        # Determine order side from signal type
         side = self._determine_order_side(signal)
 
-        # 3. Log order intent
+        # Log order intent
         self.logger.info(
             f"Executing {signal.signal_type.value} signal: "
             f"{signal.symbol} {side.value} {quantity} "
             f"(strategy: {signal.strategy_name})"
         )
 
-        # 4-6. Place market entry order (existing logic from 6.2)
-        # Prepare order data for audit logging
+        # Prepare order parameters for market entry order
         order_params = {
-            'symbol': signal.symbol,
-            'side': side.value,
-            'type': OrderType.MARKET.value,
-            'quantity': quantity,
-            'reduceOnly': reduce_only
+            "symbol": signal.symbol,
+            "side": side.value,
+            "type": OrderType.MARKET.value,
+            "quantity": quantity,
+            "reduceOnly": reduce_only,
         }
 
         try:
+            # Submit market order to Binance
             response = self.client.new_order(**order_params)
 
-            # Task 6.6: Update weight tracker
-            if hasattr(response, 'headers'):
+            # Update weight tracker from response headers
+            if hasattr(response, "headers"):
                 self.weight_tracker.update_from_response(response.headers)
 
             # Parse API response into Order object
             entry_order = self._parse_order_response(
-                response=response,
-                symbol=signal.symbol,
-                side=side
+                response=response, symbol=signal.symbol, side=side
             )
 
-            # Task 6.6: Audit log successful order
+            # Audit log successful order placement
             self.audit_logger.log_order_placed(
                 symbol=signal.symbol,
                 order_data=order_params,
                 response={
-                    'order_id': entry_order.order_id,
-                    'status': entry_order.status.value,
-                    'price': str(entry_order.price),
-                    'quantity': str(entry_order.quantity)
-                }
+                    "order_id": entry_order.order_id,
+                    "status": entry_order.status.value,
+                    "price": str(entry_order.price),
+                    "quantity": str(entry_order.quantity),
+                },
             )
 
             # Log successful execution
@@ -1020,82 +1064,81 @@ class OrderExecutionManager:
             )
 
         except ClientError as e:
-            # Task 6.6: Audit log order rejection
+            # Audit log order rejection
             self.audit_logger.log_order_rejected(
                 symbol=signal.symbol,
                 order_data=order_params,
                 error={
-                    'status_code': e.status_code,
-                    'error_code': e.error_code,
-                    'error_message': e.error_message
-                }
+                    "status_code": e.status_code,
+                    "error_code": e.error_code,
+                    "error_message": e.error_message,
+                },
             )
 
             # Binance API errors (4xx status codes)
             self.logger.error(
-                f"Entry order rejected by Binance: "
-                f"code={e.error_code}, msg={e.error_message}"
+                f"Entry order rejected by Binance: " f"code={e.error_code}, msg={e.error_message}"
             )
-            raise OrderRejectedError(
-                f"Binance rejected order: {e.error_message}"
-            ) from e
+            raise OrderRejectedError(f"Binance rejected order: {e.error_message}") from e
 
         except ServerError as e:
-            # Task 6.6: Handle server errors
+            # Handle server errors and audit log
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="execute_signal",
                 symbol=signal.symbol,
                 order_data=order_params,
-                error={
-                    'status_code': e.status_code,
-                    'message': e.message
-                }
+                error={"status_code": e.status_code, "message": e.message},
             )
 
             self.logger.error(
-                f"Binance server error placing order: "
-                f"status={e.status_code}, msg={e.message}"
+                f"Binance server error placing order: " f"status={e.status_code}, msg={e.message}"
             )
-            raise OrderExecutionError(
-                f"Binance server error: {e.message}"
-            ) from e
+            raise OrderExecutionError(f"Binance server error: {e.message}") from e
 
         except Exception as e:
             # Unexpected errors (network, parsing, etc.)
-            self.logger.error(
-                f"Entry order execution failed: {type(e).__name__}: {e}"
-            )
-            raise OrderExecutionError(
-                f"Failed to execute order: {e}"
-            ) from e
+            self.logger.error(f"Entry order execution failed: {type(e).__name__}: {e}")
+            raise OrderExecutionError(f"Failed to execute order: {e}") from e
 
-        # 7. Check if TP/SL orders are needed
+        # Check if TP/SL orders are needed
         tpsl_orders: list[Order] = []
 
         # Only place TP/SL for entry signals (not for close signals)
         if signal.signal_type in (SignalType.LONG_ENTRY, SignalType.SHORT_ENTRY):
-            # 8a. Determine TP/SL side (opposite of entry side)
-            # For LONG_ENTRY: entry is BUY → TP/SL are SELL
-            # For SHORT_ENTRY: entry is SELL → TP/SL are BUY
-            tpsl_side = (
-                OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
-            )
+            # Cancel all existing orders before placing new TP/SL orders
+            # This prevents orphaned TP/SL orders from previous positions
+            try:
+                cancelled_count = self.cancel_all_orders(signal.symbol)
+                if cancelled_count > 0:
+                    self.logger.info(
+                        f"Cancelled {cancelled_count} existing orders "
+                        f"before placing new TP/SL orders"
+                    )
+            except Exception as e:
+                # Log warning but continue - don't fail the entire order due to cancellation failure
+                self.logger.warning(
+                    f"Failed to cancel existing orders: {e}. "
+                    f"Proceeding with TP/SL placement anyway."
+                )
 
-            # 8b. Place TP order
+            # Determine TP/SL side (opposite of entry side)
+            # LONG_ENTRY: entry is BUY → TP/SL are SELL
+            # SHORT_ENTRY: entry is SELL → TP/SL are BUY
+            tpsl_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+
+            # Place TP order
             tp_order = self._place_tp_order(signal, tpsl_side)
             if tp_order:
                 tpsl_orders.append(tp_order)
 
-            # 8c. Place SL order
+            # Place SL order
             sl_order = self._place_sl_order(signal, tpsl_side)
             if sl_order:
                 tpsl_orders.append(sl_order)
 
-            # 8e. Log TP/SL summary
-            self.logger.info(
-                f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed"
-            )
+            # Log TP/SL placement summary
+            self.logger.info(f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed")
 
             if len(tpsl_orders) < 2:
                 self.logger.warning(
@@ -1103,7 +1146,7 @@ class OrderExecutionManager:
                     f"only {len(tpsl_orders)}/2 exit orders placed"
                 )
 
-        # 9. Return entry order and TP/SL orders
+        # Return entry order and TP/SL orders
         return (entry_order, tpsl_orders)
 
     def get_position(self, symbol: str) -> Optional[Position]:
@@ -1142,12 +1185,24 @@ class OrderExecutionManager:
             response = self.client.get_position_risk(symbol=symbol)
 
             # 4. Parse response
-            if not response or len(response) == 0:
+            if not response:
                 self.logger.warning(f"No position data returned for {symbol}")
                 return None
 
-            position_data = response[0]  # First element
-            position_amt = float(position_data["positionAmt"])
+            # Handle Binance API response structure
+            unwrapped = self._unwrap_response(response)
+
+            if isinstance(unwrapped, list):
+                # Direct list response or unwrapped data list
+                if len(unwrapped) == 0:
+                    self.logger.info(f"No active position for {symbol} (empty data)")
+                    return None
+                position_data = unwrapped[0]
+            else:
+                raise OrderExecutionError(f"Unexpected response type: {type(unwrapped).__name__}")
+
+            # Extract position amount
+            position_amt = float(position_data.get("positionAmt", 0))
 
             # 5. Check if position exists
             if position_amt == 0:
@@ -1160,7 +1215,7 @@ class OrderExecutionManager:
 
             # 7. Extract required fields
             entry_price = float(position_data["entryPrice"])
-            leverage = int(position_data["leverage"])
+            leverage = int(position_data.get("leverage", 1))  # Default to 1x if not provided
             unrealized_pnl = float(position_data["unRealizedProfit"])
 
             # 8. Extract optional liquidation price
@@ -1178,7 +1233,7 @@ class OrderExecutionManager:
                 quantity=quantity,
                 leverage=leverage,
                 unrealized_pnl=unrealized_pnl,
-                liquidation_price=liquidation_price
+                liquidation_price=liquidation_price,
             )
 
             self.logger.info(
@@ -1186,9 +1241,41 @@ class OrderExecutionManager:
                 f"PnL: {unrealized_pnl}"
             )
 
+            # Audit log: position query successful
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.POSITION_QUERY,
+                    operation="get_position",
+                    symbol=symbol,
+                    response={
+                        "has_position": True,
+                        "position_amt": quantity,
+                        "entry_price": entry_price,
+                        "side": side,
+                        "unrealized_pnl": unrealized_pnl,
+                    },
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             return position
 
         except ClientError as e:
+            # Audit log: API error during position query
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="get_position",
+                    symbol=symbol,
+                    error={"error_code": e.error_code, "error_message": e.error_message},
+                )
+            except Exception:
+                pass  # Don't double-log
+
             # Handle Binance API errors
             if e.error_code == -1121:
                 raise ValidationError(f"Invalid symbol: {symbol}")
@@ -1199,6 +1286,19 @@ class OrderExecutionManager:
                     f"Position query failed: code={e.error_code}, msg={e.error_message}"
                 )
         except (KeyError, ValueError, TypeError) as e:
+            # Audit log: parsing error
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="get_position",
+                    symbol=symbol,
+                    error={"error_type": type(e).__name__, "error_message": str(e)},
+                )
+            except Exception:
+                pass  # Don't double-log
+
             raise OrderExecutionError(f"Failed to parse position data: {e}")
 
     def get_account_balance(self) -> float:
@@ -1225,13 +1325,23 @@ class OrderExecutionManager:
             # 2. Call Binance API
             response = self.client.account()
 
-            # 3. Extract assets array
-            if "assets" not in response:
+            # 3. Extract account data
+            # Handle Binance API response structure
+            account_data = self._unwrap_response(response)
+
+            if not isinstance(account_data, dict):
+                raise OrderExecutionError(
+                    f"Unexpected account response type: {type(account_data).__name__}"
+                )
+
+            # 4. Extract assets array
+            if "assets" not in account_data:
+                self.logger.error(f"Account data keys: {list(account_data.keys())}")
                 raise OrderExecutionError("Account response missing 'assets' field")
 
-            assets = response["assets"]
+            assets = account_data["assets"]
 
-            # 4. Find USDT balance
+            # 5. Find USDT balance
             usdt_balance = None
 
             for asset in assets:
@@ -1244,8 +1354,21 @@ class OrderExecutionManager:
                 self.logger.warning("USDT not found in account assets, returning 0.0")
                 return 0.0
 
-            # 5. Log and return
+            # 6. Log and return
             self.logger.info(f"USDT balance: {usdt_balance:.2f}")
+
+            # Audit log: balance query successful
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.BALANCE_QUERY,
+                    operation="get_account_balance",
+                    response={"balance": usdt_balance},
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
             return usdt_balance
 
         except ClientError as e:
@@ -1293,19 +1416,40 @@ class OrderExecutionManager:
 
             # 4. Parse response
             cancelled_count = 0
+            unwrapped = self._unwrap_response(response)
 
-            if isinstance(response, list):
+            if isinstance(unwrapped, list):
                 # Response is a list of cancelled order objects
-                cancelled_count = len(response)
+                cancelled_count = len(unwrapped)
                 self.logger.info(f"Cancelled {cancelled_count} orders for {symbol}")
-            elif isinstance(response, dict) and response.get("code") == 200:
-                # Response is a success message (no orders to cancel)
+            elif isinstance(unwrapped, dict) and unwrapped.get("code") == 200:
+                # Response is a success message (no orders to cancel or success msg)
                 cancelled_count = 0
-                self.logger.info(f"No open orders to cancel for {symbol}")
+                self.logger.info(f"Success: {unwrapped.get('msg', 'Orders cancelled')} for {symbol}")
             else:
                 # Unexpected response format
                 self.logger.warning(f"Unexpected response format: {response}")
                 cancelled_count = 0
+
+            # Audit log: order cancellation
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.ORDER_CANCELLED,
+                    operation="cancel_all_orders",
+                    symbol=symbol,
+                    response={
+                        "cancelled_count": cancelled_count,
+                        "order_ids": (
+                            [o.get("orderId") for o in response]
+                            if isinstance(response, list)
+                            else []
+                        ),
+                    },
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
 
             return cancelled_count
 
@@ -1321,3 +1465,244 @@ class OrderExecutionManager:
                 )
         except Exception as e:
             raise OrderExecutionError(f"Unexpected error during order cancellation: {e}")
+
+    async def get_all_positions(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """
+        Query all open positions for given symbols.
+
+        Args:
+            symbols: List of trading symbols (e.g., ['BTCUSDT', 'ETHUSDT'])
+
+        Returns:
+            List of position dictionaries with keys:
+            - symbol: str
+            - positionAmt: str (quantity, negative for SHORT)
+            - entryPrice: str
+            - unrealizedProfit: str
+            - leverage: str
+
+        Raises:
+            OrderExecutionError: API call fails
+
+        Example:
+            >>> positions = await manager.get_all_positions(['BTCUSDT'])
+            >>> for pos in positions:
+            ...     print(f"{pos['symbol']}: {pos['positionAmt']} @ {pos['entryPrice']}")
+        """
+        self.logger.info(f"Querying positions for symbols: {symbols}")
+
+        try:
+            # Call Binance API without symbol parameter to get all positions
+            response = self.client.get_position_risk()
+
+            # Handle Binance API response structure
+            if isinstance(response, dict) and "data" in response:
+                position_list = response["data"]
+            elif isinstance(response, list):
+                position_list = response
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected response type: {type(response).__name__}"
+                )
+
+            # Filter to requested symbols with non-zero positions
+            filtered_positions = []
+            for pos_data in position_list:
+                symbol = pos_data.get("symbol")
+                position_amt = float(pos_data.get("positionAmt", 0))
+
+                # Only include positions for requested symbols with non-zero quantity
+                if symbol in symbols and position_amt != 0:
+                    filtered_positions.append({
+                        "symbol": symbol,
+                        "positionAmt": pos_data.get("positionAmt"),
+                        "entryPrice": pos_data.get("entryPrice"),
+                        "unrealizedProfit": pos_data.get("unRealizedProfit"),
+                        "leverage": pos_data.get("leverage"),
+                        "liquidationPrice": pos_data.get("liquidationPrice"),
+                    })
+
+            self.logger.info(f"Found {len(filtered_positions)} open positions")
+
+            # Audit log
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.POSITION_QUERY,
+                    operation="get_all_positions",
+                    data={
+                        "symbols": symbols,
+                        "positions_count": len(filtered_positions),
+                    },
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
+            return filtered_positions
+
+        except ClientError as e:
+            # Audit log API error
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="get_all_positions",
+                    error={
+                        "status_code": e.status_code,
+                        "error_code": e.error_code,
+                        "error_message": e.error_message,
+                    },
+                )
+            except Exception:
+                pass
+
+            raise OrderExecutionError(
+                f"Position query failed: code={e.error_code}, msg={e.error_message}"
+            )
+        except Exception as e:
+            raise OrderExecutionError(f"Unexpected error querying positions: {e}")
+
+    async def execute_market_close(
+        self,
+        symbol: str,
+        position_amt: float,
+        side: str,
+        reduce_only: bool = True,
+    ) -> Dict[str, Any]:
+        """
+        Close position with market order (reduceOnly=True).
+
+        Args:
+            symbol: Trading symbol
+            position_amt: Position size (absolute value)
+            side: "BUY" for closing SHORT, "SELL" for closing LONG
+            reduce_only: If True, only reduces position (default: True for security)
+
+        Returns:
+            Order response from Binance API with keys:
+            - success: bool
+            - order_id: str (if successful)
+            - error: str (if failed)
+
+        Raises:
+            ValidationError: Invalid parameters
+            OrderExecutionError: API call fails critically
+
+        Security:
+            reduceOnly=True is enforced by default to prevent accidental new positions.
+
+        Example:
+            >>> result = await manager.execute_market_close(
+            ...     symbol='BTCUSDT',
+            ...     position_amt=0.1,
+            ...     side='SELL',  # Closing LONG position
+            ... )
+            >>> if result['success']:
+            ...     print(f"Position closed: {result['order_id']}")
+        """
+        # Validate inputs
+        if not symbol or not isinstance(symbol, str):
+            raise ValidationError(f"Invalid symbol: {symbol}")
+        if position_amt <= 0:
+            raise ValidationError(f"Position amount must be > 0, got {position_amt}")
+        if side not in ("BUY", "SELL"):
+            raise ValidationError(f"Side must be BUY or SELL, got {side}")
+
+        # SECURITY: Enforce reduceOnly=True
+        if not reduce_only:
+            self.logger.warning(
+                "SECURITY: reduceOnly=False requested but overridden to True for safety"
+            )
+            reduce_only = True
+
+        self.logger.info(
+            f"Closing position: {symbol} {side} {position_amt} (reduceOnly={reduce_only})"
+        )
+
+        try:
+            # Place market order with reduceOnly
+            response = self.client.new_order(
+                symbol=symbol,
+                side=side,
+                type=OrderType.MARKET.value,
+                quantity=position_amt,
+                reduceOnly=reduce_only,
+            )
+
+            # Parse response
+            if isinstance(response, dict) and "data" in response:
+                order_data = response["data"]
+            elif isinstance(response, dict):
+                order_data = response
+            else:
+                raise OrderExecutionError(
+                    f"Unexpected response type: {type(response).__name__}"
+                )
+
+            order_id = str(order_data.get("orderId"))
+            status = order_data.get("status")
+
+            # Audit log success
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.ORDER_PLACED,
+                    operation="execute_market_close",
+                    symbol=symbol,
+                    response={
+                        "order_id": order_id,
+                        "status": status,
+                        "side": side,
+                        "quantity": position_amt,
+                        "reduce_only": reduce_only,
+                    },
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
+            self.logger.info(
+                f"Position close order executed: ID={order_id}, status={status}"
+            )
+
+            return {
+                "success": True,
+                "order_id": order_id,
+                "status": status,
+            }
+
+        except ClientError as e:
+            # Audit log rejection
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.ORDER_REJECTED,
+                    operation="execute_market_close",
+                    symbol=symbol,
+                    error={
+                        "error_code": e.error_code,
+                        "error_message": e.error_message,
+                    },
+                )
+            except Exception:
+                pass
+
+            self.logger.error(
+                f"Market close order rejected: code={e.error_code}, msg={e.error_message}"
+            )
+
+            return {
+                "success": False,
+                "error": f"Order rejected: {e.error_message}",
+            }
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error during market close: {e}")
+
+            return {
+                "success": False,
+                "error": f"Unexpected error: {str(e)}",
+            }

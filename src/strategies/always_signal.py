@@ -68,23 +68,21 @@ class AlwaysSignalStrategy(BaseStrategy):
         self.logger = logging.getLogger(__name__)
 
         # Signal generation mode
-        self.signal_mode: str = config.get('signal_type', 'ALTERNATE').upper()
-        if self.signal_mode not in ['LONG', 'SHORT', 'ALTERNATE']:
+        self.signal_mode: str = config.get("signal_type", "ALTERNATE").upper()
+        if self.signal_mode not in ["LONG", "SHORT", "ALTERNATE"]:
             raise ValueError(
                 f"signal_type must be 'LONG', 'SHORT', or 'ALTERNATE', got '{self.signal_mode}'"
             )
 
         # Risk management parameters
-        self.risk_reward_ratio: float = config.get('risk_reward_ratio', 2.0)
-        self.stop_loss_percent: float = config.get('stop_loss_percent', 0.02)
+        self.risk_reward_ratio: float = config.get("risk_reward_ratio", 2.0)
+        self.stop_loss_percent: float = config.get("stop_loss_percent", 0.02)
 
         # Internal state for alternating signals
         self._last_signal_type: Optional[SignalType] = None
 
         # Warn user this is a test strategy
-        self.logger.warning(
-            "⚠️ AlwaysSignalStrategy loaded - TEST ONLY, DO NOT USE WITH REAL MONEY"
-        )
+        self.logger.warning("⚠️ AlwaysSignalStrategy loaded - TEST ONLY, DO NOT USE WITH REAL MONEY")  # noqa: E501
         self.logger.info(f"Signal mode: {self.signal_mode}")
 
     async def analyze(self, candle: Candle) -> Optional[Signal]:
@@ -110,13 +108,13 @@ class AlwaysSignalStrategy(BaseStrategy):
         self.update_buffer(candle)
 
         # Determine signal type based on mode
-        if self.signal_mode == 'ALTERNATE':
+        if self.signal_mode == "ALTERNATE":
             # Alternate between LONG and SHORT
             if self._last_signal_type == SignalType.LONG_ENTRY:
                 signal_type = SignalType.SHORT_ENTRY
             else:
                 signal_type = SignalType.LONG_ENTRY
-        elif self.signal_mode == 'LONG':
+        elif self.signal_mode == "LONG":
             signal_type = SignalType.LONG_ENTRY
         else:  # SHORT
             signal_type = SignalType.SHORT_ENTRY
@@ -150,11 +148,11 @@ class AlwaysSignalStrategy(BaseStrategy):
 
         # Calculate TP and SL based on signal type
         if signal_type == SignalType.LONG_ENTRY:
-            tp_price = self.calculate_take_profit(entry_price, 'LONG')
-            sl_price = self.calculate_stop_loss(entry_price, 'LONG')
+            tp_price = self.calculate_take_profit(entry_price, "LONG")
+            sl_price = self.calculate_stop_loss(entry_price, "LONG")
         else:  # SHORT_ENTRY
-            tp_price = self.calculate_take_profit(entry_price, 'SHORT')
-            sl_price = self.calculate_stop_loss(entry_price, 'SHORT')
+            tp_price = self.calculate_take_profit(entry_price, "SHORT")
+            sl_price = self.calculate_stop_loss(entry_price, "SHORT")
 
         return Signal(
             signal_type=signal_type,
@@ -163,7 +161,7 @@ class AlwaysSignalStrategy(BaseStrategy):
             take_profit=tp_price,
             stop_loss=sl_price,
             strategy_name=self.__class__.__name__,
-            timestamp=datetime.now(timezone.utc)
+            timestamp=datetime.now(timezone.utc),
         )
 
     def calculate_take_profit(self, entry_price: float, side: str) -> float:
@@ -180,7 +178,7 @@ class AlwaysSignalStrategy(BaseStrategy):
         sl_distance = entry_price * self.stop_loss_percent
         tp_distance = sl_distance * self.risk_reward_ratio
 
-        if side == 'LONG':
+        if side == "LONG":
             return entry_price + tp_distance
         else:  # SHORT
             return entry_price - tp_distance
@@ -198,7 +196,7 @@ class AlwaysSignalStrategy(BaseStrategy):
         """
         sl_distance = entry_price * self.stop_loss_percent
 
-        if side == 'LONG':
+        if side == "LONG":
             return entry_price - sl_distance
         else:  # SHORT
             return entry_price + sl_distance

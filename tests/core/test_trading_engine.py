@@ -6,9 +6,8 @@ Separation of Concerns pattern.
 """
 
 import asyncio
-import logging
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
 
@@ -21,7 +20,8 @@ from src.models.signal import Signal, SignalType
 @pytest.fixture
 def trading_engine():
     """Create TradingEngine with mocked components."""
-    engine = TradingEngine()
+    mock_audit_logger = MagicMock()
+    engine = TradingEngine(audit_logger=mock_audit_logger)
 
     # Mock all required components
     engine.event_bus = Mock()
@@ -39,7 +39,9 @@ def trading_engine():
     engine.order_manager = Mock()
     engine.order_manager.get_position = Mock(return_value=None)
     engine.order_manager.get_account_balance = Mock(return_value=1000.0)
-    engine.order_manager.execute_signal = Mock(return_value=(Mock(order_id='TEST123', quantity=0.1), []))
+    engine.order_manager.execute_signal = Mock(
+        return_value=(Mock(order_id="TEST123", quantity=0.1), [])
+    )
 
     engine.risk_manager = Mock()
     engine.risk_manager.validate_risk = Mock(return_value=True)
@@ -49,6 +51,10 @@ def trading_engine():
     engine.config_manager.trading_config = Mock(leverage=10)
 
     engine.logger = Mock()
+
+    # Mock trading_bot (required by run() method)
+    engine.trading_bot = Mock()
+    engine.trading_bot.set_event_loop = Mock()
 
     return engine
 
@@ -80,6 +86,7 @@ class TestTradingEngineInit:
         mock_order_manager = Mock()
         mock_risk_manager = Mock()
         mock_config_manager = Mock()
+        mock_trading_bot = Mock()
 
         # Inject components
         engine.set_components(
@@ -88,7 +95,8 @@ class TestTradingEngineInit:
             strategy=mock_strategy,
             order_manager=mock_order_manager,
             risk_manager=mock_risk_manager,
-            config_manager=mock_config_manager
+            config_manager=mock_config_manager,
+            trading_bot=mock_trading_bot,
         )
 
         # Verify injection
@@ -114,7 +122,8 @@ class TestTradingEngineInit:
             strategy=Mock(),
             order_manager=Mock(),
             risk_manager=Mock(),
-            config_manager=Mock()
+            config_manager=Mock(),
+            trading_bot=Mock(),
         )
 
         # Verify handlers subscribed
@@ -138,19 +147,19 @@ class TestEventHandlers:
         # Mock strategy to return signal
         mock_signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
-            symbol='BTCUSDT',
+            symbol="BTCUSDT",
             entry_price=50000.0,
             take_profit=55000.0,
             stop_loss=48000.0,
-            strategy_name='test',
-            timestamp=datetime.now(timezone.utc)
+            strategy_name="test",
+            timestamp=datetime.now(timezone.utc),
         )
         trading_engine.strategy.analyze.return_value = mock_signal
 
         # Create candle event
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='1h',
+            symbol="BTCUSDT",
+            interval="1h",
             open_time=datetime.now(timezone.utc),
             close_time=datetime.now(timezone.utc),
             open=49000.0,
@@ -173,19 +182,19 @@ class TestEventHandlers:
         # Mock strategy to return signal
         mock_signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
-            symbol='BTCUSDT',
+            symbol="BTCUSDT",
             entry_price=50000.0,
             take_profit=55000.0,
             stop_loss=48000.0,
-            strategy_name='test',
-            timestamp=datetime.now(timezone.utc)
+            strategy_name="test",
+            timestamp=datetime.now(timezone.utc),
         )
         trading_engine.strategy.analyze.return_value = mock_signal
 
         # Create candle event
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='1h',
+            symbol="BTCUSDT",
+            interval="1h",
             open_time=datetime.now(timezone.utc),
             close_time=datetime.now(timezone.utc),
             open=49000.0,
@@ -205,11 +214,11 @@ class TestEventHandlers:
 
         # Check event type and queue
         published_event = call_args[0][0]
-        queue_name = call_args[1]['queue_name']
+        queue_name = call_args[1]["queue_name"]
 
         assert published_event.event_type == EventType.SIGNAL_GENERATED
         assert published_event.data == mock_signal
-        assert queue_name == 'signal'
+        assert queue_name == "signal"
 
     @pytest.mark.asyncio
     async def test_on_candle_closed_handles_no_signal(self, trading_engine):
@@ -218,8 +227,8 @@ class TestEventHandlers:
         trading_engine.strategy.analyze.return_value = None
 
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='1h',
+            symbol="BTCUSDT",
+            interval="1h",
             open_time=datetime.now(timezone.utc),
             close_time=datetime.now(timezone.utc),
             open=50000.0,
@@ -241,12 +250,12 @@ class TestEventHandlers:
         """Verify _on_signal_generated() validates and executes signal."""
         signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
-            symbol='ETHUSDT',
+            symbol="ETHUSDT",
             entry_price=3000.0,
             take_profit=3300.0,
             stop_loss=2900.0,
-            strategy_name='test',
-            timestamp=datetime.now(timezone.utc)
+            strategy_name="test",
+            timestamp=datetime.now(timezone.utc),
         )
         event = Event(EventType.SIGNAL_GENERATED, signal)
 
@@ -267,12 +276,12 @@ class TestEventHandlers:
 
         signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
-            symbol='BTCUSDT',
+            symbol="BTCUSDT",
             entry_price=50000.0,
             take_profit=55000.0,
             stop_loss=48000.0,
-            strategy_name='test',
-            timestamp=datetime.now(timezone.utc)
+            strategy_name="test",
+            timestamp=datetime.now(timezone.utc),
         )
         event = Event(EventType.SIGNAL_GENERATED, signal)
 
@@ -287,9 +296,9 @@ class TestEventHandlers:
         """Verify _on_order_filled() logs order details."""
         # Mock order
         mock_order = Mock()
-        mock_order.order_id = 'ORDER123'
-        mock_order.symbol = 'BTCUSDT'
-        mock_order.side = Mock(value='BUY')
+        mock_order.order_id = "ORDER123"
+        mock_order.symbol = "BTCUSDT"
+        mock_order.side = Mock(value="BUY")
         mock_order.quantity = 1.5
         mock_order.price = 50000.0
 
@@ -308,8 +317,8 @@ class TestEventHandlers:
         trading_engine.strategy.analyze.side_effect = RuntimeError("Strategy error")
 
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='1h',
+            symbol="BTCUSDT",
+            interval="1h",
             open_time=datetime.now(timezone.utc),
             close_time=datetime.now(timezone.utc),
             open=50000.0,
@@ -333,6 +342,7 @@ class TestLifecycle:
     @pytest.mark.asyncio
     async def test_run_starts_eventbus_and_collector(self, trading_engine):
         """Verify run() starts EventBus and DataCollector."""
+
         # Mock EventBus.start() to return quickly
         async def quick_complete():
             await asyncio.sleep(0.01)
@@ -394,7 +404,7 @@ class TestIntegration:
         # Track published events
         published_events = []
 
-        async def capture_publish(event, queue_name='data'):
+        async def capture_publish(event, queue_name="data"):
             published_events.append((event, queue_name))
 
         trading_engine.event_bus.publish = capture_publish
@@ -402,23 +412,23 @@ class TestIntegration:
         # Mock strategy to return signal
         expected_signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
-            symbol='BTCUSDT',
+            symbol="BTCUSDT",
             entry_price=50000.0,
             take_profit=55000.0,
             stop_loss=48000.0,
-            strategy_name='test',
-            timestamp=datetime.now(timezone.utc)
+            strategy_name="test",
+            timestamp=datetime.now(timezone.utc),
         )
         trading_engine.strategy.analyze.return_value = expected_signal
 
         # Mock order execution
-        mock_order = Mock(order_id='ORDER123', quantity=0.1)
+        mock_order = Mock(order_id="ORDER123", quantity=0.1)
         trading_engine.order_manager.execute_signal.return_value = (mock_order, [])
 
         # Create candle and trigger handler
         candle = Candle(
-            symbol='BTCUSDT',
-            interval='1h',
+            symbol="BTCUSDT",
+            interval="1h",
             open_time=datetime.now(timezone.utc),
             close_time=datetime.now(timezone.utc),
             open=49000.0,
@@ -437,7 +447,7 @@ class TestIntegration:
         signal_event, queue = published_events[0]
         assert signal_event.event_type == EventType.SIGNAL_GENERATED
         assert signal_event.data == expected_signal
-        assert queue == 'signal'
+        assert queue == "signal"
 
         # Process signal → order
         await trading_engine._on_signal_generated(signal_event)
@@ -447,7 +457,7 @@ class TestIntegration:
         order_event, queue = published_events[1]
         assert order_event.event_type == EventType.ORDER_FILLED
         assert order_event.data == mock_order
-        assert queue == 'order'
+        assert queue == "order"
 
         # Verify strategy was called
         trading_engine.strategy.analyze.assert_called_once_with(candle)

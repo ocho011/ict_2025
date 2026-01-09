@@ -5,12 +5,13 @@ This module provides a decorator for implementing retry logic with exponential
 backoff for API operations that may fail due to transient errors like rate
 limits or temporary server issues.
 """
-import time
+
 import logging
+import time
 from functools import wraps
 from typing import Callable, Tuple, Type
-from binance.error import ClientError, ServerError
 
+from binance.error import ClientError, ServerError
 
 # Error codes that should trigger retry
 RETRYABLE_ERROR_CODES = {
@@ -20,11 +21,11 @@ RETRYABLE_ERROR_CODES = {
 
 # HTTP status codes that should trigger retry
 RETRYABLE_HTTP_STATUS = {
-    429,    # Too many requests
-    500,    # Internal server error
-    502,    # Bad gateway
-    503,    # Service unavailable
-    504,    # Gateway timeout
+    429,  # Too many requests
+    500,  # Internal server error
+    502,  # Bad gateway
+    503,  # Service unavailable
+    504,  # Gateway timeout
 }
 
 
@@ -66,6 +67,7 @@ def retry_with_backoff(
         >>> # Will retry up to 2 times with 0.5s, 1.0s delays
         >>> result = api_call()
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
@@ -86,22 +88,19 @@ def retry_with_backoff(
 
                     if isinstance(e, ClientError):
                         error_info = {
-                            'status_code': e.status_code,
-                            'error_code': e.error_code,
-                            'error_message': e.error_message
+                            "status_code": e.status_code,
+                            "error_code": e.error_code,
+                            "error_message": e.error_message,
                         }
 
                         # Retry only on retryable error codes or HTTP status
                         should_retry = (
-                            e.error_code in RETRYABLE_ERROR_CODES or
-                            e.status_code in RETRYABLE_HTTP_STATUS
+                            e.error_code in RETRYABLE_ERROR_CODES
+                            or e.status_code in RETRYABLE_HTTP_STATUS
                         )
 
                     elif isinstance(e, ServerError):
-                        error_info = {
-                            'status_code': e.status_code,
-                            'message': e.message
-                        }
+                        error_info = {"status_code": e.status_code, "message": e.message}
 
                         # Retry on all server errors (5xx)
                         should_retry = True
@@ -109,8 +108,7 @@ def retry_with_backoff(
                     # If this is the last attempt or error is not retryable, re-raise
                     if attempt == max_retries or not should_retry:
                         logger.error(
-                            f"{func.__name__} failed after {attempt + 1} attempts: "
-                            f"{error_info}"
+                            f"{func.__name__} failed after {attempt + 1} attempts: " f"{error_info}"
                         )
                         raise
 
@@ -128,4 +126,5 @@ def retry_with_backoff(
             raise last_exception
 
         return wrapper
+
     return decorator

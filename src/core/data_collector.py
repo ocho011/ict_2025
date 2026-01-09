@@ -6,13 +6,14 @@ from Binance USDT-M Futures markets via WebSocket, with REST API support for
 historical data retrieval.
 """
 
+import asyncio
+import json
+import logging
+from datetime import datetime, timezone
+from typing import Callable, List, Optional
+
 from binance.um_futures import UMFutures
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
-from collections import deque
-from datetime import datetime, timezone
-from typing import Callable, Dict, List, Optional
-import asyncio
-import logging
 
 from src.models.candle import Candle
 
@@ -26,7 +27,7 @@ class BinanceDataCollector:
     - REST API for historical candle retrieval
 
     The collector supports both testnet and mainnet environments, with automatic
-    symbol normalization and thread-safe buffer management using asyncio.Queue.
+    symbol normalization.
 
     Example:
         >>> # Explicit lifecycle management
@@ -53,7 +54,6 @@ class BinanceDataCollector:
         MAINNET_BASE_URL: Binance Futures mainnet REST API endpoint
         TESTNET_WS_URL: Binance Futures testnet WebSocket endpoint
         MAINNET_WS_URL: Binance Futures mainnet WebSocket endpoint
-        DEFAULT_BUFFER_SIZE: Default maximum candles per buffer (500)
     """
 
     # Environment URLs
@@ -61,9 +61,6 @@ class BinanceDataCollector:
     MAINNET_BASE_URL = "https://fapi.binance.com"
     TESTNET_WS_URL = "wss://stream.binancefuture.com"
     MAINNET_WS_URL = "wss://fstream.binance.com"
-
-    # Buffer Configuration
-    DEFAULT_BUFFER_SIZE = 500  # ~8.3 hours for 1m interval
 
     def __init__(
         self,
@@ -73,7 +70,6 @@ class BinanceDataCollector:
         intervals: List[str],
         is_testnet: bool = True,
         on_candle_callback: Optional[Callable[[Candle], None]] = None,
-        buffer_size: int = DEFAULT_BUFFER_SIZE
     ) -> None:
         """
         Initialize BinanceDataCollector.
@@ -86,8 +82,6 @@ class BinanceDataCollector:
             is_testnet: Use testnet (True) or mainnet (False). Default is True.
             on_candle_callback: Optional callback function invoked on each candle update.
                                Signature: callback(candle: Candle) -> None
-            buffer_size: Maximum number of candles to buffer per symbol/interval pair.
-                        Default is 500.
 
         Note:
             - Constructor does NOT start streaming. Call start_streaming() explicitly.
@@ -110,19 +104,10 @@ class BinanceDataCollector:
         self.symbols = [s.upper() for s in symbols]  # Normalize to uppercase
         self.intervals = intervals
         self.on_candle_callback = on_candle_callback
-        self.buffer_size = buffer_size
-
-        # Initialize candle buffers (lazy initialization per symbol/interval)
-        # Key format: '{SYMBOL}_{INTERVAL}' -> deque
-        self._candle_buffers: Dict[str, deque] = {}
 
         # Initialize REST client for historical data and account queries
         base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL
-        self.rest_client = UMFutures(
-            key=api_key,
-            secret=api_secret,
-            base_url=base_url
-        )
+        self.rest_client = UMFutures(key=api_key, secret=api_secret, base_url=base_url)
 
         # WebSocket client (initialized in start_streaming)
         self.ws_client: Optional[UMFuturesWebsocketClient] = None
@@ -163,7 +148,6 @@ class BinanceDataCollector:
         """
         return self._is_connected and self.ws_client is not None
 
-
     def _handle_kline_message(self, _, message) -> None:
         """
         Handle incoming kline WebSocket messages.
@@ -183,9 +167,8 @@ class BinanceDataCollector:
             3. Convert timestamps (ms → datetime)
             4. Convert prices/volume (str → float)
             5. Create Candle object (validates in __post_init__)
-            6. Add candle to buffer for historical access
-            7. Invoke user callback if configured
-            8. Log debug info on success
+            6. Invoke user callback if configured
+            7. Log debug info on success
 
         Error Handling:
             - JSONDecodeError: Invalid JSON string
@@ -200,76 +183,62 @@ class BinanceDataCollector:
         try:
             # Step 0: Parse JSON string if needed
             if isinstance(message, str):
-                import json
                 message = json.loads(message)
 
             # Step 1: Validate message type
-            event_type = message.get('e')
-            if event_type != 'kline':
+            event_type = message.get("e")
+            if event_type != "kline":
                 # WebSocket initialization messages (subscription confirmations, etc.)
                 # are expected and can be safely ignored without logging
-                if event_type is not None:
-                    # Only log if it's an actual event type we don't recognize
-                    self.logger.debug(
-                        f"Received non-kline message: type='{event_type}'"
-                    )
+                # Note: Debug logging removed for hot path performance
                 return
 
             # Step 2: Extract kline data
-            kline = message.get('k')
+            kline = message.get("k")
             if not kline:
-                self.logger.error(
-                    f"Message missing 'k' (kline data): {message}"
-                )
+                self.logger.error(f"Message missing 'k' (kline data): {message}")
                 return
 
             # Step 3-4: Parse and convert all fields
             candle = Candle(
-                symbol=kline['s'],
-                interval=kline['i'],
-                open_time=datetime.fromtimestamp(kline['t'] / 1000, tz=timezone.utc).replace(tzinfo=None),
-                close_time=datetime.fromtimestamp(kline['T'] / 1000, tz=timezone.utc).replace(tzinfo=None),
-                open=float(kline['o']),
-                high=float(kline['h']),
-                low=float(kline['l']),
-                close=float(kline['c']),
-                volume=float(kline['v']),
-                is_closed=kline['x']
+                symbol=kline["s"],
+                interval=kline["i"],
+                open_time=datetime.fromtimestamp(kline["t"] / 1000, tz=timezone.utc).replace(
+                    tzinfo=None
+                ),
+                close_time=datetime.fromtimestamp(kline["T"] / 1000, tz=timezone.utc).replace(
+                    tzinfo=None
+                ),
+                open=float(kline["o"]),
+                high=float(kline["h"]),
+                low=float(kline["l"]),
+                close=float(kline["c"]),
+                volume=float(kline["v"]),
+                is_closed=kline["x"],
             )
-
-            # Step 5: Add candle to buffer
-            self.add_candle_to_buffer(candle)
 
             # Step 6: Invoke user callback if configured
             if self.on_candle_callback:
                 self.on_candle_callback(candle)
 
-            # Step 7: Log debug info
-            self.logger.debug(
-                f"Parsed candle: {candle.symbol} {candle.interval} "
-                f"@ {candle.close_time.isoformat()} "
-                f"(close={candle.close}, closed={candle.is_closed})"
-            )
+            # Note: Debug logging removed from hot path for performance
+            # Candle updates occur 4+ times per second and logging adds ~500μs overhead
 
         except KeyError as e:
             # Missing required field in kline data
             self.logger.error(
-                f"Missing required field in kline message: {e} | Message: {message}",
-                exc_info=True
+                f"Missing required field in kline message: {e} | Message: {message}", exc_info=True
             )
         except (ValueError, TypeError) as e:
             # Invalid data type (e.g., non-numeric string, wrong type)
             self.logger.error(
-                f"Invalid data type in kline message: {e} | Message: {message}",
-                exc_info=True
+                f"Invalid data type in kline message: {e} | Message: {message}", exc_info=True
             )
         except Exception as e:
             # Unexpected error (including Candle validation errors)
             self.logger.error(
-                f"Unexpected error parsing kline message: {e} | Message: {message}",
-                exc_info=True
+                f"Unexpected error parsing kline message: {e} | Message: {message}", exc_info=True
             )
-
 
     async def start_streaming(self) -> None:
         """
@@ -300,15 +269,12 @@ class BinanceDataCollector:
             # Select WebSocket URL based on environment
             stream_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL
 
-            self.logger.info(
-                f"Initializing WebSocket connection to {stream_url}"
-            )
+            self.logger.info(f"Initializing WebSocket connection to {stream_url}")
 
             # Initialize WebSocket client with message handler
             # IMPORTANT: on_message must be set during client initialization
             self.ws_client = UMFuturesWebsocketClient(
-                stream_url=stream_url,
-                on_message=self._handle_kline_message
+                stream_url=stream_url, on_message=self._handle_kline_message
             )
 
             # Subscribe to kline streams for all symbol/interval combinations
@@ -319,10 +285,7 @@ class BinanceDataCollector:
                     self.logger.debug(f"Subscribing to stream: {stream_name}")
 
                     # Subscribe without callback parameter (handled by on_message)
-                    self.ws_client.kline(
-                        symbol=symbol.lower(),
-                        interval=interval
-                    )
+                    self.ws_client.kline(symbol=symbol.lower(), interval=interval)
                     stream_count += 1
 
             # Update state flags
@@ -335,14 +298,10 @@ class BinanceDataCollector:
             )
 
         except Exception as e:
-            self.logger.error(
-                f"Failed to start WebSocket streaming: {e}",
-                exc_info=True
-            )
+            self.logger.error(f"Failed to start WebSocket streaming: {e}", exc_info=True)
             raise ConnectionError(f"WebSocket initialization failed: {e}")
 
-
-    def _parse_rest_kline(self, kline_data: List) -> Candle:
+    def _parse_rest_kline(self, kline_array: List) -> Candle:
         """
         Parse REST API kline array into a Candle object.
 
@@ -353,13 +312,13 @@ class BinanceDataCollector:
         [10] taker_buy_quote_asset_volume, [11] ignore
 
         Args:
-            kline_data: Raw kline array from Binance REST API
+            kline_array: Raw kline array from Binance REST API
 
         Returns:
             Candle object with parsed and validated data
 
         Raises:
-            ValueError: If kline_data format is invalid
+            ValueError: If kline_array format is invalid
             IndexError: If required array indices are missing
         """
         try:
@@ -368,36 +327,33 @@ class BinanceDataCollector:
             candle = Candle(
                 symbol="",  # Will be set by caller
                 interval="",  # Will be set by caller
-                open_time=datetime.fromtimestamp(int(kline_data[0]) / 1000, tz=timezone.utc).replace(tzinfo=None),
-                close_time=datetime.fromtimestamp(int(kline_data[6]) / 1000, tz=timezone.utc).replace(tzinfo=None),
-                open=float(kline_data[1]),
-                high=float(kline_data[2]),
-                low=float(kline_data[3]),
-                close=float(kline_data[4]),
-                volume=float(kline_data[5]),
-                is_closed=True  # Historical candles are always closed
+                open_time=datetime.fromtimestamp(
+                    int(kline_array[0]) / 1000, tz=timezone.utc
+                ).replace(tzinfo=None),
+                close_time=datetime.fromtimestamp(
+                    int(kline_array[6]) / 1000, tz=timezone.utc
+                ).replace(tzinfo=None),
+                open=float(kline_array[1]),
+                high=float(kline_array[2]),
+                low=float(kline_array[3]),
+                close=float(kline_array[4]),
+                volume=float(kline_array[5]),
+                is_closed=True,  # Historical candles are always closed
             )
             return candle
 
         except (IndexError, ValueError, TypeError) as e:
             self.logger.error(
-                f"Failed to parse REST kline data: {e} | Data: {kline_data}",
-                exc_info=True
+                f"Failed to parse REST kline data: {e} | Data: {kline_array}", exc_info=True
             )
             raise ValueError(f"Invalid kline data format: {e}")
 
-
-    def get_historical_candles(
-        self,
-        symbol: str,
-        interval: str,
-        limit: int = 500
-    ) -> List[Candle]:
+    def get_historical_candles(self, symbol: str, interval: str, limit: int = 500) -> List[Candle]:
         """
         Fetch historical kline data via Binance REST API.
 
-        Retrieves historical candlestick data for initial buffer population
-        or backfilling. All returned candles are marked as closed (is_closed=True).
+        Retrieves historical candlestick data for strategy initialization
+        or analysis. All returned candles are marked as closed (is_closed=True).
 
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT'). Will be normalized to uppercase.
@@ -423,17 +379,11 @@ class BinanceDataCollector:
         if not 1 <= limit <= 1000:
             raise ValueError(f"limit must be between 1 and 1000, got {limit}")
 
-        self.logger.info(
-            f"Fetching {limit} historical candles for {symbol} {interval}"
-        )
+        self.logger.info(f"Fetching {limit} historical candles for {symbol} {interval}")
 
         try:
             # Call Binance REST API
-            klines_data = self.rest_client.klines(
-                symbol=symbol,
-                interval=interval,
-                limit=limit
-            )
+            klines_data = self.rest_client.klines(symbol=symbol, interval=interval, limit=limit)
 
             # Parse each kline array into Candle object
             candles = []
@@ -444,14 +394,12 @@ class BinanceDataCollector:
                 candle.interval = interval
                 candles.append(candle)
 
-                # Pre-populate buffer with historical data
-                self.add_candle_to_buffer(candle)
-
             # Log success with time range if candles exist
             if candles:
                 self.logger.info(
                     f"Successfully retrieved {len(candles)} candles for {symbol} {interval} "
-                    f"(range: {candles[0].open_time.isoformat()} to {candles[-1].open_time.isoformat()})"
+                    f"(range: {candles[0].open_time.isoformat()} to "
+                    f"{candles[-1].open_time.isoformat()})"
                 )
             else:
                 self.logger.warning(
@@ -462,153 +410,11 @@ class BinanceDataCollector:
 
         except Exception as e:
             self.logger.error(
-                f"Failed to fetch historical candles for {symbol} {interval}: {e}",
-                exc_info=True
+                f"Failed to fetch historical candles for {symbol} {interval}: {e}", exc_info=True
             )
             raise ConnectionError(f"REST API request failed: {e}")
 
-    def _get_buffer_key(self, symbol: str, interval: str) -> str:
-        """
-        Generate standardized buffer key for symbol/interval pair.
 
-        Args:
-            symbol: Trading pair (e.g., "BTCUSDT", "btcusdt")
-            interval: Timeframe (e.g., "1m", "5m", "1h")
-
-        Returns:
-            Standardized key: "{SYMBOL}_{INTERVAL}" (e.g., "BTCUSDT_1m")
-
-        Note:
-            - Symbol is automatically normalized to uppercase
-            - Interval is used as-is (already validated by Binance API)
-
-        Example:
-            >>> collector._get_buffer_key("btcusdt", "1m")
-            "BTCUSDT_1m"
-        """
-        return f"{symbol.upper()}_{interval}"
-
-    def add_candle_to_buffer(self, candle: Candle) -> None:
-        """
-        Add candle to appropriate buffer with automatic overflow handling.
-
-        Args:
-            candle: Candle object to buffer
-
-        Behavior:
-            1. Generate buffer key from candle.symbol and candle.interval
-            2. Create new queue if buffer doesn't exist for this pair
-            3. If buffer is full (size >= self.buffer_size):
-               - Remove oldest candle (FIFO)
-               - Add new candle
-            4. If buffer has space:
-               - Add new candle directly
-            5. Log buffer operation for debugging
-
-        Thread Safety:
-            - deque handles concurrent access safely for basic operations
-            - Thread-safe for append/popleft from different threads
-
-        Error Handling:
-            - Logs errors but does not raise exceptions
-            - Prevents buffer operation failures from stopping WebSocket
-
-        Example:
-            >>> candle = Candle(symbol="BTCUSDT", interval="1m", ...)
-            >>> collector.add_candle_to_buffer(candle)
-            # Candle added to _candle_buffers["BTCUSDT_1m"]
-        """
-        try:
-            # Generate buffer key
-            key = self._get_buffer_key(candle.symbol, candle.interval)
-
-            # Create buffer if it doesn't exist
-            if key not in self._candle_buffers:
-                self._candle_buffers[key] = deque(maxlen=self.buffer_size)
-                self.logger.debug(f"Created new buffer for {key} (max size: {self.buffer_size})")
-
-            buffer = self._candle_buffers[key]
-
-            # deque with maxlen automatically removes oldest when full
-            # Log if we're about to overflow
-            if len(buffer) >= self.buffer_size:
-                oldest = buffer[0]  # Will be auto-removed
-                self.logger.debug(
-                    f"Buffer {key} full, will auto-remove oldest candle "
-                    f"@ {oldest.open_time.isoformat()}"
-                )
-
-            # Add new candle (deque auto-handles overflow with maxlen)
-            buffer.append(candle)
-            self.logger.debug(
-                f"Buffered candle: {key} @ {candle.open_time.isoformat()} "
-                f"(buffer size: {len(buffer)}/{self.buffer_size})"
-            )
-
-        except Exception as e:
-            # Catch any unexpected errors to prevent WebSocket disruption
-            self.logger.error(
-                f"Unexpected error adding candle to buffer: {e} | "
-                f"Candle: {candle.symbol} {candle.interval} @ {candle.open_time.isoformat()}",
-                exc_info=True
-            )
-
-    def get_candle_buffer(self, symbol: str, interval: str) -> List[Candle]:
-        """
-        Retrieve all candles from buffer without removing them.
-
-        Args:
-            symbol: Trading pair (e.g., "BTCUSDT")
-            interval: Timeframe (e.g., "1m", "5m")
-
-        Returns:
-            List of candles sorted by open_time (oldest to newest)
-            Empty list if buffer doesn't exist or is empty
-
-        Behavior:
-            1. Generate buffer key
-            2. If buffer doesn't exist → return []
-            3. If buffer exists but empty → return []
-            4. Extract all candles (non-destructive)
-            5. Sort by open_time ascending
-            6. Return as List[Candle]
-
-        Non-Destructive Read:
-            - Candles remain in buffer after retrieval
-            - Direct list conversion preserves buffer contents
-
-        Thread Safety:
-            - Safe for concurrent reads/writes
-            - Buffer state remains consistent
-
-        Example:
-            >>> candles = collector.get_candle_buffer("BTCUSDT", "1m")
-            >>> print(f"Retrieved {len(candles)} candles")
-            Retrieved 350 candles
-        """
-        key = self._get_buffer_key(symbol, interval)
-
-        # Return empty if buffer doesn't exist
-        if key not in self._candle_buffers:
-            self.logger.debug(f"Buffer {key} does not exist, returning empty list")
-            return []
-
-        buffer = self._candle_buffers[key]
-
-        # Return empty if buffer is empty
-        if len(buffer) == 0:
-            self.logger.debug(f"Buffer {key} is empty, returning empty list")
-            return []
-
-        # Convert deque to list (non-destructive, preserves buffer contents)
-        candles = list(buffer)
-
-        # Sort by open_time and return
-        sorted_candles = sorted(candles, key=lambda c: c.open_time)
-        self.logger.debug(
-            f"Retrieved {len(sorted_candles)} candles from buffer {key}"
-        )
-        return sorted_candles
 
     async def stop(self, timeout: float = 5.0) -> None:
         """
@@ -619,8 +425,7 @@ class BinanceDataCollector:
             2. Set state flags to prevent new operations
             3. Stop WebSocket client with timeout
             4. Close REST API client session
-            5. Log final buffer states (non-destructive)
-            6. Clear state flags
+            5. Clear state flags
 
         Args:
             timeout: Maximum time in seconds to wait for cleanup (default: 5.0)
@@ -630,7 +435,6 @@ class BinanceDataCollector:
 
         Note:
             - Method is idempotent - safe to call multiple times
-            - Buffers are preserved (use get_candle_buffer() to access)
             - Logs warnings if cleanup exceeds timeout
             - Does not raise exceptions on cleanup failures
 
@@ -656,10 +460,7 @@ class BinanceDataCollector:
             if self.ws_client is not None:
                 self.logger.debug("Stopping WebSocket client...")
                 try:
-                    await asyncio.wait_for(
-                        asyncio.to_thread(self.ws_client.stop),
-                        timeout=timeout
-                    )
+                    await asyncio.wait_for(asyncio.to_thread(self.ws_client.stop), timeout=timeout)
                     self.logger.info("WebSocket client stopped successfully")
                 except asyncio.TimeoutError:
                     self.logger.warning(
@@ -673,19 +474,7 @@ class BinanceDataCollector:
             # But we log for completeness
             self.logger.debug("REST API client cleanup complete")
 
-            # Step 5: Log buffer states (non-destructive)
-            buffer_summary = []
-            for key, buffer in self._candle_buffers.items():
-                buffer_summary.append(f"{key}: {len(buffer)} candles")
-
-            if buffer_summary:
-                self.logger.info(
-                    f"Buffer states at shutdown: {', '.join(buffer_summary)}"
-                )
-            else:
-                self.logger.debug("No buffered candles at shutdown")
-
-            # Step 6: Final state
+            # Step 5: Final state
             self.logger.info("Graceful shutdown complete")
 
         except Exception as e:
@@ -713,10 +502,7 @@ class BinanceDataCollector:
         return self
 
     async def __aexit__(
-        self,
-        exc_type: Optional[type],
-        exc_val: Optional[BaseException],
-        exc_tb: Optional[object]
+        self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[object]
     ) -> None:
         """
         Async context manager exit with automatic cleanup.
@@ -733,9 +519,7 @@ class BinanceDataCollector:
             - Logs context exceptions for debugging
         """
         if exc_type is not None:
-            self.logger.warning(
-                f"Exiting context with exception: {exc_type.__name__}: {exc_val}"
-            )
+            self.logger.warning(f"Exiting context with exception: {exc_type.__name__}: {exc_val}")
         else:
             self.logger.debug("Exiting async context manager normally")
 
@@ -743,11 +527,8 @@ class BinanceDataCollector:
         try:
             await self.stop()
         except Exception as e:
-            self.logger.error(
-                f"Error during context manager cleanup: {e}",
-                exc_info=True
-            )
+            self.logger.error(f"Error during context manager cleanup: {e}", exc_info=True)
 
         # Don't suppress exceptions from the context
         return None
-            # Don't re-raise - best effort cleanup
+        # Don't re-raise - best effort cleanup
