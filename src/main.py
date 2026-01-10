@@ -95,7 +95,7 @@ class TradingBot:
         # Lifecycle state
         self._lifecycle_state: LifecycleState = LifecycleState.INITIALIZING
 
-    def initialize(self) -> None:
+    async def initialize(self) -> None:
         """
         Initialize trading bot components with simplified responsibility (Issue #5 Refactoring).
 
@@ -192,7 +192,7 @@ class TradingBot:
                 f"Backfill configured: {trading_config.backfill_limit} candles per interval"
             )
             self.logger.info("Initializing strategy with historical data...")
-            self.trading_engine.initialize_strategy_with_backfill(limit=self._backfill_limit)
+            await self.trading_engine.initialize_strategy_with_backfill(limit=self._backfill_limit)
             self.logger.info("✅ Strategy initialized with historical data")
         else:
             self.logger.info("Backfilling disabled (backfill_limit=0)")
@@ -353,7 +353,7 @@ def main() -> None:
 
     try:
         # Initialize all components (this sets up logging)
-        bot.initialize()
+        asyncio.run(bot.initialize())
 
         # Log session start with system information AFTER logger is initialized
         logger = logging.getLogger(__name__)
