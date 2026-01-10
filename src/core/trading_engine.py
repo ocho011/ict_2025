@@ -294,10 +294,87 @@ class TradingEngine:
                 f"{trading_config.symbol}. Using current margin type."
             )
 
+        # Step 7.5: Validate strategy-DataCollector compatibility (Issue #7 Phase 2)
+        self._validate_strategy_compatibility()
+
         # Step 8: State transition
         self._engine_state = EngineState.INITIALIZED
 
         self.logger.info("✅ TradingEngine components initialized successfully")
+
+    def _validate_strategy_compatibility(self) -> None:
+        """
+        Validate strategy-DataCollector interval compatibility (Issue #7 Phase 2).
+
+        Ensures strategy's required intervals are available from DataCollector.
+        Fails fast at initialization time rather than silently dropping events.
+
+        Validation Rules:
+            1. MultiTimeframeStrategy: All strategy.intervals MUST be in data_collector.intervals
+            2. BaseStrategy (single-interval): Warning if data_collector has multiple intervals
+
+        Raises:
+            ConfigurationError: If MultiTimeframeStrategy intervals not satisfied
+
+        Example Configurations:
+            ✅ VALID:
+                Strategy: ICTStrategy with intervals=['5m', '1h', '4h']
+                DataCollector: intervals=['5m', '1h', '4h']
+
+            ✅ VALID:
+                Strategy: ICTStrategy with intervals=['5m', '1h', '4h']
+                DataCollector: intervals=['5m', '15m', '1h', '4h']  # Extra intervals OK
+
+            ❌ INVALID:
+                Strategy: ICTStrategy with intervals=['5m', '1h', '4h']
+                DataCollector: intervals=['5m', '1h']  # Missing '4h'
+
+            ⚠️ WARNING:
+                Strategy: BaseStrategy (single '5m')
+                DataCollector: intervals=['5m', '1h', '4h']  # Wasteful but not critical
+        """
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.core.exceptions import ConfigurationError
+
+        # Check if strategy is MultiTimeframeStrategy
+        if isinstance(self.strategy, MultiTimeframeStrategy):
+            # Validate all strategy intervals are available in DataCollector
+            required_intervals = set(self.strategy.intervals)
+            available_intervals = set(self.data_collector.intervals)
+
+            missing_intervals = required_intervals - available_intervals
+
+            if missing_intervals:
+                error_msg = (
+                    f"MultiTimeframeStrategy requires intervals {sorted(required_intervals)} "
+                    f"but DataCollector only provides {sorted(available_intervals)}. "
+                    f"Missing: {sorted(missing_intervals)}. "
+                    f"Update config.trading.intervals to include all required intervals."
+                )
+                self.logger.error(error_msg)
+                raise ConfigurationError(error_msg)
+
+            self.logger.info(
+                f"✅ Strategy-DataCollector compatibility validated: "
+                f"MultiTimeframeStrategy requires {sorted(required_intervals)}, "
+                f"DataCollector provides {sorted(available_intervals)}"
+            )
+
+        else:
+            # Single-interval strategy (BaseStrategy)
+            # Warning if DataCollector has multiple intervals (wasteful but not critical)
+            if len(self.data_collector.intervals) > 1:
+                self.logger.warning(
+                    f"⚠️ Single-interval strategy using DataCollector with "
+                    f"multiple intervals {self.data_collector.intervals}. "
+                    f"Consider removing unused intervals from config.trading.intervals "
+                    f"to reduce WebSocket bandwidth and processing overhead."
+                )
+            else:
+                self.logger.info(
+                    f"✅ Strategy-DataCollector compatibility validated: "
+                    f"Single-interval strategy with {self.data_collector.intervals[0]}"
+                )
 
     def set_components(
         self,
@@ -533,16 +610,42 @@ class TradingEngine:
 
     async def _on_candle_closed(self, event: Event) -> None:
         """
-        Handle closed candle event - run strategy analysis.
+        Handle closed candle event - run strategy analysis (Issue #7 Phase 3).
 
         This handler is called when a candle fully closes (is_closed=True).
         It runs the trading strategy analysis and publishes signals if conditions are met.
+
+        Phase 3 Enhancement:
+            - Filters out candles with intervals not required by the strategy
+            - Prevents unnecessary analyze() calls for unused intervals
+            - Reduces processing overhead in multi-interval configurations
 
         Args:
             event: Event containing closed Candle data
         """
         # Step 1: Extract candle from event data
         candle: Candle = event.data
+
+        # Step 1.5: Filter intervals based on strategy type (Issue #7 Phase 3)
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+
+        if isinstance(self.strategy, MultiTimeframeStrategy):
+            # MTF strategy: Only process intervals registered in strategy
+            if candle.interval not in self.strategy.intervals:
+                self.logger.debug(
+                    f"Filtering {candle.interval} candle for MTF strategy "
+                    f"(expects {self.strategy.intervals})"
+                )
+                return
+        else:
+            # Single-interval strategy: Only process first interval from DataCollector
+            expected_interval = self.data_collector.intervals[0]
+            if candle.interval != expected_interval:
+                self.logger.debug(
+                    f"Filtering {candle.interval} candle for single-interval strategy "
+                    f"(expects {expected_interval})"
+                )
+                return
 
         # Step 2: Log candle received (info level)
         self.logger.info(

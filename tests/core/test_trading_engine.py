@@ -467,3 +467,318 @@ class TestIntegration:
 
         # Verify order execution was called
         trading_engine.order_manager.execute_signal.assert_called_once()
+
+
+class TestStrategyCompatibilityValidation:
+    """Test strategy-DataCollector compatibility validation (Issue #7 Phase 2)."""
+
+    def test_validate_mtf_strategy_all_intervals_available(self):
+        """Test MTF strategy passes when all required intervals are available."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.core.exceptions import ConfigurationError
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock MTF strategy with intervals ['5m', '1h', '4h']
+        engine.strategy = Mock(spec=MultiTimeframeStrategy)
+        engine.strategy.intervals = ['5m', '1h', '4h']
+
+        # Mock DataCollector with matching intervals
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '1h', '4h']
+
+        engine.logger = Mock()
+
+        # Validation should pass without exception
+        engine._validate_strategy_compatibility()
+
+        # Verify info log was called
+        engine.logger.info.assert_called()
+        assert "✅ Strategy-DataCollector compatibility validated" in str(
+            engine.logger.info.call_args
+        )
+
+    def test_validate_mtf_strategy_extra_intervals_ok(self):
+        """Test MTF strategy passes when DataCollector has extra intervals."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock MTF strategy with intervals ['5m', '1h', '4h']
+        engine.strategy = Mock(spec=MultiTimeframeStrategy)
+        engine.strategy.intervals = ['5m', '1h', '4h']
+
+        # Mock DataCollector with extra '15m' interval
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '15m', '1h', '4h']
+
+        engine.logger = Mock()
+
+        # Validation should pass (extra intervals are OK)
+        engine._validate_strategy_compatibility()
+
+        # Verify info log was called
+        engine.logger.info.assert_called()
+
+    def test_validate_mtf_strategy_missing_intervals_fails(self):
+        """Test MTF strategy fails when required intervals are missing."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.core.exceptions import ConfigurationError
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock MTF strategy with intervals ['5m', '1h', '4h']
+        engine.strategy = Mock(spec=MultiTimeframeStrategy)
+        engine.strategy.intervals = ['5m', '1h', '4h']
+
+        # Mock DataCollector missing '4h' interval
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '1h']
+
+        engine.logger = Mock()
+
+        # Validation should raise ConfigurationError
+        with pytest.raises(ConfigurationError) as exc_info:
+            engine._validate_strategy_compatibility()
+
+        # Verify error message contains missing interval
+        assert "'4h'" in str(exc_info.value)
+        assert "Missing: ['4h']" in str(exc_info.value)
+
+        # Verify error log was called
+        engine.logger.error.assert_called()
+
+    def test_validate_single_interval_strategy_single_collector(self):
+        """Test single-interval strategy passes with single-interval DataCollector."""
+        from src.strategies.base import BaseStrategy
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock single-interval strategy (BaseStrategy)
+        engine.strategy = Mock(spec=BaseStrategy)
+
+        # Mock DataCollector with single interval
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m']
+
+        engine.logger = Mock()
+
+        # Validation should pass
+        engine._validate_strategy_compatibility()
+
+        # Verify info log was called (no warning)
+        engine.logger.info.assert_called()
+        assert "✅ Strategy-DataCollector compatibility validated" in str(
+            engine.logger.info.call_args
+        )
+        engine.logger.warning.assert_not_called()
+
+    def test_validate_single_interval_strategy_multi_collector_warns(self):
+        """Test single-interval strategy warns when DataCollector has multiple intervals."""
+        from src.strategies.base import BaseStrategy
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock single-interval strategy (BaseStrategy)
+        engine.strategy = Mock(spec=BaseStrategy)
+
+        # Mock DataCollector with multiple intervals (wasteful)
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '1h', '4h']
+
+        engine.logger = Mock()
+
+        # Validation should pass but log warning
+        engine._validate_strategy_compatibility()
+
+        # Verify warning log was called
+        engine.logger.warning.assert_called()
+        assert "⚠️ Single-interval strategy" in str(engine.logger.warning.call_args)
+        assert "reduce WebSocket bandwidth" in str(engine.logger.warning.call_args)
+
+
+class TestIntervalFiltering:
+    """Test interval filtering in event handlers (Issue #7 Phase 3)."""
+
+    @pytest.mark.asyncio
+    async def test_mtf_strategy_processes_required_interval(self):
+        """Test MTF strategy processes candles from required intervals."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock MTF strategy with intervals ['5m', '1h', '4h']
+        engine.strategy = AsyncMock(spec=MultiTimeframeStrategy)
+        engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategy.analyze = AsyncMock(return_value=None)
+
+        # Mock DataCollector
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '1h', '4h']
+
+        # Mock other components
+        engine.event_bus = AsyncMock()
+        engine.logger = Mock()
+
+        # Create candle with required interval '5m'
+        candle = Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=datetime.now(timezone.utc),
+            close_time=datetime.now(timezone.utc),
+            open=50000.0,
+            high=50500.0,
+            low=49800.0,
+            close=50300.0,
+            volume=100.0,
+            is_closed=True,
+        )
+
+        event = Event(EventType.CANDLE_CLOSED, candle)
+
+        # Process candle
+        await engine._on_candle_closed(event)
+
+        # Verify analyze() was called (not filtered)
+        engine.strategy.analyze.assert_called_once_with(candle)
+
+    @pytest.mark.asyncio
+    async def test_mtf_strategy_filters_unrequired_interval(self):
+        """Test MTF strategy filters out candles from unrequired intervals."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock MTF strategy with intervals ['5m', '1h', '4h']
+        engine.strategy = AsyncMock(spec=MultiTimeframeStrategy)
+        engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategy.analyze = AsyncMock(return_value=None)
+
+        # Mock DataCollector with extra '15m' interval
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '15m', '1h', '4h']
+
+        # Mock other components
+        engine.event_bus = AsyncMock()
+        engine.logger = Mock()
+
+        # Create candle with unrequired interval '15m'
+        candle = Candle(
+            symbol="BTCUSDT",
+            interval="15m",
+            open_time=datetime.now(timezone.utc),
+            close_time=datetime.now(timezone.utc),
+            open=50000.0,
+            high=50500.0,
+            low=49800.0,
+            close=50300.0,
+            volume=100.0,
+            is_closed=True,
+        )
+
+        event = Event(EventType.CANDLE_CLOSED, candle)
+
+        # Process candle
+        await engine._on_candle_closed(event)
+
+        # Verify analyze() was NOT called (filtered)
+        engine.strategy.analyze.assert_not_called()
+
+        # Verify debug log was called
+        engine.logger.debug.assert_called()
+        assert "Filtering 15m candle" in str(engine.logger.debug.call_args)
+
+    @pytest.mark.asyncio
+    async def test_single_strategy_processes_first_interval(self):
+        """Test single-interval strategy processes first DataCollector interval."""
+        from src.strategies.base import BaseStrategy
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock single-interval strategy (BaseStrategy)
+        engine.strategy = AsyncMock(spec=BaseStrategy)
+        engine.strategy.analyze = AsyncMock(return_value=None)
+
+        # Mock DataCollector with '5m' as first interval
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '1h']
+
+        # Mock other components
+        engine.event_bus = AsyncMock()
+        engine.logger = Mock()
+
+        # Create candle with first interval '5m'
+        candle = Candle(
+            symbol="BTCUSDT",
+            interval="5m",
+            open_time=datetime.now(timezone.utc),
+            close_time=datetime.now(timezone.utc),
+            open=50000.0,
+            high=50500.0,
+            low=49800.0,
+            close=50300.0,
+            volume=100.0,
+            is_closed=True,
+        )
+
+        event = Event(EventType.CANDLE_CLOSED, candle)
+
+        # Process candle
+        await engine._on_candle_closed(event)
+
+        # Verify analyze() was called (not filtered)
+        engine.strategy.analyze.assert_called_once_with(candle)
+
+    @pytest.mark.asyncio
+    async def test_single_strategy_filters_non_first_interval(self):
+        """Test single-interval strategy filters out non-first intervals."""
+        from src.strategies.base import BaseStrategy
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock single-interval strategy (BaseStrategy)
+        engine.strategy = AsyncMock(spec=BaseStrategy)
+        engine.strategy.analyze = AsyncMock(return_value=None)
+
+        # Mock DataCollector with '5m' as first interval
+        engine.data_collector = Mock()
+        engine.data_collector.intervals = ['5m', '1h']
+
+        # Mock other components
+        engine.event_bus = AsyncMock()
+        engine.logger = Mock()
+
+        # Create candle with non-first interval '1h'
+        candle = Candle(
+            symbol="BTCUSDT",
+            interval="1h",
+            open_time=datetime.now(timezone.utc),
+            close_time=datetime.now(timezone.utc),
+            open=50000.0,
+            high=50500.0,
+            low=49800.0,
+            close=50300.0,
+            volume=100.0,
+            is_closed=True,
+        )
+
+        event = Event(EventType.CANDLE_CLOSED, candle)
+
+        # Process candle
+        await engine._on_candle_closed(event)
+
+        # Verify analyze() was NOT called (filtered)
+        engine.strategy.analyze.assert_not_called()
+
+        # Verify debug log was called
+        engine.logger.debug.assert_called()
+        assert "Filtering 1h candle" in str(engine.logger.debug.call_args)
