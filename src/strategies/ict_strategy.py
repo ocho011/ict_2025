@@ -51,13 +51,13 @@ from src.indicators.ict_order_block import (
 from src.indicators.ict_smc import detect_displacement, detect_inducement, find_mitigation_zone
 from src.models.candle import Candle
 from src.models.signal import Signal, SignalType
-from src.strategies.base import BaseStrategy
+from src.strategies.multi_timeframe import MultiTimeframeStrategy
 
 # ICT Profile System
 from src.config.ict_profiles import get_profile_parameters, load_profile_from_name
 
 
-class ICTStrategy(BaseStrategy):
+class ICTStrategy(MultiTimeframeStrategy):
     """
     ICT trading strategy using Smart Money Concepts.
 
@@ -86,7 +86,7 @@ class ICTStrategy(BaseStrategy):
 
     def __init__(self, symbol: str, config: dict) -> None:
         """
-        Initialize ICT strategy with profile-based parameter loading.
+        Initialize ICT strategy with profile-based parameter loading and MTF structure.
 
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT')
@@ -96,8 +96,26 @@ class ICTStrategy(BaseStrategy):
             1. Load active_profile from config (default: "strict")
             2. Load profile parameters as defaults
             3. Override with explicit config values if provided
+
+        Multi-Timeframe Structure (Issue #7):
+            - HTF (High Timeframe): Trend analysis (default: 4h)
+            - MTF (Medium Timeframe): Structure detection (default: 1h)
+            - LTF (Low Timeframe): Entry timing (default: 5m)
         """
-        super().__init__(symbol, config)
+        # Configure MTF intervals
+        ltf_interval = config.get('ltf_interval', '5m')
+        mtf_interval = config.get('mtf_interval', '1h')
+        htf_interval = config.get('htf_interval', '4h')
+
+        intervals = [ltf_interval, mtf_interval, htf_interval]
+
+        # Initialize MultiTimeframeStrategy with intervals
+        super().__init__(symbol, intervals, config)
+
+        # Store interval assignments for analysis
+        self.ltf_interval = ltf_interval
+        self.mtf_interval = mtf_interval
+        self.htf_interval = htf_interval
 
         # Load profile-based parameters
         profile_name = config.get("active_profile", "strict")
@@ -165,39 +183,50 @@ class ICTStrategy(BaseStrategy):
             "signals_generated": 0,
         }
 
-    async def analyze(self, candle: Candle) -> Optional[Signal]:
+    async def analyze_mtf(
+        self, candle: Candle, buffers: dict
+    ) -> Optional[Signal]:
         """
-        Analyze candle using ICT methodology.
+        Analyze candle using ICT methodology with Multi-Timeframe structure (Issue #7).
 
         10-Step ICT Analysis:
         1. Kill Zone Filter
-        2. Trend Analysis
-        3. Premium/Discount Zone
-        4. FVG/OB Detection
-        5. Liquidity Analysis
-        6. Inducement Check
-        7. Displacement Confirmation
-        8. Entry Timing
+        2. Trend Analysis (HTF buffer)
+        3. Premium/Discount Zone (MTF buffer)
+        4. FVG/OB Detection (MTF buffer)
+        5. Liquidity Analysis (MTF buffer)
+        6. Inducement Check (LTF buffer)
+        7. Displacement Confirmation (LTF buffer)
+        8. Entry Timing (LTF buffer)
         9. TP Calculation
         10. SL Calculation
 
         Args:
-            candle: Latest candle to analyze
+            candle: Latest candle to analyze (typically LTF)
+            buffers: Dict of interval -> deque buffers (e.g., {'5m': deque, '1h': deque, '4h': deque})
 
         Returns:
             Signal if ICT conditions met, None otherwise
+
+        Note:
+            Currently uses LTF buffer for most analysis. Full MTF separation to be implemented
+            in future iterations (HTF for trend, MTF for structure, LTF for entry).
         """
         # Validate candle is closed
         if not candle.is_closed:
             return None
 
-        # Update buffer
-        self.update_buffer(candle)
-
-        # Check sufficient data
-        if not self.is_buffer_ready(self.min_periods):
-            self.logger.debug(f"Buffer not ready: {len(self.candle_buffer)}/{self.min_periods}")
+        # Get LTF buffer (primary analysis buffer for now)
+        ltf_buffer = buffers.get(self.ltf_interval)
+        if not ltf_buffer or len(ltf_buffer) < self.min_periods:
+            self.logger.debug(
+                f"LTF buffer not ready: {len(ltf_buffer) if ltf_buffer else 0}/{self.min_periods}"
+            )
             return None
+
+        # TODO: Implement proper MTF analysis using HTF/MTF/LTF buffers
+        # For now, use LTF buffer to maintain backward compatibility
+        candle_buffer = ltf_buffer
 
         if self.use_killzones:
             if not is_killzone_active(candle.open_time):
@@ -205,7 +234,7 @@ class ICTStrategy(BaseStrategy):
                 return None  # Outside optimal trading times
 
         # Step 2: Trend Analysis (Market Structure)
-        trend = get_current_trend(self.candle_buffer, swing_lookback=self.swing_lookback)
+        trend = get_current_trend(candle_buffer, swing_lookback=self.swing_lookback)
 
         if trend is None:
             self.logger.debug(f"No clear trend detected (swing_lookback={self.swing_lookback})")
@@ -213,22 +242,22 @@ class ICTStrategy(BaseStrategy):
 
         # Step 3: Premium/Discount Zone
         range_low, range_mid, range_high = calculate_premium_discount(
-            self.candle_buffer, lookback=50
+            candle_buffer, lookback=50
         )
 
         current_price = candle.close
 
         # Step 4: FVG/OB Detection
         bullish_fvgs = detect_bullish_fvg(
-            self.candle_buffer, min_gap_percent=self.fvg_min_gap_percent
+            candle_buffer, min_gap_percent=self.fvg_min_gap_percent
         )
         bearish_fvgs = detect_bearish_fvg(
-            self.candle_buffer, min_gap_percent=self.fvg_min_gap_percent
+            candle_buffer, min_gap_percent=self.fvg_min_gap_percent
         )
 
         bullish_obs, bearish_obs = (
-            identify_bullish_ob(self.candle_buffer, displacement_ratio=self.displacement_ratio),
-            identify_bearish_ob(self.candle_buffer, displacement_ratio=self.displacement_ratio),
+            identify_bullish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
+            identify_bearish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
         )
 
         # Filter OBs by strength
@@ -237,25 +266,25 @@ class ICTStrategy(BaseStrategy):
 
         # Step 5: Liquidity Analysis
         equal_highs = find_equal_highs(
-            self.candle_buffer, tolerance_percent=self.liquidity_tolerance, lookback=20
+            candle_buffer, tolerance_percent=self.liquidity_tolerance, lookback=20
         )
         equal_lows = find_equal_lows(
-            self.candle_buffer, tolerance_percent=self.liquidity_tolerance, lookback=20
+            candle_buffer, tolerance_percent=self.liquidity_tolerance, lookback=20
         )
 
-        detect_liquidity_sweep(self.candle_buffer, equal_highs + equal_lows)
+        detect_liquidity_sweep(candle_buffer, equal_highs + equal_lows)
 
         # Step 6: Inducement Check
-        inducements = detect_inducement(self.candle_buffer, lookback=10)
+        inducements = detect_inducement(candle_buffer, lookback=10)
 
         # Step 7: Displacement Confirmation
         displacements = detect_displacement(
-            self.candle_buffer, displacement_ratio=self.displacement_ratio
+            candle_buffer, displacement_ratio=self.displacement_ratio
         )
 
         # Step 8: Entry Timing - Look for mitigation of FVG/OB
         _mitigations = find_mitigation_zone(
-            self.candle_buffer, fvgs=bullish_fvgs + bearish_fvgs, obs=bullish_obs + bearish_obs
+            candle_buffer, fvgs=bullish_fvgs + bearish_fvgs, obs=bullish_obs + bearish_obs
         )
 
         # Condition tracking for tuning analysis
@@ -464,7 +493,7 @@ class ICTStrategy(BaseStrategy):
         """
         # Get recent displacement for risk calculation
         displacements = detect_displacement(
-            self.candle_buffer, displacement_ratio=self.displacement_ratio
+            candle_buffer, displacement_ratio=self.displacement_ratio
         )
 
         if displacements:
