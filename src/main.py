@@ -82,7 +82,6 @@ class TradingBot:
         self.data_collector: Optional[BinanceDataCollector] = None
         self.order_manager: Optional[OrderExecutionManager] = None
         self.risk_manager: Optional[RiskManager] = None
-        self.strategy: Optional[BaseStrategy] = None
         self.trading_engine: Optional[TradingEngine] = None
         self.liquidation_manager: Optional[LiquidationManager] = None
         self.logger: Optional[logging.Logger] = None
@@ -179,10 +178,9 @@ class TradingBot:
             is_testnet=api_config.is_testnet,
         )
 
-        # Get references to components created by TradingEngine (for LiquidationManager)
+        # Get references to components created by TradingEngine
         self.order_manager = self.trading_engine.order_manager
         self.data_collector = self.trading_engine.data_collector
-        self.strategy = self.trading_engine.strategy
         self.risk_manager = self.trading_engine.risk_manager
 
         # Step 8: Initialize strategy with historical data (if backfill enabled)
