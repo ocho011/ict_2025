@@ -37,12 +37,12 @@ class TradingConfig:
         - take_profit_ratio: must be positive
         - stop_loss_percent: 0 < value ≤ 0.5 (0-50%)
         - backfill_limit: 0-1000 (0 = no backfilling)
-        - symbol: must end with 'USDT'
+        - symbols: each must end with 'USDT', max 10 symbols (Issue #8)
         - intervals: must be valid Binance interval formats
           (1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 6h, 8h, 12h, 1d, 3d, 1w)
     """
 
-    symbol: str
+    symbols: List[str]  # Multi-coin support (Issue #8)
     intervals: List[str]
     strategy: str
     leverage: int
@@ -85,9 +85,19 @@ class TradingConfig:
                 f"Margin type must be 'ISOLATED' or 'CROSSED', got {self.margin_type}"
             )
 
-        # Validate symbol format
-        if not self.symbol or not self.symbol.endswith("USDT"):
-            raise ConfigurationError(f"Invalid symbol format: {self.symbol}. Must end with 'USDT'")
+        # Validate symbols (Issue #8: Multi-coin support)
+        MAX_SYMBOLS = 10
+        if len(self.symbols) == 0:
+            raise ConfigurationError("At least one symbol is required")
+        if len(self.symbols) > MAX_SYMBOLS:
+            raise ConfigurationError(
+                f"Maximum {MAX_SYMBOLS} symbols allowed, got {len(self.symbols)}"
+            )
+
+        # Validate each symbol format
+        for symbol in self.symbols:
+            if not symbol or not symbol.endswith("USDT"):
+                raise ConfigurationError(f"Invalid symbol format: {symbol}. Must end with 'USDT'")
 
         # Validate intervals
         valid_intervals = {
@@ -509,8 +519,13 @@ class ConfigManager:
                     getter = getattr(ict_section, getter_method)
                     ict_config[param_name] = getter(param_name)
 
+        # Parse symbols with backward compatibility (Issue #8)
+        # Priority: symbols (new) > symbol (legacy)
+        symbols_str = trading.get("symbols", trading.get("symbol", "BTCUSDT"))
+        symbols = [s.strip() for s in symbols_str.split(",")]
+
         return TradingConfig(
-            symbol=trading.get("symbol", "BTCUSDT"),
+            symbols=symbols,
             intervals=[i.strip() for i in trading.get("intervals", "1m,5m,15m").split(",")],
             strategy=trading.get("strategy", "MockStrategy"),
             leverage=trading.getint("leverage", 1),
