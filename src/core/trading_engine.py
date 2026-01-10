@@ -146,7 +146,7 @@ class TradingEngine:
         # Components (injected via set_components)
         self.event_bus: Optional[EventBus] = None
         self.data_collector: Optional[BinanceDataCollector] = None
-        self.strategy: Optional[BaseStrategy] = None
+        self.strategies: dict[str, BaseStrategy] = {}  # Issue #8: Multi-coin support
         self.order_manager: Optional[OrderExecutionManager] = None
         self.risk_manager: Optional[RiskManager] = None
         self.config_manager: Optional[ConfigManager] = None
@@ -252,11 +252,23 @@ class TradingEngine:
                 f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
             )
 
-        self.strategy = StrategyFactory.create(
-            name=trading_config.strategy,
-            symbol=trading_config.symbol,
-            config=strategy_config
-        )
+        # Step 4.5: Create strategy instances per symbol (Issue #8 Phase 2)
+        MAX_SYMBOLS = 10
+        if len(trading_config.symbols) > MAX_SYMBOLS:
+            from src.core.exceptions import ConfigurationError
+            raise ConfigurationError(
+                f"Maximum {MAX_SYMBOLS} symbols allowed, got {len(trading_config.symbols)}"
+            )
+
+        self.logger.info(f"Creating {len(trading_config.symbols)} strategy instances...")
+        self.strategies = {}
+        for symbol in trading_config.symbols:
+            self.strategies[symbol] = StrategyFactory.create(
+                name=trading_config.strategy,
+                symbol=symbol,
+                config=strategy_config
+            )
+            self.logger.info(f"  ✅ Strategy created for {symbol}")
 
         # Step 5: Initialize BinanceDataCollector
         self.logger.info("Creating BinanceDataCollector...")
@@ -264,7 +276,7 @@ class TradingEngine:
         self.data_collector = BinanceDataCollector(
             api_key=api_key,
             api_secret=api_secret,
-            symbols=[trading_config.symbol],
+            symbols=trading_config.symbols,  # Issue #8: Multi-coin support
             intervals=trading_config.intervals,
             is_testnet=is_testnet,
             on_candle_callback=self.on_candle_received,
@@ -273,26 +285,22 @@ class TradingEngine:
         # Step 6: Setup event handlers
         self._setup_event_handlers()
 
-        # Step 7: Configure leverage and margin type
-        self.logger.info("Configuring leverage...")
-        success = self.order_manager.set_leverage(
-            trading_config.symbol, trading_config.leverage
-        )
-        if not success:
-            self.logger.warning(
-                f"Failed to set leverage to {trading_config.leverage}x. "
-                "Using current account leverage."
-            )
+        # Step 7: Configure leverage and margin type for each symbol (Issue #8)
+        self.logger.info("Configuring leverage and margin type...")
+        for symbol in trading_config.symbols:
+            success = self.order_manager.set_leverage(symbol, trading_config.leverage)
+            if not success:
+                self.logger.warning(
+                    f"Failed to set leverage to {trading_config.leverage}x for {symbol}. "
+                    "Using current account leverage."
+                )
 
-        self.logger.info(f"Configuring margin type to {trading_config.margin_type}...")
-        success = self.order_manager.set_margin_type(
-            trading_config.symbol, trading_config.margin_type
-        )
-        if not success:
-            self.logger.warning(
-                f"Failed to set margin type to {trading_config.margin_type} for "
-                f"{trading_config.symbol}. Using current margin type."
-            )
+            success = self.order_manager.set_margin_type(symbol, trading_config.margin_type)
+            if not success:
+                self.logger.warning(
+                    f"Failed to set margin type to {trading_config.margin_type} for {symbol}. "
+                    "Using current margin type."
+                )
 
         # Step 7.5: Validate strategy-DataCollector compatibility (Issue #7 Phase 2)
         self._validate_strategy_compatibility()
@@ -304,9 +312,9 @@ class TradingEngine:
 
     def _validate_strategy_compatibility(self) -> None:
         """
-        Validate strategy-DataCollector interval compatibility (Issue #7 Phase 2).
+        Validate strategy-DataCollector interval compatibility (Issue #7 Phase 2, #8 Phase 2).
 
-        Ensures strategy's required intervals are available from DataCollector.
+        Ensures each strategy's required intervals are available from DataCollector.
         Fails fast at initialization time rather than silently dropping events.
 
         Validation Rules:
@@ -314,67 +322,52 @@ class TradingEngine:
             2. BaseStrategy (single-interval): Warning if data_collector has multiple intervals
 
         Raises:
-            ConfigurationError: If MultiTimeframeStrategy intervals not satisfied
-
-        Example Configurations:
-            ✅ VALID:
-                Strategy: ICTStrategy with intervals=['5m', '1h', '4h']
-                DataCollector: intervals=['5m', '1h', '4h']
-
-            ✅ VALID:
-                Strategy: ICTStrategy with intervals=['5m', '1h', '4h']
-                DataCollector: intervals=['5m', '15m', '1h', '4h']  # Extra intervals OK
-
-            ❌ INVALID:
-                Strategy: ICTStrategy with intervals=['5m', '1h', '4h']
-                DataCollector: intervals=['5m', '1h']  # Missing '4h'
-
-            ⚠️ WARNING:
-                Strategy: BaseStrategy (single '5m')
-                DataCollector: intervals=['5m', '1h', '4h']  # Wasteful but not critical
+            ConfigurationError: If any MultiTimeframeStrategy intervals not satisfied
         """
         from src.strategies.multi_timeframe import MultiTimeframeStrategy
         from src.core.exceptions import ConfigurationError
 
-        # Check if strategy is MultiTimeframeStrategy
-        if isinstance(self.strategy, MultiTimeframeStrategy):
-            # Validate all strategy intervals are available in DataCollector
-            required_intervals = set(self.strategy.intervals)
-            available_intervals = set(self.data_collector.intervals)
+        # Validate each strategy instance (Issue #8: Multi-coin support)
+        available_intervals = set(self.data_collector.intervals)
 
-            missing_intervals = required_intervals - available_intervals
+        for symbol, strategy in self.strategies.items():
+            # Check if strategy is MultiTimeframeStrategy
+            if isinstance(strategy, MultiTimeframeStrategy):
+                # Validate all strategy intervals are available in DataCollector
+                required_intervals = set(strategy.intervals)
+                missing_intervals = required_intervals - available_intervals
 
-            if missing_intervals:
-                error_msg = (
-                    f"MultiTimeframeStrategy requires intervals {sorted(required_intervals)} "
-                    f"but DataCollector only provides {sorted(available_intervals)}. "
-                    f"Missing: {sorted(missing_intervals)}. "
-                    f"Update config.trading.intervals to include all required intervals."
-                )
-                self.logger.error(error_msg)
-                raise ConfigurationError(error_msg)
+                if missing_intervals:
+                    error_msg = (
+                        f"Strategy for {symbol} requires intervals {sorted(required_intervals)} "
+                        f"but DataCollector only provides {sorted(available_intervals)}. "
+                        f"Missing: {sorted(missing_intervals)}. "
+                        f"Update config.trading.intervals to include all required intervals."
+                    )
+                    self.logger.error(error_msg)
+                    raise ConfigurationError(error_msg)
 
-            self.logger.info(
-                f"✅ Strategy-DataCollector compatibility validated: "
-                f"MultiTimeframeStrategy requires {sorted(required_intervals)}, "
-                f"DataCollector provides {sorted(available_intervals)}"
-            )
-
-        else:
-            # Single-interval strategy (BaseStrategy)
-            # Warning if DataCollector has multiple intervals (wasteful but not critical)
-            if len(self.data_collector.intervals) > 1:
-                self.logger.warning(
-                    f"⚠️ Single-interval strategy using DataCollector with "
-                    f"multiple intervals {self.data_collector.intervals}. "
-                    f"Consider removing unused intervals from config.trading.intervals "
-                    f"to reduce WebSocket bandwidth and processing overhead."
-                )
-            else:
                 self.logger.info(
-                    f"✅ Strategy-DataCollector compatibility validated: "
-                    f"Single-interval strategy with {self.data_collector.intervals[0]}"
+                    f"✅ Strategy-DataCollector compatibility validated for {symbol}: "
+                    f"MultiTimeframeStrategy requires {sorted(required_intervals)}, "
+                    f"DataCollector provides {sorted(available_intervals)}"
                 )
+
+            else:
+                # Single-interval strategy (BaseStrategy)
+                # Warning if DataCollector has multiple intervals (wasteful but not critical)
+                if len(self.data_collector.intervals) > 1:
+                    self.logger.warning(
+                        f"⚠️ Single-interval strategy for {symbol} using DataCollector with "
+                        f"multiple intervals {self.data_collector.intervals}. "
+                        f"Consider removing unused intervals from config.trading.intervals "
+                        f"to reduce WebSocket bandwidth and processing overhead."
+                    )
+                else:
+                    self.logger.info(
+                        f"✅ Strategy-DataCollector compatibility validated for {symbol}: "
+                        f"Single-interval strategy with {self.data_collector.intervals[0]}"
+                    )
 
     def set_components(
         self,
@@ -469,9 +462,9 @@ class TradingEngine:
             - Must be called BEFORE start_streaming()
             - Does NOT trigger signal generation
         """
-        if not self.strategy:
+        if not self.strategies:
             self.logger.warning(
-                "[TradingEngine] Strategy not injected, skipping historical data initialization"
+                "[TradingEngine] No strategies initialized, skipping historical data initialization"
             )
             return
 
@@ -483,94 +476,96 @@ class TradingEngine:
             return
 
         self.logger.info(
-            f"[TradingEngine] Initializing strategy '{self.strategy.__class__.__name__}' "
-            f"with {limit} historical candles"
+            f"[TradingEngine] Initializing {len(self.strategies)} strategies "
+            f"with {limit} historical candles per interval"
         )
 
-        try:
-            symbol = self.strategy.symbol
+        # Initialize each symbol's strategy (Issue #8 Phase 2)
+        for symbol, strategy in self.strategies.items():
+            try:
+                self.logger.info(f"[TradingEngine] Initializing strategy for {symbol}...")
 
-            # Check if this is a multi-timeframe strategy
-            if isinstance(self.strategy, MultiTimeframeStrategy):
-                # MTF Strategy: Fetch and initialize each interval separately
-                self.logger.info(
-                    f"[TradingEngine] Detected MultiTimeframeStrategy, "
-                    f"fetching intervals for {symbol}"
-                )
+                # Check if this is a multi-timeframe strategy
+                if isinstance(strategy, MultiTimeframeStrategy):
+                    # MTF Strategy: Fetch and initialize each interval separately
+                    self.logger.info(
+                        f"[TradingEngine] Detected MultiTimeframeStrategy, "
+                        f"fetching intervals for {symbol}"
+                    )
 
-                initialized_count = 0
-                for interval in self.data_collector.intervals:
-                    try:
-                        # Fetch historical candles directly from API
-                        candles = self.data_collector.get_historical_candles(
-                            symbol=symbol, interval=interval, limit=limit
-                        )
-
-                        if candles:
-                            self.logger.info(
-                                f"[TradingEngine] Fetched {len(candles)} candles "
-                                f"for {symbol} {interval}"
+                    initialized_count = 0
+                    for interval in self.data_collector.intervals:
+                        try:
+                            # Fetch historical candles directly from API
+                            candles = self.data_collector.get_historical_candles(
+                                symbol=symbol, interval=interval, limit=limit
                             )
 
-                            # Initialize this specific interval
-                            self.strategy.initialize_with_historical_data(interval, candles)
-                            initialized_count += 1
-                        else:
-                            self.logger.warning(
-                                f"[TradingEngine] No candles returned for {symbol} {interval}"
+                            if candles:
+                                self.logger.info(
+                                    f"[TradingEngine] Fetched {len(candles)} candles "
+                                    f"for {symbol} {interval}"
+                                )
+
+                                # Initialize this specific interval
+                                strategy.initialize_with_historical_data(interval, candles)
+                                initialized_count += 1
+                            else:
+                                self.logger.warning(
+                                    f"[TradingEngine] No candles returned for {symbol} {interval}"
+                                )
+
+                        except Exception as e:
+                            self.logger.error(
+                                f"[TradingEngine] Failed to fetch {symbol} {interval}: {e}"
                             )
 
-                    except Exception as e:
-                        self.logger.error(
-                            f"[TradingEngine] Failed to fetch {symbol} {interval}: {e}"
+                    if initialized_count > 0:
+                        self.logger.info(
+                            f"[TradingEngine] ✅ MTF Strategy initialization complete: "
+                            f"{initialized_count} intervals initialized for {symbol}"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"[TradingEngine] No intervals initialized for MTF strategy '{symbol}'"
                         )
 
-                if initialized_count > 0:
-                    self.logger.info(
-                        f"[TradingEngine] ✅ MTF Strategy initialization complete: "
-                        f"{initialized_count} intervals initialized for {symbol}"
-                    )
                 else:
-                    self.logger.warning(
-                        f"[TradingEngine] No intervals initialized for MTF strategy '{symbol}'"
-                    )
-
-            else:
-                # Single-interval strategy: Use first configured interval
-                interval = self.data_collector.intervals[0]
-
-                self.logger.info(
-                    f"[TradingEngine] Fetching {limit} candles "
-                    f"for single-interval strategy {symbol} {interval}"
-                )
-
-                candles = self.data_collector.get_historical_candles(
-                    symbol=symbol, interval=interval, limit=limit
-                )
-
-                if candles:
-                    self.logger.info(
-                        f"[TradingEngine] Fetched {len(candles)} candles "
-                        f"for {symbol} {interval}"
-                    )
-
-                    # Initialize strategy with candles
-                    self.strategy.initialize_with_historical_data(candles)
+                    # Single-interval strategy: Use first configured interval
+                    interval = self.data_collector.intervals[0]
 
                     self.logger.info(
-                        f"[TradingEngine] ✅ Strategy initialization complete: "
-                        f"{len(candles)} candles loaded for {symbol} {interval}"
-                    )
-                else:
-                    self.logger.warning(
-                        f"[TradingEngine] No candles returned for {symbol} {interval}"
+                        f"[TradingEngine] Fetching {limit} candles "
+                        f"for single-interval strategy {symbol} {interval}"
                     )
 
-        except Exception as e:
-            self.logger.error(
-                f"[TradingEngine] ❌ Failed to initialize strategy with historical data: {e}",
-                exc_info=True,
-            )
+                    candles = self.data_collector.get_historical_candles(
+                        symbol=symbol, interval=interval, limit=limit
+                    )
+
+                    if candles:
+                        self.logger.info(
+                            f"[TradingEngine] Fetched {len(candles)} candles "
+                            f"for {symbol} {interval}"
+                        )
+
+                        # Initialize strategy with candles
+                        strategy.initialize_with_historical_data(candles)
+
+                        self.logger.info(
+                            f"[TradingEngine] ✅ Strategy initialization complete: "
+                            f"{len(candles)} candles loaded for {symbol} {interval}"
+                        )
+                    else:
+                        self.logger.warning(
+                            f"[TradingEngine] No candles returned for {symbol} {interval}"
+                        )
+
+            except Exception as e:
+                self.logger.error(
+                    f"[TradingEngine] ❌ Failed to initialize strategy for {symbol}: {e}",
+                    exc_info=True,
+                )
 
     def _setup_event_handlers(self) -> None:
         """
@@ -626,15 +621,26 @@ class TradingEngine:
         # Step 1: Extract candle from event data
         candle: Candle = event.data
 
+        # Step 1: Unknown symbol validation (Issue #8 Phase 2 - Fail-fast)
+        if candle.symbol not in self.strategies:
+            self.logger.error(
+                f"❌ Unknown symbol: {candle.symbol}. "
+                f"Configured symbols: {list(self.strategies.keys())}"
+            )
+            return
+
+        # Get strategy for this symbol
+        strategy = self.strategies[candle.symbol]
+
         # Step 1.5: Filter intervals based on strategy type (Issue #7 Phase 3)
         from src.strategies.multi_timeframe import MultiTimeframeStrategy
 
-        if isinstance(self.strategy, MultiTimeframeStrategy):
+        if isinstance(strategy, MultiTimeframeStrategy):
             # MTF strategy: Only process intervals registered in strategy
-            if candle.interval not in self.strategy.intervals:
+            if candle.interval not in strategy.intervals:
                 self.logger.debug(
-                    f"Filtering {candle.interval} candle for MTF strategy "
-                    f"(expects {self.strategy.intervals})"
+                    f"Filtering {candle.interval} candle for {candle.symbol} MTF strategy "
+                    f"(expects {strategy.intervals})"
                 )
                 return
         else:
@@ -642,7 +648,7 @@ class TradingEngine:
             expected_interval = self.data_collector.intervals[0]
             if candle.interval != expected_interval:
                 self.logger.debug(
-                    f"Filtering {candle.interval} candle for single-interval strategy "
+                    f"Filtering {candle.interval} candle for {candle.symbol} single-interval strategy "
                     f"(expects {expected_interval})"
                 )
                 return
@@ -655,7 +661,7 @@ class TradingEngine:
 
         # Step 3: Call strategy.analyze() to generate signal
         try:
-            signal = await self.strategy.analyze(candle)
+            signal = await strategy.analyze(candle)
         except Exception as e:
             # Don't crash on strategy errors
             self.logger.error(f"Strategy analysis failed for {candle.symbol}: {e}", exc_info=True)
