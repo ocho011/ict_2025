@@ -70,6 +70,7 @@ class BinanceDataCollector:
         intervals: List[str],
         is_testnet: bool = True,
         on_candle_callback: Optional[Callable[[Candle], None]] = None,
+        engine_ready_event: Optional[asyncio.Event] = None,
     ) -> None:
         """
         Initialize BinanceDataCollector.
@@ -82,6 +83,9 @@ class BinanceDataCollector:
             is_testnet: Use testnet (True) or mainnet (False). Default is True.
             on_candle_callback: Optional callback function invoked on each candle update.
                                Signature: callback(candle: Candle) -> None
+            engine_ready_event: Optional asyncio.Event signaling when TradingEngine
+                               event loop is ready. Used to prevent race condition where
+                               WebSocket messages arrive before event loop is captured.
 
         Note:
             - Constructor does NOT start streaming. Call start_streaming() explicitly.
@@ -89,6 +93,7 @@ class BinanceDataCollector:
               trading with real funds.
             - Symbols are automatically normalized to uppercase for API compatibility.
             - WebSocket client is initialized lazily in start_streaming().
+            - engine_ready_event prevents Issue #14 race condition (multi-coin regression).
 
         Raises:
             ValueError: If symbols or intervals lists are empty
@@ -104,6 +109,7 @@ class BinanceDataCollector:
         self.symbols = [s.upper() for s in symbols]  # Normalize to uppercase
         self.intervals = intervals
         self.on_candle_callback = on_candle_callback
+        self.engine_ready_event = engine_ready_event  # Synchronization barrier for Issue #14
 
         # Initialize REST client for historical data and account queries
         base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL
@@ -266,6 +272,14 @@ class BinanceDataCollector:
             return
 
         try:
+            # SYNCHRONIZATION BARRIER (Issue #14): Wait for TradingEngine event loop to be ready
+            # before subscribing to WebSocket. This prevents race condition where messages
+            # arrive before event loop is captured, causing silent message drops.
+            if self.engine_ready_event:
+                self.logger.debug("Waiting for TradingEngine ready signal...")
+                await self.engine_ready_event.wait()
+                self.logger.debug("TradingEngine ready, proceeding with WebSocket subscription")
+
             # Select WebSocket URL based on environment
             stream_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL
 

@@ -280,6 +280,7 @@ class TradingEngine:
             intervals=trading_config.intervals,
             is_testnet=is_testnet,
             on_candle_callback=self.on_candle_received,
+            engine_ready_event=self._ready_event,  # Issue #14: Race condition fix
         )
 
         # Step 6: Setup event handlers
@@ -1111,10 +1112,11 @@ class TradingEngine:
         # Capture event loop FIRST (Phase 2.1 - prevents race condition)
         self._event_loop = asyncio.get_running_loop()
         self._engine_state = EngineState.RUNNING
-        self._ready_event.set()  # Signal ready to DataCollector
-        
+        self._ready_event.set()  # Signal ready to DataCollector (Issue #14 fix)
+
         self.logger.info(f"TradingEngine event loop captured: {self._event_loop}")
-        
+        self.logger.debug("TradingEngine ready event set - DataCollector can proceed")
+
         self._running = True
         self.logger.info("Starting TradingEngine")
 
