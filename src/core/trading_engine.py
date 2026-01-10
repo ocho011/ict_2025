@@ -415,7 +415,7 @@ class TradingEngine:
 
         self.logger.info("✅ TradingEngine components injected and handlers registered")
 
-    def initialize_strategy_with_backfill(self, limit: int = 100) -> None:
+    async def initialize_strategy_with_backfill(self, limit: int = 100) -> None:
         """
         Initialize strategy with historical data by fetching directly from API.
 
@@ -477,13 +477,19 @@ class TradingEngine:
 
         self.logger.info(
             f"[TradingEngine] Initializing {len(self.strategies)} strategies "
-            f"with {limit} historical candles per interval"
+            f"with {limit} historical candles per interval (sequential to avoid rate limits)"
         )
 
-        # Initialize each symbol's strategy (Issue #8 Phase 2)
+        # Initialize each symbol's strategy sequentially (Issue #8 Phase 3)
+        # Use asyncio.sleep() between symbols to avoid API rate limit
+        symbol_count = 0
         for symbol, strategy in self.strategies.items():
+            symbol_count += 1
             try:
-                self.logger.info(f"[TradingEngine] Initializing strategy for {symbol}...")
+                self.logger.info(
+                    f"[TradingEngine] [{symbol_count}/{len(self.strategies)}] "
+                    f"Initializing strategy for {symbol}..."
+                )
 
                 # Check if this is a multi-timeframe strategy
                 if isinstance(strategy, MultiTimeframeStrategy):
@@ -566,6 +572,16 @@ class TradingEngine:
                     f"[TradingEngine] ❌ Failed to initialize strategy for {symbol}: {e}",
                     exc_info=True,
                 )
+
+            # Rate limit protection: Wait between symbols (Issue #8 Phase 3)
+            # Skip delay after last symbol
+            if symbol_count < len(self.strategies):
+                delay = 0.5  # 500ms delay to avoid API rate limit
+                self.logger.debug(
+                    f"[TradingEngine] Waiting {delay}s before next symbol "
+                    f"(rate limit protection)..."
+                )
+                await asyncio.sleep(delay)
 
     def _setup_event_handlers(self) -> None:
         """
