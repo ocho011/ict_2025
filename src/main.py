@@ -150,7 +150,7 @@ class TradingBot:
         self.logger.info("=" * 50)
         self.logger.info("ICT Trading Bot Starting (Issue #5 Refactored)...")
         self.logger.info(f"Environment: {'TESTNET' if api_config.is_testnet else 'MAINNET'}")
-        self.logger.info(f"Symbol: {trading_config.symbol}")
+        self.logger.info(f"Symbols: {', '.join(trading_config.symbols)}")
         self.logger.info(f"Intervals: {', '.join(trading_config.intervals)}")
         self.logger.info(f"Strategy: {trading_config.strategy}")
         self.logger.info(f"Leverage: {trading_config.leverage}x")
@@ -279,7 +279,7 @@ class TradingBot:
             try:
                 self.logger.info("Executing emergency liquidation...")
                 liquidation_result = await self.liquidation_manager.execute_liquidation(
-                    symbols=[self.config_manager.trading_config.symbol]
+                    symbols=self.config_manager.trading_config.symbols
                 )
 
                 # Log liquidation outcome
