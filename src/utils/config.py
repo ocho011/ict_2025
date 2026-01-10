@@ -490,6 +490,10 @@ class ConfigManager:
                 "active_profile": ict_section.get("active_profile", "strict"),
                 "buffer_size": ict_section.getint("buffer_size", 200),
                 "use_killzones": ict_section.getboolean("use_killzones", True),
+                # Multi-Timeframe intervals (Issue #7)
+                "ltf_interval": ict_section.get("ltf_interval", "5m"),
+                "mtf_interval": ict_section.get("mtf_interval", "1h"),
+                "htf_interval": ict_section.get("htf_interval", "4h"),
             }
             # Only add individual parameters if explicitly set (not commented out)
             optional_params = [
@@ -507,7 +511,7 @@ class ConfigManager:
 
         return TradingConfig(
             symbol=trading.get("symbol", "BTCUSDT"),
-            intervals=trading.get("intervals", "1m,5m,15m").split(","),
+            intervals=[i.strip() for i in trading.get("intervals", "1m,5m,15m").split(",")],
             strategy=trading.get("strategy", "MockStrategy"),
             leverage=trading.getint("leverage", 1),
             max_risk_per_trade=trading.getfloat("max_risk_per_trade", 0.01),
