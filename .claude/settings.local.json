@@ -35,7 +35,10 @@
       "mcp__serena__check_onboarding_performed",
       "Bash(ls:*)",
       "mcp__serena__insert_before_symbol",
-      "mcp__serena__search_for_pattern"
+      "mcp__serena__search_for_pattern",
+      "Bash(git pull:*)",
+      "Bash(gh issue view:*)",
+      "Bash(task-master add-task:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

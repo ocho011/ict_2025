@@ -88,7 +88,7 @@ class BinanceDataCollector:
             - Testnet is strongly recommended for development and testing to avoid
               trading with real funds.
             - Symbols are automatically normalized to uppercase for API compatibility.
-            - WebSocket client is initialized lazily in start_streaming().
+            - WebSocket clients are initialized lazily in start_streaming() (one per symbol).
 
         Raises:
             ValueError: If symbols or intervals lists are empty
@@ -109,8 +109,9 @@ class BinanceDataCollector:
         base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL
         self.rest_client = UMFutures(key=api_key, secret=api_secret, base_url=base_url)
 
-        # WebSocket client (initialized in start_streaming)
-        self.ws_client: Optional[UMFuturesWebsocketClient] = None
+        # WebSocket clients (one per symbol) - initialized in start_streaming
+        # Dictionary mapping symbol -> UMFuturesWebsocketClient
+        self.ws_clients: dict[str, UMFuturesWebsocketClient] = {}
 
         # State management
         self._running = False
@@ -131,22 +132,23 @@ class BinanceDataCollector:
             f"symbols={self.symbols}, "
             f"intervals={self.intervals}, "
             f"is_testnet={self.is_testnet}, "
-            f"running={self._running})"
+            f"running={self._running}, "
+            f"active_connections={len(self.ws_clients)})"
         )
 
     @property
     def is_connected(self) -> bool:
         """
-        Check if WebSocket connection is active.
+        Check if WebSocket connections are active.
 
         Returns:
-            True if WebSocket is connected and streaming, False otherwise
-
-        Note:
-            - Returns False if WebSocket client not initialized
-            - Returns internal _is_connected flag state
+            True if all required symbol connections are active, False otherwise.
         """
-        return self._is_connected and self.ws_client is not None
+        if not self._is_connected or not self.ws_clients:
+            return False
+            
+        # Consider connected if we have clients for all symbols
+        return len(self.ws_clients) == len(self.symbols)
 
     def _handle_kline_message(self, _, message) -> None:
         """
@@ -244,21 +246,16 @@ class BinanceDataCollector:
         """
         Start WebSocket streaming for all configured symbol/interval pairs.
 
-        Establishes WebSocket connection and subscribes to kline streams for each
-        combination of symbols and intervals configured in the constructor.
+        Establishes separate WebSocket connections for each symbol to ensure reliability
+        on Binance Testnet (avoids single-connection stream limits).
 
         Raises:
             ConnectionError: If WebSocket connection fails
 
-        Example:
-            >>> collector = BinanceDataCollector(...)
-            >>> await collector.start_streaming()
-            >>> # Now receiving real-time kline updates
-
-        Note:
-            - Method is idempotent - multiple calls are ignored
-            - Connection is automatic via binance-futures-connector library
-            - Messages routed to _handle_kline_message() callback
+        Structure:
+            - Creates one WebSocket client per symbol
+            - Subscribes to all configured intervals for that symbol
+            - Manages multiple connections in self.ws_clients
         """
         # Idempotency check
         if self._running:
@@ -268,37 +265,53 @@ class BinanceDataCollector:
         try:
             # Select WebSocket URL based on environment
             stream_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL
-
-            self.logger.info(f"Initializing WebSocket connection to {stream_url}")
-
-            # Initialize WebSocket client with message handler
-            # IMPORTANT: on_message must be set during client initialization
-            self.ws_client = UMFuturesWebsocketClient(
-                stream_url=stream_url, on_message=self._handle_kline_message
+            
+            self.logger.info(
+                f"Initializing {len(self.symbols)} WebSocket connections to {stream_url}"
             )
 
-            # Subscribe to kline streams for all symbol/interval combinations
-            stream_count = 0
+            total_stream_count = 0
+            
+            # Create a separate client for each symbol
             for symbol in self.symbols:
+                self.logger.info(f"Establishing connection for {symbol}...")
+                
+                # Initialize WebSocket client with message handler
+                client = UMFuturesWebsocketClient(
+                    stream_url=stream_url, on_message=self._handle_kline_message
+                )
+                
+                # Subscribe to all intervals for this symbol
+                symbol_stream_count = 0
                 for interval in self.intervals:
                     stream_name = f"{symbol.lower()}@kline_{interval}"
-                    self.logger.debug(f"Subscribing to stream: {stream_name}")
-
-                    # Subscribe without callback parameter (handled by on_message)
-                    self.ws_client.kline(symbol=symbol.lower(), interval=interval)
-                    stream_count += 1
+                    self.logger.debug(f"[{symbol}] Subscribing to: {stream_name}")
+                    
+                    # Subscribe
+                    client.kline(symbol=symbol.lower(), interval=interval)
+                    symbol_stream_count += 1
+                
+                # Store the client
+                self.ws_clients[symbol] = client
+                total_stream_count += symbol_stream_count
+                
+                # Small delay to prevent connection rate limiting if many symbols
+                if len(self.symbols) > 1:
+                    await asyncio.sleep(0.1)
 
             # Update state flags
             self._running = True
             self._is_connected = True
 
             self.logger.info(
-                f"Successfully started streaming {stream_count} streams "
-                f"({len(self.symbols)} symbols × {len(self.intervals)} intervals)"
+                f"Successfully started streaming {total_stream_count} streams "
+                f"across {len(self.ws_clients)} connections"
             )
 
         except Exception as e:
             self.logger.error(f"Failed to start WebSocket streaming: {e}", exc_info=True)
+            # Cleanup any partially started connections
+            await self.stop()
             raise ConnectionError(f"WebSocket initialization failed: {e}")
 
     def _parse_rest_kline(self, kline_array: List) -> Candle:
@@ -423,7 +436,7 @@ class BinanceDataCollector:
         Execution Order:
             1. Check if already stopped (idempotency)
             2. Set state flags to prevent new operations
-            3. Stop WebSocket client with timeout
+            3. Stop all WebSocket clients with timeout
             4. Close REST API client session
             5. Clear state flags
 
@@ -437,15 +450,9 @@ class BinanceDataCollector:
             - Method is idempotent - safe to call multiple times
             - Logs warnings if cleanup exceeds timeout
             - Does not raise exceptions on cleanup failures
-
-        Example:
-            >>> collector = BinanceDataCollector(...)
-            >>> await collector.start_streaming()
-            >>> # ... data collection active ...
-            >>> await collector.stop()
         """
         # Step 1: Idempotency check
-        if not self._running and not self._is_connected:
+        if not self._running and not self.ws_clients:
             self.logger.debug("Collector already stopped, ignoring stop request")
             return
 
@@ -456,18 +463,29 @@ class BinanceDataCollector:
         self._is_connected = False
 
         try:
-            # Step 3: Stop WebSocket client with timeout
-            if self.ws_client is not None:
-                self.logger.debug("Stopping WebSocket client...")
-                try:
-                    await asyncio.wait_for(asyncio.to_thread(self.ws_client.stop), timeout=timeout)
-                    self.logger.info("WebSocket client stopped successfully")
-                except asyncio.TimeoutError:
-                    self.logger.warning(
-                        f"WebSocket stop exceeded {timeout}s timeout, forcing cleanup"
-                    )
-                except Exception as e:
-                    self.logger.error(f"Error stopping WebSocket client: {e}", exc_info=True)
+            # Step 3: Stop all WebSocket clients
+            if self.ws_clients:
+                self.logger.debug(f"Stopping {len(self.ws_clients)} WebSocket clients...")
+                
+                # Create stop tasks for all clients
+                stop_tasks = []
+                for symbol, client in self.ws_clients.items():
+                    stop_tasks.append(asyncio.to_thread(client.stop))
+                
+                if stop_tasks:
+                    try:
+                        # Wait for all clients to stop
+                        await asyncio.wait_for(asyncio.gather(*stop_tasks), timeout=timeout)
+                        self.logger.info("All WebSocket clients stopped successfully")
+                    except asyncio.TimeoutError:
+                        self.logger.warning(
+                            f"WebSocket stop exceeded {timeout}s timeout, forcing cleanup"
+                        )
+                    except Exception as e:
+                        self.logger.error(f"Error stopping WebSocket clients: {e}", exc_info=True)
+                
+                # Clear references
+                self.ws_clients.clear()
 
             # Step 4: Close REST API client (if it has a close method)
             # Note: UMFutures uses requests.Session internally, which doesn't require explicit close

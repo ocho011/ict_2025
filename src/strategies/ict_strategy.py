@@ -237,7 +237,7 @@ class ICTStrategy(MultiTimeframeStrategy):
         trend = get_current_trend(candle_buffer, swing_lookback=self.swing_lookback)
 
         if trend is None:
-            self.logger.debug(f"No clear trend detected (swing_lookback={self.swing_lookback})")
+            self.logger.debug(f"[{self.symbol}] No clear trend detected (swing_lookback={self.swing_lookback})")
             return None  # No clear trend
 
         # Step 3: Premium/Discount Zone
@@ -356,7 +356,7 @@ class ICTStrategy(MultiTimeframeStrategy):
                 side = "LONG"
 
                 # Calculate TP (next BSL or displacement extension)
-                take_profit = self.calculate_take_profit(entry_price, side)
+                take_profit = self.calculate_take_profit(entry_price, side, candle_buffer)
 
                 # Calculate SL (below FVG/OB zone)
                 stop_loss = self.calculate_stop_loss(entry_price, side, nearest_fvg, nearest_ob)
@@ -438,7 +438,7 @@ class ICTStrategy(MultiTimeframeStrategy):
                 side = "SHORT"
 
                 # Calculate TP (next SSL or displacement extension)
-                take_profit = self.calculate_take_profit(entry_price, side)
+                take_profit = self.calculate_take_profit(entry_price, side, candle_buffer)
 
                 # Calculate SL (above FVG/OB zone)
                 stop_loss = self.calculate_stop_loss(entry_price, side, nearest_fvg, nearest_ob)
@@ -466,7 +466,7 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         # Log condition state when no signal generated (DEBUG level)
         self.logger.debug(
-            f"ICT Conditions Check: trend={trend}, "
+            f"[{self.symbol}] ICT Conditions Check: trend={trend}, "
             f"use_killzones={self.use_killzones}, "
             f"is_killzone={is_killzone_active(candle.open_time)}, "
             f"in_zone={(trend == 'bullish' and is_in_discount(current_price, range_low, range_high)) or (trend == 'bearish' and is_in_premium(current_price, range_low, range_high))}, "
@@ -478,7 +478,7 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         return None
 
-    def calculate_take_profit(self, entry_price: float, side: str) -> float:
+    def calculate_take_profit(self, entry_price: float, side: str, candle_buffer: list) -> float:
         """
         Calculate take profit using risk-reward ratio.
 

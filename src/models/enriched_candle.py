@@ -19,13 +19,13 @@ from src.models.ict_signals import (
 )
 
 
-@dataclass(slots=True)
+@dataclass
 class EnrichedCandle:
     """
     Candle with ICT indicators integrated for performance-optimized analysis.
 
     Design Philosophy:
-    - Hot Path optimization: dataclass(slots=True) for memory efficiency
+    - Hot Path optimization: slots=True disabled for Python 3.9 compatibility
     - Immutable indicators: tuple instead of list to prevent accidental mutation
     - Business logic encapsulation: Methods for common pattern detection
     - Zero DB overhead: In-memory only for real-time performance

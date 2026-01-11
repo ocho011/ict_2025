@@ -6,14 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime
 
 
-@dataclass(slots=True)
+@dataclass
 class Candle:
     """
     OHLCV candlestick data from Binance futures market.
 
-    Performance optimization: Using slots=True to reduce memory footprint by ~40%.
-    This prevents dynamic attribute addition but saves significant memory for
-    high-frequency data structures created 4+ times per second.
+    Performance note: Reduced memory footprint optimization (slots=True)
+    disabled for Python 3.9 compatibility (requires 3.10+).
 
     Attributes:
         symbol: Trading pair (e.g., 'BTCUSDT')

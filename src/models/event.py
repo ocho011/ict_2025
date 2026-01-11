@@ -20,12 +20,12 @@ class EventType(Enum):
     POSITION_CLOSED = "position_closed"
 
 
-@dataclass(slots=True)
+@dataclass
 class Event:
     """
     System event for event-driven architecture.
 
-    Performance optimization: Using slots=True to reduce memory footprint by ~40%.
+    Performance note: slots=True disabled for Python 3.9 compatibility
     Events are created frequently (4+ times/second), so memory efficiency is critical
     for high-frequency event processing.
 
