@@ -13,7 +13,7 @@ import pytest
 
 from src.core.trading_engine import TradingEngine
 from src.models.candle import Candle
-from src.models.event import Event, EventType
+from src.models.event import Event, EventType, QueueType
 from src.models.signal import Signal, SignalType
 
 
@@ -31,10 +31,12 @@ def trading_engine():
     engine.event_bus.shutdown = AsyncMock()
 
     engine.data_collector = Mock()
+    engine.data_collector.intervals = ["1h"]
     engine.data_collector.start_streaming = AsyncMock()
     engine.data_collector.stop = AsyncMock()
 
     engine.strategy = AsyncMock()
+    engine.strategies = {"BTCUSDT": engine.strategy, "ETHUSDT": AsyncMock()}
 
     engine.order_manager = Mock()
     engine.order_manager.get_position = Mock(return_value=None)
@@ -69,7 +71,7 @@ class TestTradingEngineInit:
 
         assert engine.event_bus is None
         assert engine.data_collector is None
-        assert engine.strategy is None
+        assert not engine.strategies
         assert engine.order_manager is None
         assert engine.risk_manager is None
         assert engine.config_manager is None
@@ -167,6 +169,7 @@ class TestEventHandlers:
             low=48500.0,
             close=50000.0,
             volume=100.0,
+            is_closed=True,
         )
         event = Event(EventType.CANDLE_CLOSED, candle)
 
@@ -202,6 +205,7 @@ class TestEventHandlers:
             low=48500.0,
             close=50000.0,
             volume=100.0,
+            is_closed=True,
         )
         event = Event(EventType.CANDLE_CLOSED, candle)
 
@@ -214,11 +218,11 @@ class TestEventHandlers:
 
         # Check event type and queue
         published_event = call_args[0][0]
-        queue_name = call_args[1]["queue_name"]
+        queue_type = call_args[1]["queue_type"]
 
         assert published_event.event_type == EventType.SIGNAL_GENERATED
         assert published_event.data == mock_signal
-        assert queue_name == "signal"
+        assert queue_type == QueueType.SIGNAL
 
     @pytest.mark.asyncio
     async def test_on_candle_closed_handles_no_signal(self, trading_engine):
@@ -236,6 +240,7 @@ class TestEventHandlers:
             low=49000.0,
             close=50500.0,
             volume=100.0,
+            is_closed=True,
         )
         event = Event(EventType.CANDLE_CLOSED, candle)
 
@@ -326,6 +331,7 @@ class TestEventHandlers:
             low=49000.0,
             close=50500.0,
             volume=100.0,
+            is_closed=True,
         )
         event = Event(EventType.CANDLE_CLOSED, candle)
 
@@ -404,8 +410,8 @@ class TestIntegration:
         # Track published events
         published_events = []
 
-        async def capture_publish(event, queue_name="data"):
-            published_events.append((event, queue_name))
+        async def capture_publish(event, queue_type=QueueType.DATA):
+            published_events.append((event, queue_type))
 
         trading_engine.event_bus.publish = capture_publish
 
@@ -436,6 +442,7 @@ class TestIntegration:
             low=48500.0,
             close=50000.0,
             volume=100.0,
+            is_closed=True,
         )
         candle_event = Event(EventType.CANDLE_CLOSED, candle)
 
@@ -444,20 +451,20 @@ class TestIntegration:
 
         # Verify signal published
         assert len(published_events) == 1
-        signal_event, queue = published_events[0]
+        signal_event, queue_type = published_events[0]
         assert signal_event.event_type == EventType.SIGNAL_GENERATED
         assert signal_event.data == expected_signal
-        assert queue == "signal"
+        assert queue_type == QueueType.SIGNAL
 
         # Process signal → order
         await trading_engine._on_signal_generated(signal_event)
 
         # Verify order published
         assert len(published_events) == 2
-        order_event, queue = published_events[1]
+        order_event, queue_type = published_events[1]
         assert order_event.event_type == EventType.ORDER_FILLED
         assert order_event.data == mock_order
-        assert queue == "order"
+        assert queue_type == QueueType.ORDER
 
         # Verify strategy was called
         trading_engine.strategy.analyze.assert_called_once_with(candle)
