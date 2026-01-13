@@ -176,7 +176,7 @@ class TestBinanceDataCollectorInitialization:
         assert collector.on_candle_callback == test_callback
 
         # Assert internal state
-        assert collector.ws_client is None  # Lazy initialization
+        assert collector.ws_clients == {}  # Lazy initialization dictionary
 
         # Assert state flags
         assert collector._running is False
@@ -308,9 +308,14 @@ class TestBinanceDataCollectorStreaming:
         await collector.start_streaming()
 
         # Assert
-        mock_ws_client_class.assert_called_once_with(
-            stream_url="wss://stream.binancefuture.com", on_message=collector._handle_kline_message
-        )
+        # Assert - Verify each symbol has its own client
+        assert len(collector.ws_clients) == 2
+        assert mock_ws_client_class.call_count == 2
+        
+        # Verify first call
+        first_call_args = mock_ws_client_class.call_args_list[0]
+        assert first_call_args[1]["stream_url"] == "wss://stream.binancefuture.com"
+        assert first_call_args[1]["on_message"] == collector._handle_kline_message
         assert collector._running is True
         assert collector._is_connected is True
 
@@ -343,9 +348,14 @@ class TestBinanceDataCollectorStreaming:
         await collector.start_streaming()
 
         # Assert
-        mock_ws_client_class.assert_called_once_with(
-            stream_url="wss://fstream.binance.com", on_message=collector._handle_kline_message
-        )
+        # Assert - Verify each symbol has its own client
+        assert len(collector.ws_clients) == 2
+        assert mock_ws_client_class.call_count == 2
+        
+        # Verify first call
+        first_call_args = mock_ws_client_class.call_args_list[0]
+        assert first_call_args[1]["stream_url"] == "wss://fstream.binance.com"
+        assert first_call_args[1]["on_message"] == collector._handle_kline_message
         assert collector._running is True
         assert collector._is_connected is True
 
@@ -464,15 +474,16 @@ class TestBinanceDataCollectorStreaming:
         # Verify initial state
         assert collector._running is False
         assert collector._is_connected is False
-        assert collector.ws_client is None
-
+        assert collector.ws_clients == {}
+        
         # Act
         await collector.start_streaming()
-
+        
         # Assert final state
         assert collector._running is True
         assert collector._is_connected is True
-        assert collector.ws_client == mock_ws_instance
+        assert len(collector.ws_clients) == 2
+        assert all(isinstance(c, Mock) for c in collector.ws_clients.values())
 
     @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
@@ -537,8 +548,8 @@ class TestBinanceDataCollectorStreaming:
         await collector.start_streaming()
         await collector.start_streaming()  # Second call
 
-        # Assert - WebSocket client created only once
-        mock_ws_client_class.assert_called_once()
+        # Assert - WebSocket clients created only for the first call (per symbol)
+        assert mock_ws_client_class.call_count == 2
 
     @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
@@ -777,10 +788,9 @@ class TestBinanceDataCollectorMessageParsing:
 
         with patch.object(collector.logger, "debug") as mock_debug:
             collector._handle_kline_message(None, message)
-
-            # Verify debug logged (non-kline events logged as debug, not warning)
-            mock_debug.assert_called_once()
-            assert "24hrTicker" in str(mock_debug.call_args)
+ 
+            # Note: debug logging removed from hot path, should not be called
+            mock_debug.assert_not_called()
 
     def test_missing_event_type(self, collector):
         """Test message without 'e' field is silently ignored (no logging)."""
@@ -951,15 +961,12 @@ class TestBinanceDataCollectorMessageParsing:
             mock_error.assert_called()
 
     def test_debug_logging_on_success(self, collector, valid_kline_message):
-        """Test debug logging on successful parse."""
+        """Test that debug logging is disabled for hot path performance."""
         with patch.object(collector.logger, "debug") as mock_debug:
             collector._handle_kline_message(None, valid_kline_message)
-
-            # With buffer management, debug is called multiple times
-            assert mock_debug.call_count >= 1
-            # Verify at least one call contains candle parsing info
-            log_messages = [str(call) for call in mock_debug.call_args_list]
-            assert any("BTCUSDT" in msg and "1m" in msg for msg in log_messages)
+ 
+            # Note: debug logging removed from hot path, should not be called
+            mock_debug.assert_not_called()
 
     def test_multiple_messages_sequential_parsing(self, collector):
         """Test parsing multiple messages in sequence."""

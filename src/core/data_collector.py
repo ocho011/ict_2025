@@ -67,7 +67,7 @@ class BinanceDataCollector:
         api_key: str,
         api_secret: str,
         symbols: List[str],
-        intervals: List[str],
+        intervals: List[str], # From .ini config (e.g., trading_config.ini)
         is_testnet: bool = True,
         on_candle_callback: Optional[Callable[[Candle], None]] = None,
     ) -> None:
