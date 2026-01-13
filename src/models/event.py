@@ -20,6 +20,14 @@ class EventType(Enum):
     POSITION_CLOSED = "position_closed"
 
 
+class QueueType(Enum):
+    """Queue types for event distribution priority."""
+
+    DATA = "data"
+    SIGNAL = "signal"
+    ORDER = "order"
+
+
 @dataclass
 class Event:
     """

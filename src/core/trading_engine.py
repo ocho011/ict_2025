@@ -21,7 +21,7 @@ from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
 from src.execution.order_manager import OrderExecutionManager
 from src.models.candle import Candle
-from src.models.event import Event, EventType
+from src.models.event import Event, EventType, QueueType
 from src.models.order import Order
 from src.models.signal import Signal
 from src.risk.manager import RiskManager
@@ -715,7 +715,7 @@ class TradingEngine:
 
             # Create event and publish to 'signal' queue
             signal_event = Event(EventType.SIGNAL_GENERATED, signal)
-            await self.event_bus.publish(signal_event, queue_name="signal")
+            await self.event_bus.publish(signal_event, queue_type=QueueType.SIGNAL)
         else:
             # Info log for no signal (shows strategy is working)
             self.logger.info(
@@ -826,7 +826,7 @@ class TradingEngine:
 
             # Step 8: Publish ORDER_FILLED event
             order_event = Event(EventType.ORDER_FILLED, entry_order)
-            await self.event_bus.publish(order_event, queue_name="order")
+            await self.event_bus.publish(order_event, queue_type=QueueType.ORDER)
 
         except Exception as e:
             # Step 9: Catch and log execution errors without crashing
@@ -1044,7 +1044,7 @@ class TradingEngine:
         # Step 5: Publish to EventBus (thread-safe)
         try:
             asyncio.run_coroutine_threadsafe(
-                self.event_bus.publish(event, queue_name="data"), self._event_loop
+                self.event_bus.publish(event, queue_type=QueueType.DATA), self._event_loop
             )
 
         except Exception as e:
