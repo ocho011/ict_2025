@@ -231,21 +231,31 @@ class TradingBot:
         self.logger.info(f"✅ TradingBot lifecycle state: {self._lifecycle_state.name}")
         
         self.logger.info("Starting trading system...")
+
+        # Create tasks with explicit references for proper cleanup (Issue #23)
+        engine_task = asyncio.create_task(self.trading_engine.run())
+        stop_signal_task = asyncio.create_task(self._stop_event.wait())
+
         try:
-            # Run TradingEngine in a task
-            engine_task = asyncio.create_task(self.trading_engine.run())
-            
             # Wait for either engine to finish or stop event to trigger
             done, pending = await asyncio.wait(
-                [engine_task, asyncio.create_task(self._stop_event.wait())],
+                [engine_task, stop_signal_task],
                 return_when=asyncio.FIRST_COMPLETED
             )
-            
+
             # If the engine task is still running (stop event triggered first),
-            # it will be stopped gracefully by the subsequent shutdown() call 
+            # it will be stopped gracefully by the subsequent shutdown() call
             # which sets engine._running = False.
-            
+
         finally:
+            # Cancel pending stop_signal_task to prevent zombie tasks (Issue #23)
+            if not stop_signal_task.done():
+                stop_signal_task.cancel()
+                try:
+                    await stop_signal_task
+                except asyncio.CancelledError:
+                    pass  # Expected when cancelling
+
             # Ensure TradingBot cleanup executes (QueueListener, lifecycle state, etc.)
             await self.shutdown()
 
