@@ -933,3 +933,106 @@ class TestIntervalFiltering:
         # Verify debug log was called
         engine.logger.debug.assert_called()
         assert "Filtering 1h candle" in str(engine.logger.debug.call_args)
+
+
+class TestBackfillIntervalFix:
+    """Tests for Issue #26: Backfill should use strategy.intervals, not data_collector.intervals."""
+
+    @pytest.mark.asyncio
+    async def test_mtf_strategy_uses_own_intervals_not_datacollector(self):
+        """Test MTF strategy only fetches intervals it actually needs (Issue #26)."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+
+        # Setup engine
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Setup data_collector with MORE intervals than strategy needs
+        mock_data_collector = Mock()
+        mock_data_collector.intervals = ["1m", "5m", "15m", "1h", "4h"]  # System-wide intervals
+        mock_data_collector.get_historical_candles = Mock(return_value=[])
+        engine.data_collector = mock_data_collector
+
+        # Create MTF strategy that only uses SUBSET of intervals
+        mock_strategy = Mock(spec=MultiTimeframeStrategy)
+        mock_strategy.intervals = ["5m", "1h", "4h"]  # Strategy only needs these 3
+        mock_strategy.initialize_with_historical_data = Mock()
+
+        engine.strategies = {"BTCUSDT": mock_strategy}
+
+        # Execute backfill
+        await engine.initialize_strategy_with_backfill(limit=100)
+
+        # Verify get_historical_candles was called ONLY for strategy's intervals
+        assert mock_data_collector.get_historical_candles.call_count == 3
+
+        # Verify it was NOT called for "1m" and "15m" (not in strategy.intervals)
+        called_intervals = [
+            call[1]["interval"] for call in mock_data_collector.get_historical_candles.call_args_list
+        ]
+        assert called_intervals == ["5m", "1h", "4h"]
+        assert "1m" not in called_intervals
+        assert "15m" not in called_intervals
+
+    @pytest.mark.asyncio
+    async def test_backfill_prevents_unnecessary_api_calls(self):
+        """Test backfill reduces API calls when strategy needs fewer intervals (Issue #26)."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+
+        # Setup engine
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # DataCollector has 5 intervals (system-wide)
+        mock_data_collector = Mock()
+        mock_data_collector.intervals = ["1m", "5m", "15m", "1h", "4h"]
+        mock_data_collector.get_historical_candles = Mock(return_value=[Mock()])
+        engine.data_collector = mock_data_collector
+
+        # Strategy only needs 2 intervals
+        mock_strategy = Mock(spec=MultiTimeframeStrategy)
+        mock_strategy.intervals = ["5m", "1h"]  # Only 2 out of 5
+        mock_strategy.initialize_with_historical_data = Mock()
+
+        engine.strategies = {"BTCUSDT": mock_strategy}
+
+        # Execute backfill
+        await engine.initialize_strategy_with_backfill(limit=100)
+
+        # Verify API calls reduced from 5 (data_collector) to 2 (strategy)
+        assert mock_data_collector.get_historical_candles.call_count == 2  # Not 5!
+
+        # Verify strategy was initialized with correct intervals
+        assert mock_strategy.initialize_with_historical_data.call_count == 2
+
+    @pytest.mark.asyncio
+    async def test_backfill_respects_strategy_compatibility_validation(self):
+        """Test backfill assumes strategy intervals are subset of data_collector (Issue #26)."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+
+        # Setup engine
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # DataCollector has specific intervals
+        mock_data_collector = Mock()
+        mock_data_collector.intervals = ["1m", "5m", "1h"]
+        mock_data_collector.get_historical_candles = Mock(return_value=[Mock()])
+        engine.data_collector = mock_data_collector
+
+        # Strategy intervals are SUBSET (validated by _validate_strategy_compatibility earlier)
+        mock_strategy = Mock(spec=MultiTimeframeStrategy)
+        mock_strategy.intervals = ["5m", "1h"]  # Subset of data_collector.intervals
+        mock_strategy.initialize_with_historical_data = Mock()
+
+        engine.strategies = {"BTCUSDT": mock_strategy}
+
+        # Execute backfill (should work because subset is valid)
+        await engine.initialize_strategy_with_backfill(limit=100)
+
+        # Verify calls were made for strategy intervals
+        called_intervals = [
+            call[1]["interval"] for call in mock_data_collector.get_historical_candles.call_args_list
+        ]
+        assert set(called_intervals) == {"5m", "1h"}
+        assert set(called_intervals).issubset(set(mock_data_collector.intervals))
