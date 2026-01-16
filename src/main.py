@@ -354,7 +354,11 @@ def main() -> None:
     # Setup signal handlers for graceful shutdown using Event
     def signal_handler(_sig, _frame):
         if bot._stop_event:
+            # Graceful shutdown during run loop (Issue #22)
             bot._stop_event.set()
+        else:
+            # Immediate exit during initialization (Issue #22)
+            raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)
