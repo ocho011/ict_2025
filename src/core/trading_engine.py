@@ -194,7 +194,9 @@ class TradingEngine:
             4. RiskManager
             5. Strategy (via StrategyFactory)
             6. BinanceDataCollector
-            7. Event handler registration
+            7. **Strategy-DataCollector compatibility validation (Issue #24)**
+            8. Event handler registration
+            9. Leverage and margin type configuration (API calls)
 
         State Transition:
             CREATED → INITIALIZED
@@ -287,6 +289,10 @@ class TradingEngine:
             on_candle_callback=self.on_candle_received,
         )
 
+        # Step 5.5: Validate strategy-DataCollector compatibility (Issue #24)
+        # Moved BEFORE event handlers and API calls to follow fail-fast principle
+        self._validate_strategy_compatibility()
+
         # Step 6: Setup event handlers
         self._setup_event_handlers()
 
@@ -306,9 +312,6 @@ class TradingEngine:
                     f"Failed to set margin type to {trading_config.margin_type} for {symbol}. "
                     "Using current margin type."
                 )
-
-        # Step 7.5: Validate strategy-DataCollector compatibility (Issue #7 Phase 2)
-        self._validate_strategy_compatibility()
 
         # Step 8: State transition
         self._engine_state = EngineState.INITIALIZED

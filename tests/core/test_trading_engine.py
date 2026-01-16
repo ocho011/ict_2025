@@ -614,6 +614,141 @@ class TestStrategyCompatibilityValidation:
         assert "reduce WebSocket bandwidth" in str(engine.logger.warning.call_args)
 
 
+class TestInitializationOrder:
+    """Test initialization order for fail-fast behavior (Issue #24)."""
+
+    def test_validation_runs_before_event_handler_setup(self):
+        """Test validation fails before event handlers are registered."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.core.exceptions import ConfigurationError
+        from unittest.mock import patch, MagicMock
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock components
+        mock_config = MagicMock()
+        mock_config.trading_config = MagicMock()
+        mock_config.trading_config.symbols = ["BTCUSDT"]
+        mock_config.trading_config.intervals = ["5m", "1h"]  # Missing 4h
+        mock_config.trading_config.leverage = 10
+        mock_config.trading_config.margin_type = "ISOLATED"
+        mock_config.trading_config.strategy = "multi_timeframe_ict"
+        mock_config.trading_config.take_profit_ratio = 2.0
+        mock_config.trading_config.stop_loss_percent = 0.01
+        mock_config.trading_config.ict_config = None
+        mock_config.trading_config.max_risk_per_trade = 0.02
+
+        mock_event_bus = MagicMock()
+        mock_event_bus.subscribe = MagicMock()
+
+        # Patch components that would be created (patch at import location)
+        with patch('src.core.binance_service.BinanceServiceClient') as mock_service_cls, \
+             patch('src.execution.order_manager.OrderExecutionManager') as mock_order_cls, \
+             patch('src.risk.manager.RiskManager') as mock_risk_cls, \
+             patch('src.strategies.StrategyFactory.create') as mock_strategy_factory, \
+             patch('src.core.data_collector.BinanceDataCollector') as mock_collector_cls:
+
+            # Setup mocks
+            mock_service_cls.return_value = MagicMock()
+            mock_order_cls.return_value = MagicMock()
+            mock_risk_cls.return_value = MagicMock()
+
+            # Create MTF strategy that requires ['5m', '1h', '4h']
+            mock_strategy = MagicMock(spec=MultiTimeframeStrategy)
+            mock_strategy.intervals = ['5m', '1h', '4h']  # Requires 4h but config only has 5m, 1h
+            mock_strategy_factory.return_value = mock_strategy
+
+            # Create DataCollector with intervals from config
+            mock_collector = MagicMock()
+            mock_collector.intervals = ["5m", "1h"]  # Missing 4h
+            mock_collector_cls.return_value = mock_collector
+
+            # Attempt initialization - should fail during validation
+            with pytest.raises(ConfigurationError) as exc_info:
+                engine.initialize_components(
+                    config_manager=mock_config,
+                    event_bus=mock_event_bus,
+                    api_key="test_key",
+                    api_secret="test_secret",
+                    is_testnet=True,
+                )
+
+            # Verify error message
+            assert "'4h'" in str(exc_info.value)
+            assert "Missing: ['4h']" in str(exc_info.value)
+
+            # CRITICAL: Verify event handlers were NOT registered
+            # (validation failed before _setup_event_handlers() was called)
+            mock_event_bus.subscribe.assert_not_called()
+
+    def test_validation_runs_before_api_calls(self):
+        """Test validation fails before leverage/margin API calls."""
+        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.core.exceptions import ConfigurationError
+        from unittest.mock import patch, MagicMock
+
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock components
+        mock_config = MagicMock()
+        mock_config.trading_config = MagicMock()
+        mock_config.trading_config.symbols = ["BTCUSDT"]
+        mock_config.trading_config.intervals = ["5m", "1h"]  # Missing 4h
+        mock_config.trading_config.leverage = 10
+        mock_config.trading_config.margin_type = "ISOLATED"
+        mock_config.trading_config.strategy = "multi_timeframe_ict"
+        mock_config.trading_config.take_profit_ratio = 2.0
+        mock_config.trading_config.stop_loss_percent = 0.01
+        mock_config.trading_config.ict_config = None
+        mock_config.trading_config.max_risk_per_trade = 0.02
+
+        mock_event_bus = MagicMock()
+
+        # Patch components (patch at import location)
+        with patch('src.core.binance_service.BinanceServiceClient') as mock_service_cls, \
+             patch('src.execution.order_manager.OrderExecutionManager') as mock_order_cls, \
+             patch('src.risk.manager.RiskManager') as mock_risk_cls, \
+             patch('src.strategies.StrategyFactory.create') as mock_strategy_factory, \
+             patch('src.core.data_collector.BinanceDataCollector') as mock_collector_cls:
+
+            # Setup mocks
+            mock_service_cls.return_value = MagicMock()
+
+            mock_order_manager = MagicMock()
+            mock_order_manager.set_leverage = MagicMock(return_value=True)
+            mock_order_manager.set_margin_type = MagicMock(return_value=True)
+            mock_order_cls.return_value = mock_order_manager
+
+            mock_risk_cls.return_value = MagicMock()
+
+            # Create MTF strategy that requires ['5m', '1h', '4h']
+            mock_strategy = MagicMock(spec=MultiTimeframeStrategy)
+            mock_strategy.intervals = ['5m', '1h', '4h']
+            mock_strategy_factory.return_value = mock_strategy
+
+            # Create DataCollector with intervals from config
+            mock_collector = MagicMock()
+            mock_collector.intervals = ["5m", "1h"]  # Missing 4h
+            mock_collector_cls.return_value = mock_collector
+
+            # Attempt initialization - should fail during validation
+            with pytest.raises(ConfigurationError):
+                engine.initialize_components(
+                    config_manager=mock_config,
+                    event_bus=mock_event_bus,
+                    api_key="test_key",
+                    api_secret="test_secret",
+                    is_testnet=True,
+                )
+
+            # CRITICAL: Verify API calls were NOT made
+            # (validation failed before set_leverage/set_margin_type)
+            mock_order_manager.set_leverage.assert_not_called()
+            mock_order_manager.set_margin_type.assert_not_called()
+
+
 class TestIntervalFiltering:
     """Test interval filtering in event handlers (Issue #7 Phase 3)."""
 
