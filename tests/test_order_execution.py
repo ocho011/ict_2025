@@ -4,13 +4,14 @@ OrderExecutionManager 단위 테스트
 
 import logging
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, Mock
 
 import pytest
 from binance.error import ClientError
 
 from src.core.exceptions import OrderExecutionError, OrderRejectedError, ValidationError
 from src.execution.order_manager import OrderExecutionManager
+from src.core.binance_service import BinanceServiceClient
 from src.models.order import OrderSide, OrderStatus, OrderType
 from src.models.signal import Signal, SignalType
 
@@ -29,49 +30,40 @@ class TestOrderExecutionManager:
         return MagicMock()
 
     @pytest.fixture
-    def manager(self, mock_client, mock_audit_logger):
-        """OrderExecutionManager 인스턴스 (mock client 사용)"""
-        with patch("src.execution.order_manager.UMFutures", return_value=mock_client):
-            with patch.dict(
-                "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
-            ):
-                return OrderExecutionManager(audit_logger=mock_audit_logger, is_testnet=True)
+    def mock_binance_service(self, mock_client):
+        """Mock BinanceServiceClient"""
+        service = MagicMock(spec=BinanceServiceClient)
+        service._client = mock_client
+        service.is_testnet = True
+        service.weight_tracker = MagicMock()
+        
+        # Proxy calls
+        service.change_leverage = mock_client.change_leverage
+        service.change_margin_type = mock_client.change_margin_type
+        service.new_order = mock_client.new_order
+        service.exchange_info = mock_client.exchange_info
+        service.cancel_open_orders = mock_client.cancel_open_orders
+        service.get_position_risk = mock_client.get_position_risk
+        service.account = mock_client.account
+        
+        # Default return values
+        mock_client.exchange_info.return_value = {"symbols": []}
+        return service
+
+    @pytest.fixture
+    def manager(self, mock_binance_service, mock_audit_logger):
+        """OrderExecutionManager 인스턴스 (mock service 사용)"""
+        return OrderExecutionManager(
+            audit_logger=mock_audit_logger,
+            binance_service=mock_binance_service
+        )
 
     # ==================== 초기화 테스트 ====================
 
-    def test_init_testnet_url(self, manager):
-        """Testnet URL이 올바르게 설정되는지 검증"""
-        # UMFutures mock의 call_args에서 base_url 확인
+    def test_init_success(self, manager):
+        """Initialization success check"""
         assert manager.client is not None
-
-    def test_init_mainnet_url(self, mock_audit_logger):
-        """Mainnet URL이 올바르게 설정되는지 검증"""
-        with patch("src.execution.order_manager.UMFutures") as mock_um:
-            with patch.dict(
-                "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
-            ):
-                _manager = OrderExecutionManager(audit_logger=mock_audit_logger, is_testnet=False)
-
-                # UMFutures가 mainnet URL로 호출되었는지 확인
-                call_args = mock_um.call_args
-                assert "fapi.binance.com" in call_args.kwargs["base_url"]
-
-    def test_init_without_api_keys(self, mock_audit_logger):
-        """API 키 없이 초기화 시 ValueError 발생"""
-        with patch.dict("os.environ", {}, clear=True):
-            with pytest.raises(ValueError, match="API credentials required"):
-                OrderExecutionManager(audit_logger=mock_audit_logger)
-
-    def test_init_with_api_key_params(self, mock_audit_logger):
-        """파라미터로 API 키 전달"""
-        with patch("src.execution.order_manager.UMFutures"):
-            manager = OrderExecutionManager(
-                audit_logger=mock_audit_logger,
-                api_key="param_key",
-                api_secret="param_secret"
-            )
-            # 예외 없이 초기화 완료
-            assert manager is not None
+        assert manager.binance_service is not None
 
     def test_init_open_orders_empty(self, manager):
         """초기화 시 _open_orders가 빈 딕셔너리인지 확인"""
@@ -282,13 +274,33 @@ class TestExecuteSignal:
         return client
 
     @pytest.fixture
-    def manager(self, mock_client):
-        """OrderExecutionManager 인스턴스 (mock client 사용)"""
-        with patch("src.execution.order_manager.UMFutures", return_value=mock_client):
-            with patch.dict(
-                "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
-            ):
-                return OrderExecutionManager(is_testnet=True)
+    def mock_binance_service(self, mock_client):
+        """Mock BinanceServiceClient"""
+        service = MagicMock(spec=BinanceServiceClient)
+        service._client = mock_client
+        service.is_testnet = True
+        service.weight_tracker = MagicMock()
+        
+        # Proxy calls
+        service.change_leverage = mock_client.change_leverage
+        service.change_margin_type = mock_client.change_margin_type
+        service.new_order = mock_client.new_order
+        service.exchange_info = mock_client.exchange_info
+        service.cancel_open_orders = mock_client.cancel_open_orders
+        service.get_position_risk = mock_client.get_position_risk
+        service.account = mock_client.account
+        
+        # Default return values
+        mock_client.exchange_info.return_value = {"symbols": []}
+        return service
+
+    @pytest.fixture
+    def manager(self, mock_binance_service):
+        """OrderExecutionManager 인스턴스 (mock service 사용)"""
+        return OrderExecutionManager(
+            audit_logger=MagicMock(),
+            binance_service=mock_binance_service
+        )
 
     @pytest.fixture
     def long_entry_signal(self):
@@ -505,7 +517,7 @@ class TestExecuteSignal:
         assert first_call.kwargs["symbol"] == "BTCUSDT"
         assert first_call.kwargs["side"] == "BUY"
         assert first_call.kwargs["type"] == "MARKET"
-        assert first_call.kwargs["quantity"] == 0.001
+        assert first_call.kwargs["quantity"] == "0.001"
 
     def test_execute_signal_short_entry_success(self, manager, mock_client, short_entry_signal):
         """SHORT_ENTRY 시그널 실행 성공"""
@@ -525,9 +537,9 @@ class TestExecuteSignal:
         """reduce_only=True 파라미터 전달"""
         manager.execute_signal(long_entry_signal, quantity=0.001, reduce_only=True)
 
-        # API 호출 시 reduceOnly=True 전달 확인
-        call_args = mock_client.new_order.call_args
-        assert call_args.kwargs["reduceOnly"] is True
+        # API 호출 시 reduceOnly=True 전달 확인 (첫 번째 호출인 진입 주문 확인)
+        first_call = mock_client.new_order.call_args_list[0]
+        assert first_call.kwargs["reduceOnly"] is True
 
     def test_execute_signal_invalid_quantity_zero(self, manager, long_entry_signal):
         """quantity=0 → ValidationError"""
@@ -633,17 +645,17 @@ class TestExecuteSignal:
                 # Verify cancellation count was logged
                 assert "Cancelled 3 existing orders before placing new TP/SL orders" in caplog.text
 
-    def test_execute_signal_close_signal_does_not_cancel_orders(
+    def test_execute_signal_close_signal_cancels_remaining_orders(
         self, manager, mock_client, close_long_signal
     ):
-        """CLOSE 시그널은 주문 취소하지 않음"""
+        """CLOSE 시그널 시 잔여 주문 취소 확인 (Issue #9)"""
         # Mock cancel_all_orders to track calls
-        with patch.object(manager, "cancel_all_orders", return_value=0) as mock_cancel:
+        with patch.object(manager, "cancel_all_orders", return_value=1) as mock_cancel:
             # Execute close signal
             manager.execute_signal(close_long_signal, quantity=0.001)
 
-            # Verify cancel_all_orders was NOT called for close signals
-            mock_cancel.assert_not_called()
+            # Verify cancel_all_orders WAS called for close signals
+            mock_cancel.assert_called_once_with("BTCUSDT")
 
 
 class TestTPSLPlacement:
@@ -655,13 +667,33 @@ class TestTPSLPlacement:
         return MagicMock()
 
     @pytest.fixture
-    def manager(self, mock_client):
-        """OrderExecutionManager 인스턴스 (mock client 사용)"""
-        with patch("src.execution.order_manager.UMFutures", return_value=mock_client):
-            with patch.dict(
-                "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
-            ):
-                return OrderExecutionManager(is_testnet=True)
+    def mock_binance_service(self, mock_client):
+        """Mock BinanceServiceClient"""
+        service = MagicMock(spec=BinanceServiceClient)
+        service._client = mock_client
+        service.is_testnet = True
+        service.weight_tracker = MagicMock()
+        
+        # Proxy calls
+        service.change_leverage = mock_client.change_leverage
+        service.change_margin_type = mock_client.change_margin_type
+        service.new_order = mock_client.new_order
+        service.exchange_info = mock_client.exchange_info
+        service.cancel_open_orders = mock_client.cancel_open_orders
+        service.get_position_risk = mock_client.get_position_risk
+        service.account = mock_client.account
+        
+        # Default return values
+        mock_client.exchange_info.return_value = {"symbols": []}
+        return service
+
+    @pytest.fixture
+    def manager(self, mock_binance_service):
+        """OrderExecutionManager 인스턴스 (mock service 사용)"""
+        return OrderExecutionManager(
+            audit_logger=MagicMock(),
+            binance_service=mock_binance_service
+        )
 
     @pytest.fixture
     def long_entry_signal(self):
@@ -1224,13 +1256,33 @@ class TestQueryMethods:
         return MagicMock()
 
     @pytest.fixture
-    def manager(self, mock_client):
-        """OrderExecutionManager instance (using mock client)"""
-        with patch("src.execution.order_manager.UMFutures", return_value=mock_client):
-            with patch.dict(
-                "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
-            ):
-                return OrderExecutionManager(is_testnet=True)
+    def mock_binance_service(self, mock_client):
+        """Mock BinanceServiceClient"""
+        service = MagicMock(spec=BinanceServiceClient)
+        service._client = mock_client
+        service.is_testnet = True
+        service.weight_tracker = MagicMock()
+        
+        # Proxy calls
+        service.change_leverage = mock_client.change_leverage
+        service.change_margin_type = mock_client.change_margin_type
+        service.new_order = mock_client.new_order
+        service.exchange_info = mock_client.exchange_info
+        service.cancel_open_orders = mock_client.cancel_open_orders
+        service.get_position_risk = mock_client.get_position_risk
+        service.account = mock_client.account
+        
+        # Default return values
+        mock_client.exchange_info.return_value = {"symbols": []}
+        return service
+
+    @pytest.fixture
+    def manager(self, mock_binance_service):
+        """OrderExecutionManager instance (using mock service)"""
+        return OrderExecutionManager(
+            audit_logger=MagicMock(),
+            binance_service=mock_binance_service
+        )
 
     @pytest.fixture
     def mock_position_long(self):
@@ -1503,13 +1555,33 @@ class TestPriceFormatting:
         return MagicMock()
 
     @pytest.fixture
-    def manager(self, mock_client):
-        """OrderExecutionManager instance with mock client"""
-        with patch("src.execution.order_manager.UMFutures", return_value=mock_client):
-            with patch.dict(
-                "os.environ", {"BINANCE_API_KEY": "test_key", "BINANCE_API_SECRET": "test_secret"}
-            ):
-                return OrderExecutionManager(is_testnet=True)
+    def mock_binance_service(self, mock_client):
+        """Mock BinanceServiceClient"""
+        service = MagicMock(spec=BinanceServiceClient)
+        service._client = mock_client
+        service.is_testnet = True
+        service.weight_tracker = MagicMock()
+        
+        # Proxy calls
+        service.change_leverage = mock_client.change_leverage
+        service.change_margin_type = mock_client.change_margin_type
+        service.new_order = mock_client.new_order
+        service.exchange_info = mock_client.exchange_info
+        service.cancel_open_orders = mock_client.cancel_open_orders
+        service.get_position_risk = mock_client.get_position_risk
+        service.account = mock_client.account
+        
+        # Default return values
+        mock_client.exchange_info.return_value = {"symbols": []}
+        return service
+
+    @pytest.fixture
+    def manager(self, mock_binance_service):
+        """OrderExecutionManager instance with mock service"""
+        return OrderExecutionManager(
+            audit_logger=MagicMock(),
+            binance_service=mock_binance_service
+        )
 
     @pytest.fixture
     def mock_exchange_info(self):

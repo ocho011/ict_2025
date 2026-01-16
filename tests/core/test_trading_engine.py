@@ -490,6 +490,7 @@ class TestStrategyCompatibilityValidation:
         # Mock MTF strategy with intervals ['5m', '1h', '4h']
         engine.strategy = Mock(spec=MultiTimeframeStrategy)
         engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with matching intervals
         engine.data_collector = Mock()
@@ -516,6 +517,7 @@ class TestStrategyCompatibilityValidation:
         # Mock MTF strategy with intervals ['5m', '1h', '4h']
         engine.strategy = Mock(spec=MultiTimeframeStrategy)
         engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with extra '15m' interval
         engine.data_collector = Mock()
@@ -540,6 +542,7 @@ class TestStrategyCompatibilityValidation:
         # Mock MTF strategy with intervals ['5m', '1h', '4h']
         engine.strategy = Mock(spec=MultiTimeframeStrategy)
         engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector missing '4h' interval
         engine.data_collector = Mock()
@@ -567,6 +570,7 @@ class TestStrategyCompatibilityValidation:
 
         # Mock single-interval strategy (BaseStrategy)
         engine.strategy = Mock(spec=BaseStrategy)
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with single interval
         engine.data_collector = Mock()
@@ -593,6 +597,7 @@ class TestStrategyCompatibilityValidation:
 
         # Mock single-interval strategy (BaseStrategy)
         engine.strategy = Mock(spec=BaseStrategy)
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with multiple intervals (wasteful)
         engine.data_collector = Mock()
@@ -624,6 +629,7 @@ class TestIntervalFiltering:
         engine.strategy = AsyncMock(spec=MultiTimeframeStrategy)
         engine.strategy.intervals = ['5m', '1h', '4h']
         engine.strategy.analyze = AsyncMock(return_value=None)
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector
         engine.data_collector = Mock()
@@ -667,6 +673,7 @@ class TestIntervalFiltering:
         engine.strategy = AsyncMock(spec=MultiTimeframeStrategy)
         engine.strategy.intervals = ['5m', '1h', '4h']
         engine.strategy.analyze = AsyncMock(return_value=None)
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with extra '15m' interval
         engine.data_collector = Mock()
@@ -713,6 +720,7 @@ class TestIntervalFiltering:
         # Mock single-interval strategy (BaseStrategy)
         engine.strategy = AsyncMock(spec=BaseStrategy)
         engine.strategy.analyze = AsyncMock(return_value=None)
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with '5m' as first interval
         engine.data_collector = Mock()
@@ -755,6 +763,7 @@ class TestIntervalFiltering:
         # Mock single-interval strategy (BaseStrategy)
         engine.strategy = AsyncMock(spec=BaseStrategy)
         engine.strategy.analyze = AsyncMock(return_value=None)
+        engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with '5m' as first interval
         engine.data_collector = Mock()

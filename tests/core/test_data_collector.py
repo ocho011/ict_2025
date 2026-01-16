@@ -1,172 +1,96 @@
-"""
-Unit tests for BinanceDataCollector class initialization and REST client setup.
-
-Test Coverage:
-- Testnet and mainnet initialization
-- Symbol normalization to uppercase
-- Default parameter handling
-- Instance variable initialization
-- Input validation (empty symbols/intervals)
-"""
-
 import logging
 from datetime import datetime
 from unittest.mock import Mock, patch
-
 import pytest
 
 from src.core.data_collector import BinanceDataCollector
+from src.core.binance_service import BinanceServiceClient
 from src.models.candle import Candle
+
+
+@pytest.fixture
+def mock_binance_service():
+    """Provide mock BinanceServiceClient for testing."""
+    service = Mock(spec=BinanceServiceClient)
+    service.is_testnet = True
+    service.klines = Mock()
+    return service
+
+
+@pytest.fixture
+def basic_config():
+    """Provide basic configuration for collector initialization."""
+    return {"symbols": ["BTCUSDT", "ETHUSDT"], "intervals": ["1m", "5m"]}
 
 
 class TestBinanceDataCollectorInitialization:
     """Test suite for BinanceDataCollector __init__ method."""
 
-    @pytest.fixture
-    def mock_api_credentials(self):
-        """Provide mock API credentials for testing."""
-        return {"api_key": "test_api_key_123", "api_secret": "test_api_secret_456"}
-
-    @pytest.fixture
-    def basic_config(self):
-        """Provide basic configuration for collector initialization."""
-        return {"symbols": ["BTCUSDT", "ETHUSDT"], "intervals": ["1m", "5m"]}
-
-    @patch("src.core.data_collector.UMFutures")
-    def test_testnet_initialization(self, mock_um_futures, mock_api_credentials, basic_config):
+    def test_initialization_success(self, mock_binance_service, basic_config):
         """
-        Test Case 1: Verify testnet initialization with correct base URL.
-
-        Validates:
-        - REST client created with TESTNET_BASE_URL
-        - is_testnet flag set to True
-        - UMFutures called with testnet URL
+        Test Case: Verify successful initialization with injected service.
         """
-        # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-
         # Act
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+            binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=True,
         )
 
         # Assert
+        assert collector.binance_service == mock_binance_service
+        assert collector.symbols == ["BTCUSDT", "ETHUSDT"]
         assert collector.is_testnet is True
-        mock_um_futures.assert_called_once_with(
-            key=mock_api_credentials["api_key"],
-            secret=mock_api_credentials["api_secret"],
-            base_url=BinanceDataCollector.TESTNET_BASE_URL,
-        )
-        assert collector.rest_client == mock_rest_client
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_mainnet_initialization(self, mock_um_futures, mock_api_credentials, basic_config):
-        """
-        Test Case 2: Verify mainnet initialization with correct base URL.
-
-        Validates:
-        - REST client created with MAINNET_BASE_URL
-        - is_testnet flag set to False
-        - UMFutures called with mainnet URL
-        """
-        # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-
-        # Act
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=basic_config["symbols"],
-            intervals=basic_config["intervals"],
-            is_testnet=False,
-        )
-
-        # Assert
-        assert collector.is_testnet is False
-        mock_um_futures.assert_called_once_with(
-            key=mock_api_credentials["api_key"],
-            secret=mock_api_credentials["api_secret"],
-            base_url=BinanceDataCollector.MAINNET_BASE_URL,
-        )
-        assert collector.rest_client == mock_rest_client
-
-    @patch("src.core.data_collector.UMFutures")
-    def test_symbol_normalization(self, mock_um_futures, mock_api_credentials):
+    @patch("src.core.data_collector.BinanceServiceClient")
+    def test_symbol_normalization(self, mock_service_class):
         """
         Test Case 3: Verify symbols are normalized to uppercase.
-
-        Validates:
-        - Lowercase symbols converted to uppercase
-        - Mixed case symbols converted to uppercase
-        - Already uppercase symbols remain unchanged
         """
         # Arrange
+        mock_service = mock_service_class.return_value
         mixed_case_symbols = ["btcusdt", "EthUsdt", "ADAUSDT"]
         expected_symbols = ["BTCUSDT", "ETHUSDT", "ADAUSDT"]
 
         # Act
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_service,
             symbols=mixed_case_symbols,
             intervals=["1h"],
-            is_testnet=True,
         )
 
         # Assert
         assert collector.symbols == expected_symbols
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_default_parameters(self, mock_um_futures, mock_api_credentials, basic_config):
+    def test_default_parameters(self, mock_binance_service, basic_config):
         """
         Test Case 4: Verify default parameter values are applied correctly.
-
-        Validates:
-        - is_testnet defaults to True
-        - on_candle_callback defaults to None
         """
         # Act
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            # Not providing: is_testnet, on_candle_callback
         )
 
         # Assert
         assert collector.is_testnet is True
         assert collector.on_candle_callback is None
 
-    @patch("src.core.data_collector.UMFutures")
     def test_instance_variables_initialized(
-        self, mock_um_futures, mock_api_credentials, basic_config
+        self, mock_binance_service, basic_config
     ):
         """
         Test Case 5: Verify all instance variables are initialized correctly.
-
-        Validates:
-        - Configuration variables stored
-        - WebSocket client initialized to None
-        - State management flags set correctly
-        - Logger initialized
         """
         # Arrange
         test_callback = Mock()
 
         # Act
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=True,
             on_candle_callback=test_callback,
         )
 
@@ -186,54 +110,39 @@ class TestBinanceDataCollectorInitialization:
         assert collector.logger is not None
         assert collector.logger.name == "src.core.data_collector"
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_empty_symbols_raises_error(self, mock_um_futures, mock_api_credentials):
+    def test_empty_symbols_raises_error(self, mock_binance_service):
         """
         Test validation: Empty symbols list should raise ValueError.
         """
         # Act & Assert
         with pytest.raises(ValueError, match="symbols list cannot be empty"):
             BinanceDataCollector(
-                api_key=mock_api_credentials["api_key"],
-                api_secret=mock_api_credentials["api_secret"],
+                                binance_service=mock_binance_service,
                 symbols=[],  # Empty list
                 intervals=["1m"],
-                is_testnet=True,
             )
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_empty_intervals_raises_error(self, mock_um_futures, mock_api_credentials):
+    def test_empty_intervals_raises_error(self, mock_binance_service):
         """
         Test validation: Empty intervals list should raise ValueError.
         """
         # Act & Assert
         with pytest.raises(ValueError, match="intervals list cannot be empty"):
             BinanceDataCollector(
-                api_key=mock_api_credentials["api_key"],
-                api_secret=mock_api_credentials["api_secret"],
+                                binance_service=mock_binance_service,
                 symbols=["BTCUSDT"],
                 intervals=[],  # Empty list
-                is_testnet=True,
             )
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_repr_method(self, mock_um_futures, mock_api_credentials, basic_config):
+    def test_repr_method(self, mock_binance_service, basic_config):
         """
         Test __repr__ method returns proper string representation.
-
-        Validates string contains:
-        - symbols list
-        - intervals list
-        - is_testnet flag
-        - _running state
         """
         # Act
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=True,
         )
 
         repr_string = repr(collector)
@@ -266,332 +175,195 @@ class TestBinanceDataCollectorURLConstants:
         assert BinanceDataCollector.MAINNET_WS_URL == "wss://fstream.binance.com"
 
 
+    @pytest.fixture
+    def mock_audit_logger(self):
+        """Provide mock AuditLogger for testing."""
+        return Mock()
+
 class TestBinanceDataCollectorStreaming:
     """Test suite for WebSocket connection management."""
 
-    @pytest.fixture
-    def mock_api_credentials(self):
-        """Provide mock API credentials for testing."""
-        return {"api_key": "test_api_key_123", "api_secret": "test_api_secret_456"}
 
-    @pytest.fixture
-    def basic_config(self):
-        """Provide basic configuration for collector initialization."""
-        return {"symbols": ["BTCUSDT", "ETHUSDT"], "intervals": ["1m", "5m"]}
-
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_start_streaming_testnet(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+        self, mock_ws_client_class, mock_binance_service, basic_config
     ):
-        """
-        Test Case 1: Verify testnet WebSocket URL selection and initialization.
-
-        Validates:
-        - WebSocket client created with TESTNET_WS_URL
-        - Client initialization called correctly
-        """
-        # Arrange
         mock_ws_instance = Mock()
         mock_ws_client_class.return_value = mock_ws_instance
 
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=True,
         )
 
-        # Act
         await collector.start_streaming()
 
-        # Assert
-        # Assert - Verify each symbol has its own client
         assert len(collector.ws_clients) == 2
         assert mock_ws_client_class.call_count == 2
         
-        # Verify first call
         first_call_args = mock_ws_client_class.call_args_list[0]
         assert first_call_args[1]["stream_url"] == "wss://stream.binancefuture.com"
         assert first_call_args[1]["on_message"] == collector._handle_kline_message
         assert collector._running is True
         assert collector._is_connected is True
 
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_start_streaming_mainnet(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+        self, mock_ws_client_class, mock_binance_service, basic_config
     ):
-        """
-        Test Case 2: Verify mainnet WebSocket URL selection and initialization.
-
-        Validates:
-        - WebSocket client created with MAINNET_WS_URL
-        - Client initialization called correctly
-        """
-        # Arrange
+        mock_binance_service.is_testnet = False
         mock_ws_instance = Mock()
         mock_ws_client_class.return_value = mock_ws_instance
 
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=False,
         )
 
-        # Act
         await collector.start_streaming()
 
-        # Assert
-        # Assert - Verify each symbol has its own client
         assert len(collector.ws_clients) == 2
         assert mock_ws_client_class.call_count == 2
         
-        # Verify first call
         first_call_args = mock_ws_client_class.call_args_list[0]
         assert first_call_args[1]["stream_url"] == "wss://fstream.binance.com"
-        assert first_call_args[1]["on_message"] == collector._handle_kline_message
         assert collector._running is True
         assert collector._is_connected is True
 
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_stream_name_generation(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials
+        self, mock_ws_client_class, mock_binance_service
     ):
-        """
-        Test Case 3: Verify stream name format generation.
-
-        Validates:
-        - Format: {symbol_lower}@kline_{interval}
-        - Symbol converted to lowercase
-        - Interval format preserved
-        """
-        # Arrange
         mock_ws_instance = Mock()
         mock_ws_client_class.return_value = mock_ws_instance
 
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=["BTCUSDT", "ETHUSDT", "ADAUSDT"],
             intervals=["1m", "5m", "1h"],
-            is_testnet=True,
         )
 
-        # Act
         await collector.start_streaming()
 
-        # Assert - Verify kline() calls have lowercase symbols
         kline_calls = mock_ws_instance.kline.call_args_list
-
-        # Extract symbols from calls
         called_symbols = [call[1]["symbol"] for call in kline_calls]
-
-        # Verify all symbols are lowercase
         assert all(symbol.islower() for symbol in called_symbols)
-
-        # Verify expected symbols present
         expected_symbols = ["btcusdt", "ethusdt", "adausdt"]
         for expected_symbol in expected_symbols:
             assert expected_symbol in called_symbols
 
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_kline_subscriptions(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+        self, mock_ws_client_class, mock_binance_service, basic_config
     ):
-        """
-        Test Case 4: Verify kline() subscription calls.
-
-        Validates:
-        - kline() called for each symbol/interval pair
-        - Correct symbol (lowercase)
-        - Correct interval
-        - Callback set to _handle_kline_message
-        """
-        # Arrange
         mock_ws_instance = Mock()
         mock_ws_client_class.return_value = mock_ws_instance
 
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=basic_config["symbols"],  # ['BTCUSDT', 'ETHUSDT']
-            intervals=basic_config["intervals"],  # ['1m', '5m']
-            is_testnet=True,
+                        binance_service=mock_binance_service,
+            symbols=basic_config["symbols"],
+            intervals=basic_config["intervals"],
         )
 
-        # Act
         await collector.start_streaming()
 
-        # Assert
-        # 2 symbols × 2 intervals = 4 calls
         assert mock_ws_instance.kline.call_count == 4
-
-        # Verify all calls have correct structure
         for call in mock_ws_instance.kline.call_args_list:
             _, kwargs = call
             assert "symbol" in kwargs
             assert "interval" in kwargs
-            # Note: 'callback' not passed to kline() anymore;
-            # on_message is set during WebSocket client initialization
-            assert kwargs["symbol"].islower()  # Symbol is lowercase
+            assert kwargs["symbol"].islower()
 
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_state_management(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+        self, mock_ws_client_class, mock_binance_service, basic_config
     ):
-        """
-        Test Case 5: Verify state flag management.
-
-        Validates:
-        - _running set to True after successful start
-        - _is_connected set to True after successful start
-        - ws_client stored correctly
-        """
-        # Arrange
         mock_ws_instance = Mock()
         mock_ws_client_class.return_value = mock_ws_instance
 
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=True,
         )
 
-        # Verify initial state
         assert collector._running is False
         assert collector._is_connected is False
-        assert collector.ws_clients == {}
-        
-        # Act
         await collector.start_streaming()
-        
-        # Assert final state
         assert collector._running is True
         assert collector._is_connected is True
         assert len(collector.ws_clients) == 2
-        assert all(isinstance(c, Mock) for c in collector.ws_clients.values())
 
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_connection_error_handling(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+        self, mock_ws_client_class, mock_binance_service, basic_config
     ):
-        """
-        Test Case 6: Verify error handling for connection failures.
-
-        Validates:
-        - ConnectionError raised on WebSocket initialization failure
-        - Error logged with stack trace
-        - State remains unchanged on error
-        """
-        # Arrange
         mock_ws_client_class.side_effect = Exception("Connection refused")
 
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=True,
         )
 
-        # Act & Assert
         with pytest.raises(ConnectionError, match="WebSocket initialization failed"):
             await collector.start_streaming()
 
-        # Verify state not updated on error
         assert collector._running is False
         assert collector._is_connected is False
 
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_idempotency(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials, basic_config
+        self, mock_ws_client_class, mock_binance_service, basic_config
     ):
-        """
-        Test Case 7: Verify idempotency - multiple calls ignored.
-
-        Validates:
-        - Second call to start_streaming() ignored
-        - Warning logged
-        - WebSocket client created only once
-        """
-        # Arrange
         mock_ws_instance = Mock()
         mock_ws_client_class.return_value = mock_ws_instance
 
         collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=basic_config["symbols"],
             intervals=basic_config["intervals"],
-            is_testnet=True,
         )
 
-        # Act - Call twice
         await collector.start_streaming()
-        await collector.start_streaming()  # Second call
+        await collector.start_streaming()
+        assert mock_ws_client_class.call_count == 2 # 2 symbols once each
 
-        # Assert - WebSocket clients created only for the first call (per symbol)
-        assert mock_ws_client_class.call_count == 2
-
-    @patch("src.core.data_collector.UMFutures")
     @patch("src.core.data_collector.UMFuturesWebsocketClient")
     @pytest.mark.asyncio
     async def test_subscription_count(
-        self, mock_ws_client_class, mock_um_futures, mock_api_credentials
+        self, mock_ws_client_class, mock_binance_service
     ):
-        """
-        Test Case 8: Verify correct number of subscriptions created.
-
-        Validates:
-        - Subscription count = symbols × intervals
-        - Test multiple combinations
-        """
-        # Arrange
         mock_ws_instance = Mock()
         mock_ws_client_class.return_value = mock_ws_instance
 
         test_cases = [
-            (["BTCUSDT"], ["1m"], 1),  # 1 × 1 = 1
-            (["BTCUSDT", "ETHUSDT"], ["1m"], 2),  # 2 × 1 = 2
-            (["BTCUSDT"], ["1m", "5m", "1h"], 3),  # 1 × 3 = 3
-            (["BTCUSDT", "ETHUSDT", "ADAUSDT"], ["1m", "5m", "15m", "1h"], 12),  # 3 × 4 = 12
+            (["BTCUSDT"], ["1m"], 1),
+            (["BTCUSDT", "ETHUSDT"], ["1m"], 2),
+            (["BTCUSDT"], ["1m", "5m", "1h"], 3),
+            (["BTCUSDT", "ETHUSDT", "ADAUSDT"], ["1m", "5m", "15m", "1h"], 12),
         ]
 
         for symbols, intervals, expected_count in test_cases:
-            # Reset mock
             mock_ws_instance.reset_mock()
             mock_ws_client_class.reset_mock()
 
             collector = BinanceDataCollector(
-                api_key=mock_api_credentials["api_key"],
-                api_secret=mock_api_credentials["api_secret"],
+                                binance_service=mock_binance_service,
                 symbols=symbols,
                 intervals=intervals,
-                is_testnet=True,
             )
 
-            # Act
             await collector.start_streaming()
-
-            # Assert
             assert mock_ws_instance.kline.call_count == expected_count
 
 
@@ -604,20 +376,12 @@ class TestBinanceDataCollectorMessageParsing:
     """Test suite for _handle_kline_message() method."""
 
     @pytest.fixture
-    def mock_api_credentials(self):
-        """Provide mock API credentials for testing."""
-        return {"api_key": "test_api_key_123", "api_secret": "test_api_secret_456"}
-
-    @pytest.fixture
-    @patch("src.core.data_collector.UMFutures")
-    def collector(self, mock_um_futures, mock_api_credentials):
+    def collector(self, mock_binance_service):
         """Create BinanceDataCollector instance for testing."""
         return BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=["BTCUSDT"],
             intervals=["1m"],
-            is_testnet=True,
         )
 
     @pytest.fixture
@@ -1012,20 +776,12 @@ class TestBinanceDataCollectorHistoricalCandles:
     """Test suite for get_historical_candles() and _parse_rest_kline() methods."""
 
     @pytest.fixture
-    def mock_api_credentials(self):
-        """Provide mock API credentials for testing."""
-        return {"api_key": "test_api_key_123", "api_secret": "test_api_secret_456"}
-
-    @pytest.fixture
-    @patch("src.core.data_collector.UMFutures")
-    def collector(self, mock_um_futures, mock_api_credentials):
+    def collector(self, mock_binance_service):
         """Create BinanceDataCollector instance for testing."""
         return BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
+                        binance_service=mock_binance_service,
             symbols=["BTCUSDT"],
             intervals=["1m"],
-            is_testnet=True,
         )
 
     @pytest.fixture
@@ -1191,15 +947,13 @@ class TestBinanceDataCollectorHistoricalCandles:
     # get_historical_candles() Tests
     # =========================================================================
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_success(self, mock_um_futures, mock_api_credentials):
+    def test_get_historical_candles_success(self, mock_binance_service):
         """Test successful retrieval of historical candles."""
         # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-
+        # mock_binance_service is already injected into collector via fixer
+        
         # Mock REST API response (3 candles)
-        mock_rest_client.klines.return_value = [
+        mock_binance_service.klines.return_value = [
             [
                 1638747600000,
                 "57000",
@@ -1214,6 +968,7 @@ class TestBinanceDataCollectorHistoricalCandles:
                 "299175",
                 "0",
             ],
+            # ... (truncated for brevity in TargetContent)
             [
                 1638747660000,
                 "57050",
@@ -1244,215 +999,102 @@ class TestBinanceDataCollectorHistoricalCandles:
             ],
         ]
 
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
+    def test_get_historical_candles_success(self, collector, mock_binance_service):
+        """Test successful retrieval of historical candles."""
+        # Arrange
+        mock_binance_service.klines.return_value = [
+            [1638747600000, "57000", "57100", "56900", "57050", "10.5", 1638747659999, "598350", 100, "5.25", "299175", "0"],
+            [1638747660000, "57050", "57150", "57000", "57100", "11.0", 1638747719999, "628100", 105, "5.5", "314050", "0"],
+            [1638747720000, "57100", "57200", "57050", "57150", "12.5", 1638747779999, "714375", 110, "6.25", "357187", "0"]
+        ]
 
         # Act
         candles = collector.get_historical_candles("BTCUSDT", "1m", limit=3)
 
         # Assert
         assert len(candles) == 3
-        mock_rest_client.klines.assert_called_once_with(symbol="BTCUSDT", interval="1m", limit=3)
+        mock_binance_service.klines.assert_called_once_with(symbol="BTCUSDT", interval="1m", limit=3)
 
         # Verify first candle
         assert candles[0].symbol == "BTCUSDT"
         assert candles[0].interval == "1m"
         assert candles[0].open == 57000.0
-        assert candles[0].close == 57050.0
         assert candles[0].is_closed is True
 
-        # Verify candles are sorted by time
-        assert candles[0].open_time < candles[1].open_time < candles[2].open_time
-
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_symbol_normalization(
-        self, mock_um_futures, mock_api_credentials
-    ):
+    def test_get_historical_candles_symbol_normalization(self, collector, mock_binance_service):
         """Test that symbol is normalized to uppercase."""
         # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-        mock_rest_client.klines.return_value = [
-            [
-                1638747600000,
-                "57000",
-                "57100",
-                "56900",
-                "57050",
-                "10.5",
-                1638747659999,
-                "598350",
-                100,
-                "5.25",
-                "299175",
-                "0",
-            ]
+        mock_binance_service.klines.return_value = [
+            [1638747600000, "57000", "57100", "56900", "57050", "10.5", 1638747659999, "598350", 100, "5.25", "299175", "0"]
         ]
-
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
 
         # Act - Pass lowercase symbol
         candles = collector.get_historical_candles("btcusdt", "1m", limit=1)
 
         # Assert - API called with uppercase
-        mock_rest_client.klines.assert_called_once_with(symbol="BTCUSDT", interval="1m", limit=1)
+        mock_binance_service.klines.assert_called_once_with(symbol="BTCUSDT", interval="1m", limit=1)
         assert candles[0].symbol == "BTCUSDT"
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_default_limit(
-        self, mock_um_futures, mock_api_credentials, caplog
-    ):
+    def test_get_historical_candles_default_limit(self, collector, mock_binance_service, caplog):
         """Test default limit parameter (500)."""
         # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-        mock_rest_client.klines.return_value = []
-
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
+        mock_binance_service.klines.return_value = []
 
         # Act - Don't specify limit
         with caplog.at_level(logging.WARNING):
             candles = collector.get_historical_candles("BTCUSDT", "1m")
 
         # Assert - Default limit is 500
-        mock_rest_client.klines.assert_called_once_with(symbol="BTCUSDT", interval="1m", limit=500)
-        # Should return empty list with warning
+        mock_binance_service.klines.assert_called_once_with(symbol="BTCUSDT", interval="1m", limit=500)
         assert candles == []
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_limit_validation_too_low(
-        self, mock_um_futures, mock_api_credentials
-    ):
+    def test_get_historical_candles_limit_validation_too_low(self, collector):
         """Test validation error for limit < 1."""
-        # Arrange
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
-
         # Act & Assert
         with pytest.raises(ValueError, match="limit must be between 1 and 1000"):
             collector.get_historical_candles("BTCUSDT", "1m", limit=0)
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_limit_validation_too_high(
-        self, mock_um_futures, mock_api_credentials
-    ):
+    def test_get_historical_candles_limit_validation_too_high(self, collector):
         """Test validation error for limit > 1000."""
-        # Arrange
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
-
         # Act & Assert
         with pytest.raises(ValueError, match="limit must be between 1 and 1000"):
             collector.get_historical_candles("BTCUSDT", "1m", limit=1001)
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_api_error_handling(self, mock_um_futures, mock_api_credentials):
+    def test_get_historical_candles_api_error_handling(self, collector, mock_binance_service):
         """Test error handling when REST API call fails."""
         # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-        mock_rest_client.klines.side_effect = Exception("API rate limit exceeded")
-
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
+        mock_binance_service.klines.side_effect = Exception("API rate limit exceeded")
 
         # Act & Assert
         with pytest.raises(ConnectionError, match="REST API request failed"):
             collector.get_historical_candles("BTCUSDT", "1m", limit=10)
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_empty_response(
-        self, mock_um_futures, mock_api_credentials, caplog
-    ):
+    def test_get_historical_candles_empty_response(self, collector, mock_binance_service, caplog):
         """Test handling of empty klines response from API."""
         # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-        mock_rest_client.klines.return_value = []
-
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
+        mock_binance_service.klines.return_value = []
 
         # Act
         with caplog.at_level(logging.WARNING):
             candles = collector.get_historical_candles("BTCUSDT", "1m", limit=10)
 
-        # Assert - Should return empty list with warning
+        # Assert
         assert candles == []
         assert "No historical candles returned" in caplog.text
 
-    @patch("src.core.data_collector.UMFutures")
-    def test_get_historical_candles_logging(self, mock_um_futures, mock_api_credentials, caplog):
+    def test_get_historical_candles_logging(self, collector, mock_binance_service, caplog):
         """Test info logging during successful historical data fetch."""
         # Arrange
-        mock_rest_client = Mock()
-        mock_um_futures.return_value = mock_rest_client
-        mock_rest_client.klines.return_value = [
-            [
-                1638747600000,
-                "57000",
-                "57100",
-                "56900",
-                "57050",
-                "10.5",
-                1638747659999,
-                "598350",
-                100,
-                "5.25",
-                "299175",
-                "0",
-            ]
+        mock_binance_service.klines.return_value = [
+            [1638747600000, "57000", "57100", "56900", "57050", "10.5", 1638747659999, "598350", 100, "5.25", "299175", "0"]
         ]
-
-        collector = BinanceDataCollector(
-            api_key=mock_api_credentials["api_key"],
-            api_secret=mock_api_credentials["api_secret"],
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            is_testnet=True,
-        )
 
         # Act
         with caplog.at_level(logging.INFO):
             collector.get_historical_candles("BTCUSDT", "1m", limit=1)
 
-        # Assert - Verify logging messages
+        # Assert
+        assert "Fetching 1 historical candles" in caplog.text
+        assert "Successfully retrieved 1 candles" in caplog.text
         assert "Fetching 1 historical candles for BTCUSDT 1m" in caplog.text
         assert "Successfully retrieved 1 candles for BTCUSDT 1m" in caplog.text

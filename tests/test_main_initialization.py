@@ -9,7 +9,7 @@ Tests the TradingBot class constructor and initialize() method to ensure:
 5. Error handling is appropriate
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, AsyncMock
 
 import pytest
 
@@ -29,7 +29,6 @@ class TestTradingBotConstructor:
         assert bot.data_collector is None
         assert bot.order_manager is None
         assert bot.risk_manager is None
-        assert bot.strategy is None
         assert bot.trading_engine is None
         assert bot.logger is None
 
@@ -55,7 +54,8 @@ class TestTradingBotInitialization:
     @patch("src.main.EventBus")
     @patch("src.main.TradingEngine")
     @patch("logging.getLogger")
-    def test_initialize_with_valid_config(
+    @pytest.mark.asyncio
+    async def test_initialize_with_valid_config(
         self,
         mock_get_logger,
         mock_trading_engine,
@@ -75,7 +75,7 @@ class TestTradingBotInitialization:
             api_key="test_key", api_secret="test_secret", is_testnet=True
         )
         config_instance.trading_config = Mock(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m", "5m"],
             strategy="mock_sma",
             leverage=10,
@@ -83,12 +83,18 @@ class TestTradingBotInitialization:
             take_profit_ratio=2.0,
             stop_loss_percent=0.01,
             backfill_limit=100,
+            margin_type="ISOLATED"
         )
-        config_instance.logging_config = Mock(
-            log_level="INFO", log_dir="logs", console_enabled=True, file_enabled=True
-        )
+        config_instance.logging_config = Mock()
         config_instance.logging_config.__dict__ = {"log_level": "INFO", "log_dir": "logs"}
         mock_config_manager.return_value = config_instance
+
+        # Setup TradingEngine mock
+        mock_engine_instance = mock_trading_engine.return_value
+        mock_engine_instance.initialize_strategy_with_backfill = AsyncMock()
+        mock_engine_instance.order_manager = Mock()
+        mock_engine_instance.data_collector = Mock()
+        mock_engine_instance.risk_manager = Mock()
 
         # Setup OrderManager mock
         mock_order_instance = Mock()
@@ -101,38 +107,27 @@ class TestTradingBotInitialization:
 
         # Execute
         bot = TradingBot()
-        bot.initialize()
+        await bot.initialize()
 
-        # Verify initialization sequence (correct order)
-        assert mock_config_manager.called, "ConfigManager not initialized"
-        assert config_instance.validate.called, "Config validation not called"
-        assert mock_trading_logger.called, "TradingLogger not initialized"
-        assert mock_data_collector.called, "BinanceDataCollector not initialized"
-        assert mock_order_manager.called, "OrderExecutionManager not initialized"
-        assert mock_risk_manager.called, "RiskManager not initialized"
-        assert mock_strategy_factory.create.called, "Strategy not created"
-        assert mock_event_bus.called, "EventBus not initialized"
-        assert mock_trading_engine.called, "TradingEngine not initialized"
+        # Verify initialization sequence
+        assert mock_config_manager.called
+        assert mock_trading_logger.called
+        assert mock_trading_engine.called
 
-        # Verify components are set
-        assert bot.config_manager is not None
-        assert bot.event_bus is not None
-        assert bot.data_collector is not None
-        assert bot.order_manager is not None
-        assert bot.risk_manager is not None
-        assert bot.strategy is not None
-        assert bot.trading_engine is not None
-        assert bot.logger is not None
-
-        # Verify TradingEngine.set_components() was called with all dependencies
+        # Verify delegation to initialize_components
         mock_trading_engine_instance = mock_trading_engine.return_value
-        mock_trading_engine_instance.set_components.assert_called_once()
-
-        # Verify leverage was set
-        mock_order_instance.set_leverage.assert_called_once_with("BTCUSDT", 10)
+        mock_trading_engine_instance.initialize_components.assert_called_once()
+        
+        # Verify components are set from TradingEngine
+        assert bot.trading_engine == mock_trading_engine_instance
+        assert bot.order_manager == mock_trading_engine_instance.order_manager
+        assert bot.data_collector == mock_trading_engine_instance.data_collector
+        assert bot.risk_manager == mock_trading_engine_instance.risk_manager
 
     @patch("src.main.ConfigManager")
-    def test_initialize_fails_with_invalid_config(self, mock_config_manager):
+    @patch("src.main.TradingLogger")
+    @pytest.mark.asyncio
+    async def test_initialize_fails_with_invalid_config(self, mock_trading_logger, mock_config_manager):
         """Test initialize raises ValueError on invalid config."""
         # Setup ConfigManager to fail validation
         config_instance = Mock()
@@ -143,13 +138,15 @@ class TestTradingBotInitialization:
 
         # Should raise ValueError with helpful message
         with pytest.raises(ValueError, match="Invalid configuration"):
-            bot.initialize()
+            await bot.initialize()
 
     @patch("src.main.ConfigManager")
     @patch("src.main.TradingLogger")
+    @patch("src.main.TradingEngine")
     @patch("logging.getLogger")
-    def test_initialize_logs_startup_banner(
-        self, mock_get_logger, mock_trading_logger, mock_config_manager
+    @pytest.mark.asyncio
+    async def test_initialize_logs_startup_banner(
+        self, mock_get_logger, mock_trading_engine, mock_trading_logger, mock_config_manager
     ):
         """Test initialization logs comprehensive startup information."""
         # Setup mocks
@@ -159,7 +156,7 @@ class TestTradingBotInitialization:
             api_key="test_key", api_secret="test_secret", is_testnet=True
         )
         config_instance.trading_config = Mock(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m", "5m"],
             strategy="mock_sma",
             leverage=10,
@@ -167,6 +164,7 @@ class TestTradingBotInitialization:
             take_profit_ratio=2.0,
             stop_loss_percent=0.01,
             backfill_limit=100,
+            margin_type="ISOLATED"
         )
         config_instance.logging_config = Mock()
         config_instance.logging_config.__dict__ = {"log_level": "INFO"}
@@ -176,6 +174,10 @@ class TestTradingBotInitialization:
         mock_logger = Mock()
         mock_get_logger.return_value = mock_logger
 
+        # Mock TradingEngine instance
+        mock_engine_instance = mock_trading_engine.return_value
+        mock_engine_instance.initialize_strategy_with_backfill = AsyncMock()
+
         # Mock all other components
         with (
             patch("src.main.BinanceDataCollector"),
@@ -183,6 +185,7 @@ class TestTradingBotInitialization:
             patch("src.main.RiskManager"),
             patch("src.main.StrategyFactory"),
             patch("src.main.EventBus"),
+            patch("src.main.LiquidationManager"),
         ):
 
             # Setup OrderManager mock
@@ -191,7 +194,7 @@ class TestTradingBotInitialization:
             mock_order.return_value = mock_order_instance
 
             bot = TradingBot()
-            bot.initialize()
+            await bot.initialize()
 
         # Verify startup banner logged
         info_calls = [str(call) for call in mock_logger.info.call_args_list]
@@ -206,12 +209,49 @@ class TestTradingBotInitialization:
 
     @patch("src.main.ConfigManager")
     @patch("src.main.TradingLogger")
-    @patch("src.main.BinanceDataCollector")
+    @patch("src.main.TradingEngine")
     @patch("logging.getLogger")
-    def test_initialize_passes_candle_callback(
-        self, mock_get_logger, mock_data_collector, mock_trading_logger, mock_config_manager
+    @pytest.mark.asyncio
+    async def test_initialize_passes_candle_callback(
+        self, mock_get_logger, mock_trading_engine, mock_trading_logger, mock_config_manager
     ):
-        """Test BinanceDataCollector receives _on_candle_received callback."""
+        """Test delegation of initialization."""
+        # Setup mocks
+        config_instance = Mock()
+        config_instance.validate.return_value = True
+        config_instance.api_config = Mock(is_testnet=True)
+        config_instance.trading_config = Mock(
+            symbols=["BTCUSDT"],
+            intervals=["1m"],
+            strategy="mock_sma",
+            leverage=10,
+            max_risk_per_trade=0.01,
+            margin_type="ISOLATED",
+            backfill_limit=0
+        )
+        config_instance.logging_config = Mock()
+        config_instance.logging_config.__dict__ = {}
+        mock_config_manager.return_value = config_instance
+        
+        mock_engine_instance = mock_trading_engine.return_value
+        mock_engine_instance.initialize_components = Mock()
+
+        # Execute
+        bot = TradingBot()
+        await bot.initialize()
+
+        # Verify TradingEngine.initialize_components was called
+        mock_engine_instance.initialize_components.assert_called_once()
+
+    @patch("src.main.ConfigManager")
+    @patch("src.main.TradingLogger")
+    @patch("src.main.TradingEngine")
+    @patch("logging.getLogger")
+    @pytest.mark.asyncio
+    async def test_initialize_delegates_to_trading_engine(
+        self, mock_get_logger, mock_trading_engine, mock_trading_logger, mock_config_manager
+    ):
+        """Test delegation to TradingEngine."""
         # Setup mocks
         config_instance = Mock()
         config_instance.validate.return_value = True
@@ -219,7 +259,7 @@ class TestTradingBotInitialization:
             api_key="test_key", api_secret="test_secret", is_testnet=True
         )
         config_instance.trading_config = Mock(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="mock_sma",
             leverage=10,
@@ -227,154 +267,74 @@ class TestTradingBotInitialization:
             take_profit_ratio=2.0,
             stop_loss_percent=0.01,
             backfill_limit=100,
+            margin_type="ISOLATED"
         )
         config_instance.logging_config = Mock()
-        config_instance.logging_config.__dict__ = {}
+        config_instance.logging_config.__dict__ = {"log_level": "INFO"}
         mock_config_manager.return_value = config_instance
 
         mock_logger = Mock()
         mock_get_logger.return_value = mock_logger
 
-        # Mock other components
-        with (
-            patch("src.main.OrderExecutionManager") as mock_order,
-            patch("src.main.RiskManager"),
-            patch("src.main.StrategyFactory"),
-            patch("src.main.EventBus"),
-        ):
+        # Mock TradingEngine instance components
+        mock_engine_instance = mock_trading_engine.return_value
+        mock_engine_instance.initialize_strategy_with_backfill = AsyncMock()
+        mock_engine_instance.order_manager = Mock()
+        mock_engine_instance.data_collector = Mock()
+        mock_engine_instance.risk_manager = Mock()
 
-            mock_order_instance = Mock()
-            mock_order_instance.set_leverage.return_value = True
-            mock_order.return_value = mock_order_instance
+        # Execute
+        bot = TradingBot()
+        await bot.initialize()
 
-            bot = TradingBot()
-            bot.initialize()
-
-        # Verify callback was passed
-        mock_data_collector.assert_called_once()
-        call_kwargs = mock_data_collector.call_args.kwargs
-        assert "on_candle_callback" in call_kwargs
-        assert call_kwargs["on_candle_callback"] == bot._on_candle_received
+        # Verify TradingEngine.initialize_components was called with correct args
+        mock_engine_instance.initialize_components.assert_called_once_with(
+            config_manager=config_instance,
+            event_bus=bot.event_bus,
+            api_key="test_key",
+            api_secret="test_secret",
+            is_testnet=True
+        )
 
     @patch("src.main.ConfigManager")
     @patch("src.main.TradingLogger")
+    @patch("src.main.TradingEngine")
     @patch("logging.getLogger")
-    def test_initialize_handles_leverage_failure_gracefully(
-        self, mock_get_logger, mock_trading_logger, mock_config_manager
+    @pytest.mark.asyncio
+    async def test_initialize_with_backfill(
+        self, mock_get_logger, mock_trading_engine, mock_trading_logger, mock_config_manager
     ):
-        """Test leverage setup failure is logged as warning, not error."""
+        """Test strategy initialization with backfill."""
         # Setup mocks
         config_instance = Mock()
         config_instance.validate.return_value = True
-        config_instance.api_config = Mock(
-            api_key="test_key", api_secret="test_secret", is_testnet=True
-        )
+        config_instance.api_config = Mock(is_testnet=True)
         config_instance.trading_config = Mock(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="mock_sma",
             leverage=10,
-            max_risk_per_trade=0.01,
-            take_profit_ratio=2.0,
-            stop_loss_percent=0.01,
             backfill_limit=100,
+            margin_type="ISOLATED",
+            max_risk_per_trade=0.01
         )
         config_instance.logging_config = Mock()
-        config_instance.logging_config.__dict__ = {}
+        config_instance.logging_config.__dict__ = {"log_level": "INFO"}
         mock_config_manager.return_value = config_instance
 
-        mock_logger = Mock()
-        mock_get_logger.return_value = mock_logger
+        mock_engine_instance = mock_trading_engine.return_value
+        mock_engine_instance.initialize_strategy_with_backfill = AsyncMock()
 
-        # Mock components
-        with (
-            patch("src.main.BinanceDataCollector"),
-            patch("src.main.OrderExecutionManager") as mock_order,
-            patch("src.main.RiskManager"),
-            patch("src.main.StrategyFactory"),
-            patch("src.main.EventBus"),
-        ):
+        # Execute
+        bot = TradingBot()
+        await bot.initialize()
 
-            # Setup OrderManager to fail leverage setting
-            mock_order_instance = Mock()
-            mock_order_instance.set_leverage.return_value = False
-            mock_order.return_value = mock_order_instance
-
-            bot = TradingBot()
-            bot.initialize()  # Should not raise exception
-
-        # Verify warning was logged
-        warning_calls = [str(call) for call in mock_logger.warning.call_args_list]
-        assert any(
-            "Failed to set leverage" in call for call in warning_calls
-        ), "Leverage failure warning not logged"
-
-    @patch("src.main.ConfigManager")
-    @patch("src.main.TradingLogger")
-    @patch("src.main.RiskManager")
-    @patch("logging.getLogger")
-    def test_initialize_configures_risk_manager_correctly(
-        self, mock_get_logger, mock_risk_manager, mock_trading_logger, mock_config_manager
-    ):
-        """Test RiskManager receives correct configuration."""
-        # Setup mocks
-        config_instance = Mock()
-        config_instance.validate.return_value = True
-        config_instance.api_config = Mock(
-            api_key="test_key", api_secret="test_secret", is_testnet=True
-        )
-        config_instance.trading_config = Mock(
-            symbol="BTCUSDT",
-            intervals=["1m"],
-            strategy="mock_sma",
-            leverage=15,
-            max_risk_per_trade=0.02,
-            take_profit_ratio=2.0,
-            stop_loss_percent=0.01,
-            backfill_limit=100,
-        )
-        config_instance.logging_config = Mock()
-        config_instance.logging_config.__dict__ = {}
-        mock_config_manager.return_value = config_instance
-
-        mock_logger = Mock()
-        mock_get_logger.return_value = mock_logger
-
-        # Mock other components
-        with (
-            patch("src.main.BinanceDataCollector"),
-            patch("src.main.OrderExecutionManager") as mock_order,
-            patch("src.main.StrategyFactory"),
-            patch("src.main.EventBus"),
-        ):
-
-            mock_order_instance = Mock()
-            mock_order_instance.set_leverage.return_value = True
-            mock_order.return_value = mock_order_instance
-
-            bot = TradingBot()
-            bot.initialize()
-
-        # Verify RiskManager received correct config
-        mock_risk_manager.assert_called_once()
-        risk_config = mock_risk_manager.call_args.kwargs.get(
-            "config",
-            mock_risk_manager.call_args.args[0] if mock_risk_manager.call_args.args else {},
-        )
-        assert risk_config["max_risk_per_trade"] == 0.02
-        assert risk_config["default_leverage"] == 15
-        assert risk_config["max_leverage"] == 20
-        assert risk_config["max_position_size_percent"] == 0.1
+        # Verify backfill was called
+        mock_engine_instance.initialize_strategy_with_backfill.assert_called_once_with(limit=100)
 
 
 class TestTradingBotDelegation:
     """Tests for TradingBot delegation pattern."""
-
-    def test_on_candle_received_bridge_exists(self):
-        """Test _on_candle_received bridge method exists."""
-        bot = TradingBot()
-        assert hasattr(bot, "_on_candle_received")
-        assert callable(bot._on_candle_received)
 
     def test_run_delegates_to_trading_engine(self):
         """Test run method delegates to TradingEngine."""

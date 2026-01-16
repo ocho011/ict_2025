@@ -112,7 +112,8 @@ class TestPositionSizeCalculation:
             "default_leverage": 10,
             "max_position_size_percent": 0.1,
         }
-        risk_manager = RiskManager(config)
+        mock_audit_logger = MagicMock()
+        risk_manager = RiskManager(config, audit_logger=mock_audit_logger)
 
         quantity = risk_manager.calculate_position_size(
             account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=10  # 2% SL
@@ -254,7 +255,8 @@ class TestSignalValidation:
             "default_leverage": 10,
             "max_position_size_percent": 0.1,
         }
-        return RiskManager(config)
+        mock_audit_logger = MagicMock()
+        return RiskManager(config, audit_logger=mock_audit_logger)
 
     def test_valid_long_signal(self, risk_manager):
         """Valid LONG signal passes validation"""
@@ -401,7 +403,8 @@ class TestPositionSizeLimiting:
             "default_leverage": 10,
             "max_position_size_percent": 0.1,  # 10% max
         }
-        return RiskManager(config)
+        mock_audit_logger = MagicMock()
+        return RiskManager(config, audit_logger=mock_audit_logger)
 
     def test_within_limit_no_capping(self, risk_manager):
         """
@@ -469,7 +472,8 @@ class TestPositionSizeLimiting:
             "default_leverage": 10,
             "max_position_size_percent": 0.2,  # 20% max
         }
-        risk_manager = RiskManager(config)
+        mock_audit_logger = MagicMock()
+        risk_manager = RiskManager(config, audit_logger=mock_audit_logger)
 
         quantity = risk_manager.calculate_position_size(
             account_balance=10000, entry_price=50000, stop_loss_price=49950, leverage=10  # Tight SL
@@ -593,7 +597,8 @@ class TestQuantityRounding:
             "default_leverage": 10,
             "max_position_size_percent": 0.1,
         }
-        return RiskManager(config)
+        mock_audit_logger = MagicMock()
+        return RiskManager(config, audit_logger=mock_audit_logger)
 
     def test_standard_rounding_btcusdt(self, risk_manager):
         """Standard case: 1.2345 BTC with BTCUSDT specs → 1.234"""
