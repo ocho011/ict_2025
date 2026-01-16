@@ -54,8 +54,8 @@ async def test_shutdown_can_be_called_multiple_times(trading_bot):
     await trading_bot.shutdown()
     await trading_bot.shutdown()
 
-    # Assert - TradingEngine.shutdown() called twice (idempotency handled by TradingEngine)
-    assert trading_bot.trading_engine.shutdown.call_count == 2
+    # Assert - TradingEngine.shutdown() called ONLY ONCE because TradingBot handles idempotency
+    assert trading_bot.trading_engine.shutdown.call_count == 1
 
 
 @pytest.mark.asyncio

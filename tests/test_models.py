@@ -34,8 +34,7 @@ class TestCandle:
             low=49500.0,
             close=50800.0,
             volume=100.5,
-            close_time=datetime(2025, 1, 1, 0, 5),
-            is_closed=True,
+            close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
         )
 
         assert candle.is_bullish is True
@@ -56,6 +55,7 @@ class TestCandle:
             close=2950.0,
             volume=50.0,
             close_time=datetime(2025, 1, 1, 1, 0),
+            is_closed=True,
         )
 
         assert candle.is_bullish is False
@@ -75,7 +75,7 @@ class TestCandle:
                 low=48000.0,
                 close=50000.0,
                 volume=100.0,
-                close_time=datetime(2025, 1, 1, 0, 5),
+                close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
             )
 
     def test_invalid_low_raises_error(self):
@@ -90,7 +90,7 @@ class TestCandle:
                 low=51000.0,  # Invalid: low > open
                 close=50500.0,
                 volume=100.0,
-                close_time=datetime(2025, 1, 1, 0, 5),
+                close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
             )
 
     def test_negative_volume_raises_error(self):
@@ -106,6 +106,7 @@ class TestCandle:
                 close=50500.0,
                 volume=-10.0,  # Invalid
                 close_time=datetime(2025, 1, 1, 0, 5),
+                is_closed=True,
             )
 
 
@@ -332,7 +333,7 @@ class TestEvent:
             low=49000.0,
             close=50500.0,
             volume=100.0,
-            close_time=datetime(2025, 1, 1, 0, 5),
+            close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
         )
 
         event = Event(
