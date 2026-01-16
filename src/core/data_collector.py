@@ -12,10 +12,10 @@ import logging
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
-from binance.um_futures import UMFutures
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
 
 from src.models.candle import Candle
+from src.core.binance_service import BinanceServiceClient
 
 
 class BinanceDataCollector:
@@ -64,34 +64,20 @@ class BinanceDataCollector:
 
     def __init__(
         self,
-        api_key: str,
-        api_secret: str,
+        binance_service: BinanceServiceClient,
         symbols: List[str],
         intervals: List[str], # From .ini config (e.g., trading_config.ini)
-        is_testnet: bool = True,
         on_candle_callback: Optional[Callable[[Candle], None]] = None,
     ) -> None:
         """
         Initialize BinanceDataCollector.
 
         Args:
-            api_key: Binance API key for authentication
-            api_secret: Binance API secret for authentication
+            binance_service: Centralized BinanceServiceClient instance
             symbols: List of trading pairs to monitor (e.g., ['BTCUSDT', 'ETHUSDT'])
             intervals: List of timeframes to collect (e.g., ['1m', '5m', '1h', '4h'])
-            is_testnet: Use testnet (True) or mainnet (False). Default is True.
             on_candle_callback: Optional callback function invoked on each candle update.
                                Signature: callback(candle: Candle) -> None
-
-        Note:
-            - Constructor does NOT start streaming. Call start_streaming() explicitly.
-            - Testnet is strongly recommended for development and testing to avoid
-              trading with real funds.
-            - Symbols are automatically normalized to uppercase for API compatibility.
-            - WebSocket clients are initialized lazily in start_streaming() (one per symbol).
-
-        Raises:
-            ValueError: If symbols or intervals lists are empty
         """
         # Validate inputs
         if not symbols:
@@ -99,15 +85,13 @@ class BinanceDataCollector:
         if not intervals:
             raise ValueError("intervals list cannot be empty")
 
-        # Store configuration
-        self.is_testnet = is_testnet
+        # Store configuration and service
+        self.binance_service = binance_service
+        self.rest_client = binance_service  # Alias for compatibility with existing code
+        self.is_testnet = binance_service.is_testnet
         self.symbols = [s.upper() for s in symbols]  # Normalize to uppercase
         self.intervals = intervals
         self.on_candle_callback = on_candle_callback
-
-        # Initialize REST client for historical data and account queries
-        base_url = self.TESTNET_BASE_URL if is_testnet else self.MAINNET_BASE_URL
-        self.rest_client = UMFutures(key=api_key, secret=api_secret, base_url=base_url)
 
         # WebSocket clients (one per symbol) - initialized in start_streaming
         # Dictionary mapping symbol -> UMFuturesWebsocketClient
@@ -122,7 +106,7 @@ class BinanceDataCollector:
         self.logger.info(
             f"BinanceDataCollector initialized: "
             f"{len(self.symbols)} symbols, {len(self.intervals)} intervals, "
-            f"environment={'TESTNET' if is_testnet else 'MAINNET'}"
+            f"environment={'TESTNET' if self.is_testnet else 'MAINNET'}"
         )
 
     def __repr__(self) -> str:

@@ -8,9 +8,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from binance.error import ClientError, ServerError
-from binance.um_futures import UMFutures
 
 from src.core.audit_logger import AuditEventType, AuditLogger
+from src.core.binance_service import BinanceServiceClient
 from src.core.exceptions import OrderExecutionError, OrderRejectedError, ValidationError
 from src.core.retry import retry_with_backoff
 from src.models.order import Order, OrderSide, OrderStatus, OrderType
@@ -18,78 +18,7 @@ from src.models.position import Position
 from src.models.signal import Signal, SignalType
 
 
-class RequestWeightTracker:
-    """
-    Tracks API request weight to prevent rate limit violations.
-
-    Binance provides weight usage in response headers when client is initialized
-    with show_limit_usage=True. This tracker monitors the usage and warns when
-    approaching limits.
-
-    Attributes:
-        current_weight: Current weight used in 1-minute window
-        weight_limit: Maximum weight allowed per minute (default: 2400)
-        last_reset: Timestamp of last weight reset
-    """
-
-    def __init__(self):
-        """Initialize weight tracker."""
-        self.current_weight = 0
-        self.weight_limit = 2400  # Binance limit: 2400 requests/minute
-        self.last_reset = datetime.now()
-        self.logger = logging.getLogger(__name__)
-
-    def update_from_response(self, response_headers: Optional[Dict] = None):
-        """
-        Update weight tracking from API response headers.
-
-        Binance returns weight information in headers:
-        - 'X-MBX-USED-WEIGHT-1M': Current weight used in 1-minute window
-
-        Args:
-            response_headers: Response headers from Binance API
-        """
-        if not response_headers:
-            return
-
-        # Extract weight from headers
-        weight_str = response_headers.get("X-MBX-USED-WEIGHT-1M")
-        if weight_str:
-            try:
-                self.current_weight = int(weight_str)
-
-                # Log warning if approaching limit (80% threshold)
-                if self.current_weight > self.weight_limit * 0.8:
-                    self.logger.warning(
-                        f"Approaching rate limit: {self.current_weight}/{self.weight_limit} "
-                        f"({self.current_weight / self.weight_limit * 100:.1f}%)"
-                    )
-            except ValueError:
-                self.logger.error(f"Invalid weight value in header: {weight_str}")
-
-    def check_limit(self) -> bool:
-        """
-        Check if we're approaching rate limit.
-
-        Returns:
-            True if safe to proceed, False if should wait
-        """
-        # Allow up to 90% of limit
-        return self.current_weight < self.weight_limit * 0.9
-
-    def get_status(self) -> Dict[str, Any]:
-        """
-        Get current weight tracking status.
-
-        Returns:
-            Dictionary with weight usage information
-        """
-        return {
-            "current_weight": self.current_weight,
-            "weight_limit": self.weight_limit,
-            "usage_percent": (self.current_weight / self.weight_limit * 100),
-            "safe_to_proceed": self.check_limit(),
-        }
+# RequestWeightTracker moved to src.core.binance_service
 
 
 class OrderExecutionManager:
@@ -100,7 +29,7 @@ class OrderExecutionManager:
     and leverage configuration.
 
     Attributes:
-        client (UMFutures): Binance UMFutures REST API client
+        client (BinanceServiceClient): Centralized Binance API client service
         logger (logging.Logger): Logger instance
         _open_orders (Dict[str, List[Order]]): Open orders tracking per symbol
 
@@ -127,67 +56,20 @@ class OrderExecutionManager:
     def __init__(
         self,
         audit_logger: AuditLogger,
-        api_key: Optional[str] = None,
-        api_secret: Optional[str] = None,
-        is_testnet: bool = True,
+        binance_service: BinanceServiceClient,
     ) -> None:
         """
         Initialize OrderExecutionManager.
 
-        API keys are automatically loaded from environment variables
-        (BINANCE_API_KEY, BINANCE_API_SECRET) and can be overridden via parameters.
-
         Args:
             audit_logger: AuditLogger instance for structured logging
-            api_key: Binance API key (uses BINANCE_API_KEY env var if None)
-            api_secret: Binance API secret (uses BINANCE_API_SECRET env var if None)
-            is_testnet: Whether to use testnet (default: True)
-
-        Raises:
-            ValueError: If API key or secret is not provided
-
-        Example:
-            >>> # Using environment variables with injected audit logger
-            >>> import os
-            >>> from src.core.audit_logger import AuditLogger
-            >>> os.environ['BINANCE_API_KEY'] = 'your_key'
-            >>> os.environ['BINANCE_API_SECRET'] = 'your_secret'
-            >>> audit_logger = AuditLogger(log_dir="logs/audit")
-            >>> manager = OrderExecutionManager(
-            ...     audit_logger=audit_logger,
-            ...     is_testnet=True
-            ... )
-
-            >>> # Providing keys directly (for testing)
-            >>> manager = OrderExecutionManager(
-            ...     audit_logger=audit_logger,
-            ...     api_key='test_key',
-            ...     api_secret='test_secret',
-            ...     is_testnet=True
-            ... )
+            binance_service: Centralized BinanceServiceClient instance
         """
-        # Load API keys (environment variables with parameter override)
-        api_key_value = api_key or os.getenv("BINANCE_API_KEY")
-        api_secret_value = api_secret or os.getenv("BINANCE_API_SECRET")
-
-        # Validate required credentials
-        if not api_key_value or not api_secret_value:
-            raise ValueError(
-                "API credentials required. "
-                "Set BINANCE_API_KEY and BINANCE_API_SECRET environment variables, "
-                "or pass api_key and api_secret parameters."
-            )
-
-        # Select base URL
-        base_url = "https://testnet.binancefuture.com" if is_testnet else "https://fapi.binance.com"
-
-        # Initialize UMFutures client with weight tracking enabled
-        self.client = UMFutures(
-            key=api_key_value,
-            secret=api_secret_value,
-            base_url=base_url,
-            show_limit_usage=True,  # Enable weight usage tracking in headers
-        )
+        # Store injected service and components
+        self.client = binance_service
+        self.binance_service = binance_service
+        self.audit_logger = audit_logger
+        self.weight_tracker = binance_service.weight_tracker
 
         # Configure logger
         self.logger = logging.getLogger(__name__)
@@ -198,24 +80,6 @@ class OrderExecutionManager:
         # Exchange info cache with 24h TTL
         self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
         self._cache_timestamp: Optional[datetime] = None
-
-        # Inject audit logger and weight tracker
-        self.audit_logger = audit_logger
-        self.weight_tracker = RequestWeightTracker()
-
-    def _unwrap_response(self, response: Any) -> Any:
-        """
-        Unwrap Binance API response if show_limit_usage=True is enabled.
-
-        Args:
-            response: Raw response from UMFutures client
-
-        Returns:
-            Unwrapped data (either response['data'] or response itself)
-        """
-        if isinstance(response, dict) and "data" in response:
-            return response["data"]
-        return response
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def set_leverage(self, symbol: str, leverage: int) -> bool:
@@ -251,10 +115,6 @@ class OrderExecutionManager:
         try:
             # Call Binance API
             response = self.client.change_leverage(symbol=symbol, leverage=leverage)
-
-            # Update weight tracker from response headers
-            if hasattr(response, "headers"):
-                self.weight_tracker.update_from_response(response.headers)
 
             # Audit log success
             self.audit_logger.log_event(
@@ -345,10 +205,6 @@ class OrderExecutionManager:
         try:
             # Call Binance API
             response = self.client.change_margin_type(symbol=symbol, marginType=margin_type)
-
-            # Update weight tracker from response headers
-            if hasattr(response, "headers"):
-                self.weight_tracker.update_from_response(response.headers)
 
             # Audit log success
             self.audit_logger.log_event(
@@ -495,12 +351,8 @@ class OrderExecutionManager:
             # Call Binance API to fetch exchange info
             response = self.client.exchange_info()
 
-            # Update weight tracker from response headers
-            if hasattr(response, "headers"):
-                self.weight_tracker.update_from_response(response.headers)
-
-            # Handle Binance API response structure
-            exchange_data = self._unwrap_response(response)
+            # Handle Binance API response structure (already unwrapped by service)
+            exchange_data = response
 
             if not isinstance(exchange_data, dict):
                 raise OrderExecutionError(
@@ -760,8 +612,8 @@ class OrderExecutionManager:
             >>> assert order.status == OrderStatus.FILLED
         """
         try:
-            # Handle Binance API response structure
-            order_data = self._unwrap_response(response)
+            # Handle Binance API response structure (already unwrapped by service)
+            order_data = response
 
             if not isinstance(order_data, dict):
                 raise OrderExecutionError(
@@ -1088,7 +940,6 @@ class OrderExecutionManager:
             f"{signal.symbol} {side.value} {quantity} "
             f"(strategy: {signal.strategy_name})"
         )
-
         # Prepare order parameters for market entry order
         # Format quantity according to symbol's step size (precision)
         formatted_qty = self._format_quantity(quantity, signal.symbol)
@@ -1104,10 +955,6 @@ class OrderExecutionManager:
         try:
             # Submit market order to Binance
             response = self.client.new_order(**order_params)
-
-            # Update weight tracker from response headers
-            if hasattr(response, "headers"):
-                self.weight_tracker.update_from_response(response.headers)
 
             # Parse API response into Order object
             entry_order = self._parse_order_response(
@@ -1280,8 +1127,8 @@ class OrderExecutionManager:
                 self.logger.warning(f"No position data returned for {symbol}")
                 return None
 
-            # Handle Binance API response structure
-            unwrapped = self._unwrap_response(response)
+            # Handler Binance API response structure (now already unwrapped by BinanceServiceClient)
+            unwrapped = response
 
             if isinstance(unwrapped, list):
                 # Direct list response or unwrapped data list
@@ -1417,8 +1264,8 @@ class OrderExecutionManager:
             response = self.client.account()
 
             # 3. Extract account data
-            # Handle Binance API response structure
-            account_data = self._unwrap_response(response)
+            # Handle Binance API response structure (now already unwrapped by BinanceServiceClient)
+            account_data = response
 
             if not isinstance(account_data, dict):
                 raise OrderExecutionError(
@@ -1505,9 +1352,8 @@ class OrderExecutionManager:
             # 3. Call Binance API
             response = self.client.cancel_open_orders(symbol=symbol)
 
-            # 4. Parse response
-            cancelled_count = 0
-            unwrapped = self._unwrap_response(response)
+            # 4. Parse response (now already unwrapped by BinanceServiceClient)
+            unwrapped = response
 
             if isinstance(unwrapped, list):
                 # Response is a list of cancelled order objects

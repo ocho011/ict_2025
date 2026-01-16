@@ -211,14 +211,21 @@ class TradingEngine:
         self.event_bus = event_bus
         trading_config = config_manager.trading_config
 
+        # Step 1.5: Initialize BinanceServiceClient
+        self.logger.info("Creating BinanceServiceClient...")
+        from src.core.binance_service import BinanceServiceClient
+        self.binance_service = BinanceServiceClient(
+            api_key=api_key,
+            api_secret=api_secret,
+            is_testnet=is_testnet,
+        )
+
         # Step 2: Initialize OrderExecutionManager
         self.logger.info("Creating OrderExecutionManager...")
         from src.execution.order_manager import OrderExecutionManager
         self.order_manager = OrderExecutionManager(
             audit_logger=self.audit_logger,
-            api_key=api_key,
-            api_secret=api_secret,
-            is_testnet=is_testnet,
+            binance_service=self.binance_service,
         )
 
         # Step 3: Initialize RiskManager
@@ -274,11 +281,9 @@ class TradingEngine:
         self.logger.info("Creating BinanceDataCollector...")
         from src.core.data_collector import BinanceDataCollector
         self.data_collector = BinanceDataCollector(
-            api_key=api_key,
-            api_secret=api_secret,
+            binance_service=self.binance_service,
             symbols=trading_config.symbols,  # Issue #8: Multi-coin support
             intervals=trading_config.intervals,
-            is_testnet=is_testnet,
             on_candle_callback=self.on_candle_received,
         )
 

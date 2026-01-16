@@ -1,0 +1,161 @@
+"""
+Centralized Binance API client service with rate limit tracking.
+"""
+
+import logging
+from typing import Any, Dict, Optional
+
+from binance.um_futures import UMFutures
+
+
+class RequestWeightTracker:
+    """
+    Tracks API request weight to prevent rate limit violations.
+
+    Binance provides weight usage in response headers when client is initialized
+    with show_limit_usage=True. This tracker monitors the usage and warns when
+    approaching limits.
+    """
+
+    def __init__(self):
+        """Initialize weight tracker."""
+        self.current_weight = 0
+        self.weight_limit = 2400  # Binance limit: 2400 requests/minute
+        self.logger = logging.getLogger(__name__)
+
+    def update_from_headers(self, headers: Optional[Dict] = None):
+        """
+        Update weight tracking from API response headers.
+
+        Binance returns weight information in headers:
+        - 'X-MBX-USED-WEIGHT-1M': Current weight used in 1-minute window
+
+        Args:
+            headers: Response headers from Binance API
+        """
+        if not headers:
+            return
+
+        # Extract weight from headers
+        weight_str = headers.get("X-MBX-USED-WEIGHT-1M")
+        if weight_str:
+            try:
+                self.current_weight = int(weight_str)
+
+                # Log warning if approaching limit (80% threshold)
+                if self.current_weight > self.weight_limit * 0.8:
+                    self.logger.warning(
+                        f"Approaching Binance rate limit: {self.current_weight}/{self.weight_limit} "
+                        f"({self.current_weight / self.weight_limit * 100:.1f}%)"
+                    )
+            except ValueError:
+                self.logger.error(f"Invalid weight value in header: {weight_str}")
+
+    def check_limit(self) -> bool:
+        """
+        Check if we're approaching rate limit.
+
+        Returns:
+            True if safe to proceed, False if should wait
+        """
+        # Allow up to 90% of limit
+        return self.current_weight < self.weight_limit * 0.9
+
+    def get_status(self) -> Dict[str, Any]:
+        """
+        Get current weight tracking status.
+
+        Returns:
+            Dictionary with weight usage information
+        """
+        return {
+            "current_weight": self.current_weight,
+            "weight_limit": self.weight_limit,
+            "usage_percent": (self.current_weight / self.weight_limit * 100) if self.weight_limit > 0 else 0,
+            "safe_to_proceed": self.check_limit(),
+        }
+
+
+class BinanceServiceClient:
+    """
+    Centralized service for interacting with Binance Futures REST API.
+
+    Features:
+    - Single UMFutures client instance shared across components
+    - Integrated Request Weight tracking for all API calls
+    - Automatic response unwrapping when show_limit_usage=True
+    """
+
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        is_testnet: bool = True
+    ) -> None:
+        """
+        Initialize the Binance service.
+
+        Args:
+            api_key: Binance API key
+            api_secret: Binance API secret
+            is_testnet: Whether to use testnet (default: True)
+        """
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.is_testnet = is_testnet
+
+        self.base_url = "https://testnet.binancefuture.com" if is_testnet else "https://fapi.binance.com"
+
+        # Initialize the underlying UMFutures client
+        # show_limit_usage=True ensures weight information is returned in headers
+        self.client = UMFutures(
+            key=api_key,
+            secret=api_secret,
+            base_url=self.base_url,
+            show_limit_usage=True
+        )
+
+        self.weight_tracker = RequestWeightTracker()
+        self.logger = logging.getLogger(__name__)
+
+    def _handle_response(self, response: Any) -> Any:
+        """
+        Update weight tracker and unwrap data from response.
+
+        Args:
+            response: Response from UMFutures client
+
+        Returns:
+            Unwrapped data content
+        """
+        # Update weight tracker if headers are present
+        if isinstance(response, dict) and "headers" in response:
+            self.weight_tracker.update_from_headers(response["headers"])
+
+        # Unwrap data if present
+        if isinstance(response, dict) and "data" in response:
+            return response["data"]
+
+        return response
+
+    def __getattr__(self, name: str) -> Any:
+        """
+        Proxy method calls to the underlying UMFutures client with weight tracking.
+
+        Args:
+            name: Method name to call on UMFutures client
+
+        Returns:
+            Wrapped callable or attribute from UMFutures client
+        """
+        attr = getattr(self.client, name)
+
+        if callable(attr):
+            def wrapper(*args, **kwargs):
+                # Execute the actual API call
+                response = attr(*args, **kwargs)
+                # Apply weight tracking and data unwrapping
+                return self._handle_response(response)
+            return wrapper
+
+        return attr
