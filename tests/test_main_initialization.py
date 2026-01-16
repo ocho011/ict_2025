@@ -347,3 +347,190 @@ class TestTradingBotDelegation:
         bot = TradingBot()
         assert hasattr(bot, "shutdown")
         assert callable(bot.shutdown)
+
+
+class TestTaskManagement:
+    """Tests for asyncio task management (Issue #23)."""
+
+    @pytest.mark.asyncio
+    async def test_stop_signal_task_cancelled_when_engine_finishes_first(self):
+        """Test stop_signal_task is cancelled when engine_task completes first (Issue #23)."""
+        from unittest.mock import AsyncMock
+
+        # Create bot with mocked components
+        with (
+            patch("src.main.ConfigManager") as mock_config_class,
+            patch("src.main.TradingLogger"),
+            patch("src.main.TradingEngine") as mock_engine_class,
+            patch("src.main.EventBus"),
+            patch("src.main.LiquidationManager"),
+            patch("src.main.AuditLogger"),
+            patch("logging.getLogger"),
+        ):
+            # Setup mocks
+            mock_config = Mock()
+            mock_config.validate.return_value = True
+            mock_config.api_config = Mock(
+                api_key="test_key",
+                api_secret="test_secret",
+                is_testnet=True
+            )
+            mock_config.trading_config = Mock(
+                symbols=["BTCUSDT"],
+                intervals=["1m"],
+                strategy="test_strategy",
+                leverage=10,
+                margin_type="ISOLATED",
+                max_risk_per_trade=0.01,
+                backfill_limit=0,
+            )
+            mock_config.logging_config = Mock()
+            mock_config.logging_config.__dict__ = {}
+            mock_config_class.return_value = mock_config
+
+            mock_engine = Mock()
+            mock_engine.run = AsyncMock()
+            mock_engine.shutdown = AsyncMock()
+            mock_engine.initialize_components = Mock()
+            mock_engine_class.return_value = mock_engine
+
+            # Make engine finish quickly
+            mock_engine.run.return_value = None
+
+            bot = TradingBot()
+            await bot.initialize()
+
+            # Run bot (engine finishes first)
+            await bot.run()
+
+            # Verify engine.run was called
+            mock_engine.run.assert_called_once()
+            # Verify shutdown was called
+            mock_engine.shutdown.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_stop_signal_task_completes_when_event_triggered(self):
+        """Test stop_signal_task completes normally when stop event is triggered (Issue #23)."""
+        import asyncio
+        from unittest.mock import AsyncMock
+
+        # Create bot with mocked components
+        with (
+            patch("src.main.ConfigManager") as mock_config_class,
+            patch("src.main.TradingLogger"),
+            patch("src.main.TradingEngine") as mock_engine_class,
+            patch("src.main.EventBus"),
+            patch("src.main.LiquidationManager"),
+            patch("src.main.AuditLogger"),
+            patch("logging.getLogger"),
+        ):
+            # Setup mocks
+            mock_config = Mock()
+            mock_config.validate.return_value = True
+            mock_config.api_config = Mock(
+                api_key="test_key",
+                api_secret="test_secret",
+                is_testnet=True
+            )
+            mock_config.trading_config = Mock(
+                symbols=["BTCUSDT"],
+                intervals=["1m"],
+                strategy="test_strategy",
+                leverage=10,
+                margin_type="ISOLATED",
+                max_risk_per_trade=0.01,
+                backfill_limit=0,
+            )
+            mock_config.logging_config = Mock()
+            mock_config.logging_config.__dict__ = {}
+            mock_config_class.return_value = mock_config
+
+            mock_engine = Mock()
+            # Make engine wait longer than test timeout
+            mock_engine.run = AsyncMock(side_effect=lambda: asyncio.sleep(10))
+            mock_engine.shutdown = AsyncMock()
+            mock_engine.initialize_components = Mock()
+            mock_engine_class.return_value = mock_engine
+
+            bot = TradingBot()
+            await bot.initialize()
+
+            # Create a coroutine that triggers stop event after short delay
+            async def trigger_stop():
+                await asyncio.sleep(0.1)
+                bot._stop_event.set()
+
+            # Start both tasks
+            trigger_task = asyncio.create_task(trigger_stop())
+            run_task = asyncio.create_task(bot.run())
+
+            # Wait for run to complete (should happen when stop event is set)
+            await asyncio.wait([run_task], timeout=1.0)
+
+            # Cleanup
+            trigger_task.cancel()
+            try:
+                await trigger_task
+            except asyncio.CancelledError:
+                pass
+
+            # Verify shutdown was called
+            mock_engine.shutdown.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_task_cancellation_prevents_pending_warnings(self):
+        """Test explicit task cancellation prevents 'Task was destroyed' warnings (Issue #23)."""
+        import asyncio
+        import warnings
+        from unittest.mock import AsyncMock
+
+        # Create bot with mocked components
+        with (
+            patch("src.main.ConfigManager") as mock_config_class,
+            patch("src.main.TradingLogger"),
+            patch("src.main.TradingEngine") as mock_engine_class,
+            patch("src.main.EventBus"),
+            patch("src.main.LiquidationManager"),
+            patch("src.main.AuditLogger"),
+            patch("logging.getLogger"),
+        ):
+            # Setup mocks
+            mock_config = Mock()
+            mock_config.validate.return_value = True
+            mock_config.api_config = Mock(
+                api_key="test_key",
+                api_secret="test_secret",
+                is_testnet=True
+            )
+            mock_config.trading_config = Mock(
+                symbols=["BTCUSDT"],
+                intervals=["1m"],
+                strategy="test_strategy",
+                leverage=10,
+                margin_type="ISOLATED",
+                max_risk_per_trade=0.01,
+                backfill_limit=0,
+            )
+            mock_config.logging_config = Mock()
+            mock_config.logging_config.__dict__ = {}
+            mock_config_class.return_value = mock_config
+
+            mock_engine = Mock()
+            mock_engine.run = AsyncMock()
+            mock_engine.shutdown = AsyncMock()
+            mock_engine.initialize_components = Mock()
+            mock_engine_class.return_value = mock_engine
+
+            bot = TradingBot()
+            await bot.initialize()
+
+            # Capture warnings
+            with warnings.catch_warnings(record=True) as w:
+                warnings.simplefilter("always")
+
+                # Run bot
+                await bot.run()
+
+                # Check no task-related warnings
+                task_warnings = [warning for warning in w if "Task" in str(warning.message)]
+                assert len(task_warnings) == 0, "Unexpected task warnings found"
