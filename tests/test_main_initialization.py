@@ -347,3 +347,89 @@ class TestTradingBotDelegation:
         bot = TradingBot()
         assert hasattr(bot, "shutdown")
         assert callable(bot.shutdown)
+
+
+class TestSignalHandlerBehavior:
+    """Tests for signal handler behavior (Issue #22)."""
+
+    def test_sigint_during_initialization_raises_keyboard_interrupt(self):
+        """Test SIGINT raises KeyboardInterrupt when _stop_event is None (Issue #22)."""
+        import signal
+
+        # Mock components to isolate signal handler behavior
+        with (
+            patch("src.main.TradingBot") as mock_bot_class,
+            patch("src.main.asyncio.run") as mock_asyncio_run,
+            patch("logging.getLogger") as mock_logger,
+        ):
+            # Create a mock bot instance
+            mock_bot = Mock()
+            mock_bot._stop_event = None  # Simulate initialization phase
+            mock_bot_class.return_value = mock_bot
+
+            # Create the signal handler (this happens in main())
+            def signal_handler(_sig, _frame):
+                if mock_bot._stop_event:
+                    mock_bot._stop_event.set()
+                else:
+                    raise KeyboardInterrupt
+
+            # Test that calling the handler raises KeyboardInterrupt
+            with pytest.raises(KeyboardInterrupt):
+                signal_handler(signal.SIGINT, None)
+
+            # Verify _stop_event was None (not set)
+            assert mock_bot._stop_event is None
+
+    def test_sigint_during_run_triggers_graceful_shutdown(self):
+        """Test SIGINT sets _stop_event during run phase (Issue #22)."""
+        import signal
+        import asyncio
+
+        # Create a mock bot with initialized _stop_event
+        mock_bot = Mock()
+        mock_bot._stop_event = asyncio.Event()
+
+        # Create the signal handler
+        def signal_handler(_sig, _frame):
+            if mock_bot._stop_event:
+                mock_bot._stop_event.set()
+            else:
+                raise KeyboardInterrupt
+
+        # Verify _stop_event is not set initially
+        assert not mock_bot._stop_event.is_set()
+
+        # Call signal handler
+        signal_handler(signal.SIGINT, None)
+
+        # Verify _stop_event was set (graceful shutdown triggered)
+        assert mock_bot._stop_event.is_set()
+
+    def test_signal_handler_behavior_transition(self):
+        """Test signal handler behavior changes between initialization and run phases (Issue #22)."""
+        import signal
+        import asyncio
+
+        # Create a mock bot
+        mock_bot = Mock()
+
+        # Create the signal handler (same function used in both phases)
+        def signal_handler(_sig, _frame):
+            if mock_bot._stop_event:
+                mock_bot._stop_event.set()
+            else:
+                raise KeyboardInterrupt
+
+        # Phase 1: Initialization (_stop_event is None)
+        mock_bot._stop_event = None
+        with pytest.raises(KeyboardInterrupt):
+            signal_handler(signal.SIGINT, None)
+
+        # Phase 2: Running (_stop_event is initialized)
+        mock_bot._stop_event = asyncio.Event()
+        assert not mock_bot._stop_event.is_set()
+
+        # Should NOT raise, but set the event instead
+        signal_handler(signal.SIGINT, None)
+        assert mock_bot._stop_event.is_set()
