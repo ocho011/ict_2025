@@ -504,11 +504,13 @@ class TradingEngine:
                     # MTF Strategy: Fetch and initialize each interval separately
                     self.logger.info(
                         f"[TradingEngine] Detected MultiTimeframeStrategy, "
-                        f"fetching intervals for {symbol}"
+                        f"fetching intervals: {strategy.intervals} for {symbol}"
                     )
 
                     initialized_count = 0
-                    for interval in self.data_collector.intervals:
+                    # Fix Issue #26: Use strategy.intervals instead of data_collector.intervals
+                    # This ensures we only fetch intervals the strategy actually needs
+                    for interval in strategy.intervals:
                         try:
                             # Fetch historical candles directly from API
                             candles = self.data_collector.get_historical_candles(
