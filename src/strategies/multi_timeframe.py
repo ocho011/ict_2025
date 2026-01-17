@@ -9,11 +9,14 @@ Medium Timeframe (MTF) structure detection, and Lower Timeframe (LTF) entry timi
 
 from abc import abstractmethod
 from collections import deque
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from src.models.candle import Candle
 from src.models.signal import Signal
 from src.strategies.base import BaseStrategy
+
+if TYPE_CHECKING:
+    from src.strategies.feature_cache import FeatureStateCache
 
 
 class MultiTimeframeStrategy(BaseStrategy):
@@ -153,6 +156,10 @@ class MultiTimeframeStrategy(BaseStrategy):
         # Track initialization status per interval
         self._initialized: Dict[str, bool] = {interval: False for interval in intervals}
 
+        # Feature cache for pre-computed features (Issue #19)
+        # Subclasses can initialize this for feature-aware analysis
+        self._feature_cache: Optional["FeatureStateCache"] = None
+
     def initialize_with_historical_data(self, interval: str, candles: List[Candle]) -> None:
         """
         Initialize specific interval buffer with historical data.
@@ -225,6 +232,17 @@ class MultiTimeframeStrategy(BaseStrategy):
 
         # Mark as initialized
         self._initialized[interval] = True
+
+        # Initialize feature cache for this interval if available (Issue #19)
+        if self._feature_cache is not None:
+            feature_counts = self._feature_cache.initialize_from_history(
+                interval, list(self.buffers[interval])
+            )
+            self.logger.info(
+                f"[{self.__class__.__name__}] {self.symbol} {interval} features initialized: "
+                f"OBs={feature_counts.get('order_blocks', 0)}, "
+                f"FVGs={feature_counts.get('fvgs', 0)}"
+            )
 
         self.logger.info(
             f"[{self.__class__.__name__}] {self.symbol} {interval} initialization complete: "
@@ -321,6 +339,12 @@ class MultiTimeframeStrategy(BaseStrategy):
         # Update the buffer for this interval
         self.update_buffer(candle.interval, candle)
 
+        # Update feature cache for this interval if available (Issue #19)
+        if self._feature_cache is not None and candle.interval in self.intervals:
+            self._feature_cache.update_on_new_candle(
+                candle.interval, candle, self.buffers[candle.interval]
+            )
+
         # Wait until all intervals have been initialized
         if not self.is_ready():
             return None
@@ -389,6 +413,36 @@ class MultiTimeframeStrategy(BaseStrategy):
             ```
         """
         return self.buffers.get(interval)
+
+    @property
+    def feature_cache(self) -> Optional["FeatureStateCache"]:
+        """
+        Get the feature cache instance.
+
+        Returns:
+            FeatureStateCache if initialized, None otherwise
+        """
+        return self._feature_cache
+
+    def set_feature_cache(self, cache: "FeatureStateCache") -> None:
+        """
+        Set the feature cache for pre-computed feature management.
+
+        Args:
+            cache: FeatureStateCache instance
+
+        Example:
+            ```python
+            from src.strategies.feature_cache import FeatureStateCache
+
+            cache = FeatureStateCache(config={'max_order_blocks': 20})
+            strategy.set_feature_cache(cache)
+            ```
+        """
+        self._feature_cache = cache
+        self.logger.info(
+            f"[{self.__class__.__name__}] Feature cache configured for {self.symbol}"
+        )
 
     def is_ready(self) -> bool:
         """

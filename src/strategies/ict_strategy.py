@@ -13,6 +13,9 @@ Comprehensive strategy implementing ICT concepts:
 from datetime import datetime, timezone
 from typing import Optional
 
+# Feature cache for pre-computed features (Issue #19)
+from src.strategies.feature_cache import FeatureStateCache
+
 # ICT Fair Value Gap
 from src.indicators.ict_fvg import (
     detect_bearish_fvg,
@@ -183,6 +186,23 @@ class ICTStrategy(MultiTimeframeStrategy):
             "signals_generated": 0,
         }
 
+        # Initialize feature cache for pre-computed features (Issue #19)
+        # This enables O(f+k) incremental updates vs O(n) full recalculation
+        use_feature_cache = config.get("use_feature_cache", True)
+        if use_feature_cache:
+            feature_cache_config = {
+                "max_order_blocks": config.get("max_order_blocks", 20),
+                "max_fvgs": config.get("max_fvgs", 15),
+                "displacement_ratio": self.displacement_ratio,
+                "fvg_min_gap_percent": self.fvg_min_gap_percent,
+                "feature_expiry_candles": config.get("feature_expiry_candles", 100),
+            }
+            cache = FeatureStateCache(config=feature_cache_config)
+            self.set_feature_cache(cache)
+            self.logger.info(
+                f"[{self.__class__.__name__}] Feature cache enabled for {self.symbol}"
+            )
+
     async def analyze_mtf(
         self, candle: Candle, buffers: dict
     ) -> Optional[Signal]:
@@ -224,8 +244,8 @@ class ICTStrategy(MultiTimeframeStrategy):
             )
             return None
 
-        # TODO: Implement proper MTF analysis using HTF/MTF/LTF buffers
-        # For now, use LTF buffer to maintain backward compatibility
+        # Use MTF buffer for structure detection when available
+        mtf_buffer = buffers.get(self.mtf_interval)
         candle_buffer = ltf_buffer
 
         if self.use_killzones:
@@ -234,9 +254,22 @@ class ICTStrategy(MultiTimeframeStrategy):
                 return None  # Outside optimal trading times
 
         # Step 2: Trend Analysis (Market Structure)
-        trend = get_current_trend(candle_buffer, swing_lookback=self.swing_lookback)
+        # Use feature cache for trend if available (Issue #19)
+        trend = None
+        if self._feature_cache is not None:
+            htf_structure = self._feature_cache.get_market_structure(self.htf_interval)
+            mtf_structure = self._feature_cache.get_market_structure(self.mtf_interval)
+            # Prefer HTF trend, fall back to MTF
+            if htf_structure:
+                trend = htf_structure.trend
+            elif mtf_structure:
+                trend = mtf_structure.trend
 
+        # Fallback to original calculation if cache unavailable
         if trend is None:
+            trend = get_current_trend(candle_buffer, swing_lookback=self.swing_lookback)
+
+        if trend is None or trend == "sideways":
             self.logger.debug(f"[{self.symbol}] No clear trend detected (swing_lookback={self.swing_lookback})")
             return None  # No clear trend
 
@@ -247,22 +280,38 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         current_price = candle.close
 
-        # Step 4: FVG/OB Detection
-        bullish_fvgs = detect_bullish_fvg(
-            candle_buffer, min_gap_percent=self.fvg_min_gap_percent
-        )
-        bearish_fvgs = detect_bearish_fvg(
-            candle_buffer, min_gap_percent=self.fvg_min_gap_percent
-        )
+        # Step 4: FVG/OB Detection - Use feature cache if available (Issue #19)
+        if self._feature_cache is not None:
+            # Use pre-computed features from cache (O(f) lookup)
+            mtf_interval = self.mtf_interval
+            bullish_fvgs_cached = self._feature_cache.get_active_fvgs(mtf_interval, "bullish")
+            bearish_fvgs_cached = self._feature_cache.get_active_fvgs(mtf_interval, "bearish")
+            bullish_obs_cached = self._feature_cache.get_active_order_blocks(mtf_interval, "bullish")
+            bearish_obs_cached = self._feature_cache.get_active_order_blocks(mtf_interval, "bearish")
 
-        bullish_obs, bearish_obs = (
-            identify_bullish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
-            identify_bearish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
-        )
+            # Convert cached features to legacy format for compatibility
+            # Note: Cached OBs already have strength filtering applied at detection
+            bullish_fvgs = bullish_fvgs_cached
+            bearish_fvgs = bearish_fvgs_cached
+            bullish_obs = [ob for ob in bullish_obs_cached if ob.strength >= self.ob_min_strength]
+            bearish_obs = [ob for ob in bearish_obs_cached if ob.strength >= self.ob_min_strength]
+        else:
+            # Fallback: Full recalculation (O(n) per call)
+            bullish_fvgs = detect_bullish_fvg(
+                candle_buffer, min_gap_percent=self.fvg_min_gap_percent
+            )
+            bearish_fvgs = detect_bearish_fvg(
+                candle_buffer, min_gap_percent=self.fvg_min_gap_percent
+            )
 
-        # Filter OBs by strength
-        bullish_obs = [ob for ob in bullish_obs if ob.strength >= self.ob_min_strength]
-        bearish_obs = [ob for ob in bearish_obs if ob.strength >= self.ob_min_strength]
+            bullish_obs, bearish_obs = (
+                identify_bullish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
+                identify_bearish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
+            )
+
+            # Filter OBs by strength
+            bullish_obs = [ob for ob in bullish_obs if ob.strength >= self.ob_min_strength]
+            bearish_obs = [ob for ob in bearish_obs if ob.strength >= self.ob_min_strength]
 
         # Step 5: Liquidity Analysis
         equal_highs = find_equal_highs(
@@ -283,9 +332,12 @@ class ICTStrategy(MultiTimeframeStrategy):
         )
 
         # Step 8: Entry Timing - Look for mitigation of FVG/OB
-        _mitigations = find_mitigation_zone(
-            candle_buffer, fvgs=bullish_fvgs + bearish_fvgs, obs=bullish_obs + bearish_obs
-        )
+        # Skip when using feature cache (cache handles status updates internally,
+        # and cached FVGs are immutable so find_mitigation_zone would fail)
+        if self._feature_cache is None:
+            _mitigations = find_mitigation_zone(
+                candle_buffer, fvgs=bullish_fvgs + bearish_fvgs, obs=bullish_obs + bearish_obs
+            )
 
         # Condition tracking for tuning analysis
         self.condition_stats["total_checks"] += 1
@@ -587,3 +639,19 @@ class ICTStrategy(MultiTimeframeStrategy):
         """Reset condition statistics to zero."""
         for key in self.condition_stats:
             self.condition_stats[key] = 0
+
+    def get_feature_cache_stats(self) -> dict:
+        """
+        Get statistics about pre-computed features (Issue #19).
+
+        Returns:
+            Dictionary with feature counts per interval,
+            or empty dict if feature cache not enabled.
+        """
+        if self._feature_cache is None:
+            return {}
+        return self._feature_cache.get_cache_stats()
+
+    def is_feature_cache_enabled(self) -> bool:
+        """Check if feature cache is enabled."""
+        return self._feature_cache is not None

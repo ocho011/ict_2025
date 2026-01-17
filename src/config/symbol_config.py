@@ -1,0 +1,377 @@
+"""
+Per-Symbol Strategy Configuration (Issue #18).
+
+This module provides hierarchical configuration support for per-symbol
+trading strategies, enabling different strategies and parameters per symbol.
+
+Key Features:
+- SymbolConfig: Per-symbol configuration with validation
+- TradingConfigHierarchical: Hierarchical config with inheritance
+- Support for multiple strategy types (ICT, Momentum, etc.)
+- YAML and INI format support
+
+Example YAML Configuration:
+```yaml
+trading:
+  defaults:
+    leverage: 1
+    max_risk_per_trade: 0.01
+    margin_type: ISOLATED
+
+  symbols:
+    BTCUSDT:
+      strategy: ict_strategy
+      leverage: 2
+      ict_config:
+        active_profile: strict
+
+    ETHUSDT:
+      strategy: momentum_strategy
+      leverage: 3
+```
+"""
+
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+
+from src.core.exceptions import ConfigurationError
+
+
+# Valid strategies for validation
+VALID_STRATEGIES = {"ict_strategy", "momentum_strategy", "mock_strategy", "always_signal"}
+
+# Valid margin types
+VALID_MARGIN_TYPES = {"ISOLATED", "CROSSED"}
+
+# Binance interval formats
+VALID_INTERVALS = {
+    "1m", "3m", "5m", "15m", "30m",
+    "1h", "2h", "4h", "6h", "8h", "12h",
+    "1d", "3d", "1w",
+}
+
+
+@dataclass
+class SymbolConfig:
+    """
+    Per-symbol configuration with validation.
+
+    Holds all configuration needed to instantiate and run a strategy
+    for a specific trading symbol.
+
+    Attributes:
+        symbol: Trading pair (e.g., 'BTCUSDT')
+        strategy: Strategy class name (e.g., 'ict_strategy')
+        enabled: Whether this symbol is active for trading
+        leverage: Position leverage (1-125)
+        max_risk_per_trade: Maximum risk per trade (0.001-0.1)
+        margin_type: 'ISOLATED' or 'CROSSED'
+        backfill_limit: Number of historical candles to load
+        intervals: List of intervals for MTF strategies
+        ict_config: ICT strategy specific configuration
+        momentum_config: Momentum strategy specific configuration
+    """
+
+    symbol: str
+    strategy: str
+    enabled: bool = True
+    leverage: int = 1
+    max_risk_per_trade: float = 0.01
+    margin_type: str = "ISOLATED"
+    backfill_limit: int = 200
+    intervals: List[str] = field(default_factory=lambda: ["5m", "1h", "4h"])
+
+    # Strategy-specific configurations
+    ict_config: Optional[Dict[str, Any]] = None
+    momentum_config: Optional[Dict[str, Any]] = None
+
+    def __post_init__(self):
+        """Validate configuration on creation."""
+        self._validate()
+
+    def _validate(self) -> None:
+        """Comprehensive validation of all fields."""
+        # Symbol validation
+        if not self.symbol or not isinstance(self.symbol, str):
+            raise ConfigurationError(f"Invalid symbol: {self.symbol}")
+        if not self.symbol.endswith("USDT"):
+            raise ConfigurationError(
+                f"Symbol must end with 'USDT': {self.symbol}"
+            )
+
+        # Strategy validation
+        if self.strategy not in VALID_STRATEGIES:
+            raise ConfigurationError(
+                f"Invalid strategy: {self.strategy}. "
+                f"Must be one of {sorted(VALID_STRATEGIES)}"
+            )
+
+        # Leverage validation (Binance limits)
+        if self.leverage < 1 or self.leverage > 125:
+            raise ConfigurationError(
+                f"Leverage must be 1-125, got {self.leverage}"
+            )
+
+        # Risk validation
+        if self.max_risk_per_trade <= 0 or self.max_risk_per_trade > 0.1:
+            raise ConfigurationError(
+                f"Max risk per trade must be 0-10%, got {self.max_risk_per_trade}"
+            )
+
+        # Margin type validation
+        if self.margin_type not in VALID_MARGIN_TYPES:
+            raise ConfigurationError(
+                f"Margin type must be 'ISOLATED' or 'CROSSED', got {self.margin_type}"
+            )
+
+        # Backfill limit validation
+        if self.backfill_limit < 0 or self.backfill_limit > 1000:
+            raise ConfigurationError(
+                f"Backfill limit must be 0-1000, got {self.backfill_limit}"
+            )
+
+        # Intervals validation
+        for interval in self.intervals:
+            if interval not in VALID_INTERVALS:
+                raise ConfigurationError(
+                    f"Invalid interval: {interval}. "
+                    f"Must be one of {sorted(VALID_INTERVALS)}"
+                )
+
+        # Strategy-specific config validation
+        if self.strategy == "ict_strategy" and self.ict_config is None:
+            # Use default ICT config
+            self.ict_config = {
+                "active_profile": "strict",
+                "ltf_interval": "5m",
+                "mtf_interval": "1h",
+                "htf_interval": "4h",
+                "use_killzones": True,
+            }
+
+    def get_strategy_config(self) -> Dict[str, Any]:
+        """
+        Get the strategy-specific configuration dict.
+
+        Returns:
+            Dictionary with strategy-specific parameters
+        """
+        if self.strategy == "ict_strategy":
+            return self.ict_config or {}
+        elif self.strategy == "momentum_strategy":
+            return self.momentum_config or {}
+        return {}
+
+    def to_trading_config_dict(self) -> Dict[str, Any]:
+        """
+        Convert to dictionary compatible with TradingConfig.
+
+        Returns:
+            Dictionary that can be used to construct TradingConfig
+        """
+        config_dict = {
+            "symbols": [self.symbol],
+            "intervals": self.intervals,
+            "strategy": self.strategy,
+            "leverage": self.leverage,
+            "max_risk_per_trade": self.max_risk_per_trade,
+            "margin_type": self.margin_type,
+            "backfill_limit": self.backfill_limit,
+        }
+
+        # Add strategy-specific config
+        strategy_config = self.get_strategy_config()
+        if strategy_config:
+            if self.strategy == "ict_strategy":
+                config_dict["ict_config"] = strategy_config
+            elif self.strategy == "momentum_strategy":
+                config_dict["momentum_config"] = strategy_config
+
+        return config_dict
+
+
+@dataclass
+class TradingConfigHierarchical:
+    """
+    Hierarchical trading configuration with per-symbol overrides.
+
+    Supports loading from YAML with inheritance:
+    - Global defaults apply to all symbols
+    - Symbol-specific settings override defaults
+
+    Attributes:
+        defaults: Global default settings
+        symbols: Dict of symbol -> SymbolConfig
+    """
+
+    defaults: Dict[str, Any] = field(default_factory=dict)
+    symbols: Dict[str, SymbolConfig] = field(default_factory=dict)
+
+    def get_symbol_config(self, symbol: str) -> SymbolConfig:
+        """
+        Get configuration for specific symbol with default fallback.
+
+        Resolution Order:
+        1. Symbol-specific config (if exists)
+        2. Create from defaults with symbol name
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+
+        Returns:
+            SymbolConfig for the requested symbol
+
+        Raises:
+            ConfigurationError: If symbol not configured
+        """
+        if symbol in self.symbols:
+            return self.symbols[symbol]
+
+        # Create from defaults if symbol is in defaults
+        if self.defaults:
+            merged = self.defaults.copy()
+            merged["symbol"] = symbol
+            if "strategy" not in merged:
+                merged["strategy"] = "ict_strategy"  # Default strategy
+            return SymbolConfig(**merged)
+
+        raise ConfigurationError(
+            f"Symbol '{symbol}' not configured and no defaults available"
+        )
+
+    def get_enabled_symbols(self) -> List[str]:
+        """
+        Get list of enabled trading symbols.
+
+        Returns:
+            List of symbol names that are enabled
+        """
+        return [
+            symbol for symbol, config in self.symbols.items()
+            if config.enabled
+        ]
+
+    def get_symbols_by_strategy(self, strategy: str) -> List[str]:
+        """
+        Get symbols using a specific strategy.
+
+        Args:
+            strategy: Strategy name to filter by
+
+        Returns:
+            List of symbol names using the strategy
+        """
+        return [
+            symbol for symbol, config in self.symbols.items()
+            if config.strategy == strategy and config.enabled
+        ]
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "TradingConfigHierarchical":
+        """
+        Create from dictionary (YAML parsed data).
+
+        Args:
+            data: Dictionary with 'defaults' and 'symbols' keys
+
+        Returns:
+            TradingConfigHierarchical instance
+        """
+        defaults = data.get("defaults", {})
+        symbols_data = data.get("symbols", {})
+
+        symbols = {}
+        for symbol, symbol_config in symbols_data.items():
+            # Merge with defaults
+            merged_config = defaults.copy()
+            merged_config.update(symbol_config)
+            merged_config["symbol"] = symbol
+
+            # Ensure strategy is set
+            if "strategy" not in merged_config:
+                merged_config["strategy"] = "ict_strategy"
+
+            symbols[symbol] = SymbolConfig(**merged_config)
+
+        return cls(defaults=defaults, symbols=symbols)
+
+    @classmethod
+    def from_ini_sections(
+        cls,
+        trading_section: Dict[str, str],
+        strategy_sections: Dict[str, Dict[str, str]],
+    ) -> "TradingConfigHierarchical":
+        """
+        Create from INI config sections.
+
+        Supports [strategy.SYMBOL] sections for per-symbol config.
+
+        Args:
+            trading_section: [trading] section data
+            strategy_sections: Dict of symbol -> strategy section data
+
+        Returns:
+            TradingConfigHierarchical instance
+        """
+        # Parse defaults from trading section
+        defaults = {
+            "leverage": int(trading_section.get("leverage", 1)),
+            "max_risk_per_trade": float(
+                trading_section.get("max_risk_per_trade", 0.01)
+            ),
+            "margin_type": trading_section.get("margin_type", "ISOLATED"),
+            "backfill_limit": int(trading_section.get("backfill_limit", 200)),
+            "strategy": trading_section.get("strategy", "ict_strategy"),
+        }
+
+        # Parse intervals from trading section
+        intervals_str = trading_section.get("intervals", "5m,1h,4h")
+        defaults["intervals"] = [i.strip() for i in intervals_str.split(",")]
+
+        # Parse symbol-specific configs
+        symbols = {}
+        for symbol, section_data in strategy_sections.items():
+            merged = defaults.copy()
+            merged["symbol"] = symbol
+
+            # Override with symbol-specific values
+            if "strategy" in section_data:
+                merged["strategy"] = section_data["strategy"]
+            if "leverage" in section_data:
+                merged["leverage"] = int(section_data["leverage"])
+            if "max_risk_per_trade" in section_data:
+                merged["max_risk_per_trade"] = float(section_data["max_risk_per_trade"])
+            if "margin_type" in section_data:
+                merged["margin_type"] = section_data["margin_type"]
+            if "enabled" in section_data:
+                merged["enabled"] = section_data["enabled"].lower() == "true"
+
+            # Parse ICT config
+            if merged.get("strategy") == "ict_strategy":
+                ict_config = {}
+                for key in ["active_profile", "ltf_interval", "mtf_interval", "htf_interval"]:
+                    if key in section_data:
+                        ict_config[key] = section_data[key]
+                if "use_killzones" in section_data:
+                    ict_config["use_killzones"] = section_data["use_killzones"].lower() == "true"
+                if ict_config:
+                    merged["ict_config"] = ict_config
+
+            symbols[symbol] = SymbolConfig(**merged)
+
+        return cls(defaults=defaults, symbols=symbols)
+
+    def to_legacy_trading_config_list(self) -> List[Dict[str, Any]]:
+        """
+        Convert to list of dictionaries compatible with legacy TradingConfig.
+
+        Useful for backward compatibility during migration.
+
+        Returns:
+            List of config dicts, one per symbol
+        """
+        return [
+            config.to_trading_config_dict()
+            for config in self.symbols.values()
+            if config.enabled
+        ]

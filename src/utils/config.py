@@ -1,5 +1,7 @@
 """
 Configuration management with INI files and environment overrides
+
+Supports both legacy INI format and new hierarchical YAML format (Issue #18).
 """
 
 import logging
@@ -7,9 +9,14 @@ import os
 from configparser import ConfigParser
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
+
+import yaml
 
 from src.core.exceptions import ConfigurationError
+
+if TYPE_CHECKING:
+    from src.config.symbol_config import TradingConfigHierarchical
 
 
 @dataclass
@@ -392,6 +399,7 @@ class ConfigManager:
         self._trading_config = None
         self._logging_config = None
         self._liquidation_config = None
+        self._hierarchical_config: Optional["TradingConfigHierarchical"] = None
 
         # Load configurations
         self._load_configs()
@@ -399,12 +407,17 @@ class ConfigManager:
     def _load_configs(self):
         """
         Load all configuration files using internal helper methods.
-        
-        Each loader utilizes ConfigParser to read INI files. After the '.read()' 
-        method is called, the instance acts as a structured data container that 
+
+        Each loader utilizes ConfigParser to read INI files. After the '.read()'
+        method is called, the instance acts as a structured data container that
         permits efficient keyed access and automatic type conversion (int, float, bool).
+
+        For trading configuration, YAML format is preferred (Issue #18):
+        - trading_config.yaml: New hierarchical per-symbol format
+        - trading_config.ini: Legacy flat format (fallback)
         """
         self._api_config = self._load_api_config()
+        self._hierarchical_config = self._load_hierarchical_config()
         self._trading_config = self._load_trading_config()
         self._logging_config = self._load_logging_config()
         self._liquidation_config = self._load_liquidation_config()
@@ -651,3 +664,56 @@ class ConfigManager:
     def liquidation_config(self) -> LiquidationConfig:
         """Get liquidation configuration"""
         return self._liquidation_config
+
+    def _load_hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
+        """
+        Load hierarchical per-symbol configuration from YAML file (Issue #18).
+
+        Supports the new trading_config.yaml format with per-symbol overrides.
+        Returns None if YAML file doesn't exist (falls back to INI format).
+
+        Returns:
+            TradingConfigHierarchical if YAML exists, None otherwise
+        """
+        yaml_file = self.config_dir / "trading_config.yaml"
+
+        if not yaml_file.exists():
+            return None
+
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+
+            if not data or "trading" not in data:
+                logging.getLogger(__name__).warning(
+                    f"YAML config {yaml_file} missing 'trading' section, using INI fallback"
+                )
+                return None
+
+            # Import here to avoid circular dependency
+            from src.config.symbol_config import TradingConfigHierarchical
+
+            trading_data = data["trading"]
+            return TradingConfigHierarchical.from_dict(trading_data)
+
+        except yaml.YAMLError as e:
+            logging.getLogger(__name__).error(f"Failed to parse YAML config: {e}")
+            return None
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Failed to load hierarchical config: {e}")
+            return None
+
+    @property
+    def hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
+        """
+        Get hierarchical per-symbol configuration (Issue #18).
+
+        Returns:
+            TradingConfigHierarchical if YAML config loaded, None otherwise
+        """
+        return self._hierarchical_config
+
+    @property
+    def has_hierarchical_config(self) -> bool:
+        """Check if hierarchical per-symbol configuration is available."""
+        return self._hierarchical_config is not None
