@@ -12,6 +12,7 @@ from collections import deque
 from typing import List, Optional
 
 from src.models.candle import Candle
+from src.models.position import Position
 from src.models.signal import Signal
 
 
@@ -455,6 +456,66 @@ class BaseStrategy(ABC):
             - Called for every candle, so performance matters
             - Signal model validates TP/SL logic in __post_init__()
         """
+
+    async def check_exit(self, candle: Candle, position: Position) -> Optional[Signal]:
+        """
+        Check if position should be exited based on strategy conditions.
+
+        This is an optional method that subclasses can override to implement
+        custom exit logic (trailing stops, time-based exits, etc.).
+
+        Called by TradingEngine when a position exists for the symbol.
+        If this returns an exit Signal, no entry analysis is performed.
+
+        Args:
+            candle: Latest closed candle to analyze
+            position: Current open position for this symbol
+
+        Returns:
+            Signal with CLOSE_LONG or CLOSE_SHORT if exit conditions met,
+            None otherwise (position stays open)
+
+        Default Implementation:
+            Returns None (no custom exit logic). Positions exit via TP/SL orders only.
+
+        Override Example:
+            ```python
+            async def check_exit(self, candle: Candle, position: Position) -> Optional[Signal]:
+                # Time-based exit: close after 4 hours
+                if position.entry_time and (datetime.now() - position.entry_time).hours >= 4:
+                    signal_type = SignalType.CLOSE_LONG if position.side == 'LONG' else SignalType.CLOSE_SHORT
+                    return Signal(
+                        signal_type=signal_type,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="time_exit_4h"
+                    )
+
+                # Trailing stop exit
+                if self._trailing_stop_hit(candle, position):
+                    signal_type = SignalType.CLOSE_LONG if position.side == 'LONG' else SignalType.CLOSE_SHORT
+                    return Signal(
+                        signal_type=signal_type,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="trailing_stop"
+                    )
+
+                return None  # No exit condition met
+            ```
+
+        Notes:
+            - Called BEFORE analyze() when position exists
+            - Exit signals bypass entry analysis entirely
+            - TP/SL are optional for exit signals (position is closing)
+            - exit_reason field helps track why position was exited
+            - TradingEngine uses reduce_only=True for exit orders
+        """
+        return None  # Default: no custom exit logic
 
     @abstractmethod
     def calculate_take_profit(self, entry_price: float, side: str) -> float:

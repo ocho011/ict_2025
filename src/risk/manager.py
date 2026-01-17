@@ -195,6 +195,11 @@ class RiskManager:
         # Import SignalType enum
         from src.models.signal import SignalType
 
+        # Handle EXIT signals: require existing position with matching side
+        if signal.signal_type in (SignalType.CLOSE_LONG, SignalType.CLOSE_SHORT):
+            return self._validate_exit_signal(signal, position)
+
+        # Handle ENTRY signals: require no existing position
         # Check for existing position conflict
         if position is not None:
             self.logger.warning(
@@ -351,6 +356,113 @@ class RiskManager:
                     "stop_loss": signal.stop_loss,
                 },
                 additional_data={"validation_passed": True},
+            )
+        except Exception as e:
+            self.logger.warning(f"Audit logging failed: {e}")
+
+        return True
+
+    def _validate_exit_signal(self, signal: Signal, position: Optional[Position]) -> bool:
+        """
+        Validate exit signal against current position.
+
+        Exit signals (CLOSE_LONG, CLOSE_SHORT) require:
+        1. An existing position must exist
+        2. Position side must match the signal type:
+           - CLOSE_LONG requires a LONG position
+           - CLOSE_SHORT requires a SHORT position
+
+        Args:
+            signal: Exit signal to validate
+            position: Current position (or None if no position)
+
+        Returns:
+            True if exit signal is valid, False otherwise
+        """
+        from src.models.signal import SignalType
+
+        # Exit signal requires an existing position
+        if position is None:
+            self.logger.warning(
+                f"Exit signal rejected: no position exists for {signal.symbol}"
+            )
+
+            # Audit log: exit rejection due to no position
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.RISK_REJECTION,
+                    operation="validate_exit_signal",
+                    symbol=signal.symbol,
+                    order_data={
+                        "signal_type": signal.signal_type.value,
+                        "entry_price": signal.entry_price,
+                        "exit_reason": signal.exit_reason,
+                    },
+                    error={"reason": "no_position_to_exit"},
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
+            return False
+
+        # Validate position side matches signal type
+        expected_side = "LONG" if signal.signal_type == SignalType.CLOSE_LONG else "SHORT"
+        if position.side != expected_side:
+            self.logger.warning(
+                f"Exit signal rejected: {signal.signal_type.value} requires {expected_side} position, "
+                f"but found {position.side} position for {signal.symbol}"
+            )
+
+            # Audit log: exit rejection due to side mismatch
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.RISK_REJECTION,
+                    operation="validate_exit_signal",
+                    symbol=signal.symbol,
+                    order_data={
+                        "signal_type": signal.signal_type.value,
+                        "entry_price": signal.entry_price,
+                        "exit_reason": signal.exit_reason,
+                    },
+                    error={
+                        "reason": "position_side_mismatch",
+                        "expected_side": expected_side,
+                        "actual_side": position.side,
+                    },
+                )
+            except Exception as e:
+                self.logger.warning(f"Audit logging failed: {e}")
+
+            return False
+
+        # Exit signal valid
+        self.logger.info(
+            f"Exit signal validated: {signal.signal_type.value} for {signal.symbol} "
+            f"(position: {position.side} @ {position.entry_price}, qty: {position.quantity})"
+        )
+
+        # Audit log: exit validation passed
+        try:
+            from src.core.audit_logger import AuditEventType
+
+            self.audit_logger.log_event(
+                event_type=AuditEventType.RISK_VALIDATION,
+                operation="validate_exit_signal",
+                symbol=signal.symbol,
+                order_data={
+                    "signal_type": signal.signal_type.value,
+                    "entry_price": signal.entry_price,
+                    "exit_reason": signal.exit_reason,
+                },
+                additional_data={
+                    "validation_passed": True,
+                    "position_side": position.side,
+                    "position_quantity": position.quantity,
+                },
             )
         except Exception as e:
             self.logger.warning(f"Audit logging failed: {e}")
