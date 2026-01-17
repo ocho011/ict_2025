@@ -12,6 +12,7 @@ from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from src.models.candle import Candle
+from src.models.position import Position
 from src.models.signal import Signal
 from src.strategies.base import BaseStrategy
 
@@ -394,6 +395,101 @@ class MultiTimeframeStrategy(BaseStrategy):
             - Access any interval buffer via buffers[interval]
             - Must call calculate_take_profit() and calculate_stop_loss()
         """
+
+    async def check_exit(self, candle: Candle, position: Position) -> Optional[Signal]:
+        """
+        Check if position should be exited (MTF version).
+
+        Wrapper that updates buffer and calls check_exit_mtf() with all buffers.
+        Called by TradingEngine when a position exists for the symbol.
+
+        Args:
+            candle: Latest closed candle
+            position: Current open position
+
+        Returns:
+            Exit signal if conditions met, None otherwise
+
+        Workflow:
+            1. Check candle is closed
+            2. Update correct interval buffer
+            3. Check if all intervals ready
+            4. Call check_exit_mtf() with all buffers and position
+            5. Return exit signal or None
+        """
+        # Only analyze closed candles
+        if not candle.is_closed:
+            return None
+
+        # Update the buffer for this interval
+        self.update_buffer(candle.interval, candle)
+
+        # Wait until all intervals have been initialized
+        if not self.is_ready():
+            return None
+
+        # Call subclass implementation with all buffers and position
+        return await self.check_exit_mtf(candle, self.buffers, position)
+
+    async def check_exit_mtf(
+        self, candle: Candle, buffers: Dict[str, deque], position: Position
+    ) -> Optional[Signal]:
+        """
+        Check exit conditions using multiple timeframes.
+
+        Subclasses can override to implement custom MTF exit logic
+        (trailing stops based on HTF structure, time-based exits, etc.).
+
+        Args:
+            candle: Latest candle that triggered analysis
+            buffers: All interval buffers {interval: deque}
+            position: Current open position
+
+        Returns:
+            Signal with CLOSE_LONG or CLOSE_SHORT if exit conditions met,
+            None otherwise
+
+        Default Implementation:
+            Returns None (no custom exit logic). Positions exit via TP/SL orders only.
+
+        Override Example:
+            ```python
+            async def check_exit_mtf(self, candle, buffers, position):
+                # Check if HTF trend reversed
+                htf_trend = self._analyze_trend(buffers[self.htf_interval])
+
+                # Exit LONG if trend turned bearish
+                if position.side == 'LONG' and htf_trend == 'bearish':
+                    return Signal(
+                        signal_type=SignalType.CLOSE_LONG,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="htf_trend_reversal"
+                    )
+
+                # Exit SHORT if trend turned bullish
+                if position.side == 'SHORT' and htf_trend == 'bullish':
+                    return Signal(
+                        signal_type=SignalType.CLOSE_SHORT,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="htf_trend_reversal"
+                    )
+
+                return None
+            ```
+
+        Notes:
+            - Called ONLY when all intervals are ready
+            - Access any interval buffer via buffers[interval]
+            - Position provides entry price, side, quantity for calculations
+            - Exit signals bypass entry analysis entirely
+        """
+        return None  # Default: no custom MTF exit logic
 
     def get_buffer(self, interval: str) -> Optional[deque]:
         """

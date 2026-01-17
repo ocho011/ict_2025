@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.main import TradingBot
+    from src.models.position import Position
 
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
@@ -162,6 +163,12 @@ class TradingEngine:
         # Event handling (Phase 2.2)
         self._event_drop_count = 0
         self._heartbeat_gap_logged = False
+
+        # Position cache for exit signal handling (Issue #25)
+        # Cache structure: {symbol: (position, timestamp)}
+        # TTL of 5 seconds to reduce API rate limit pressure
+        self._position_cache: dict[str, tuple[Optional["Position"], float]] = {}
+        self._position_cache_ttl: float = 5.0  # seconds
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
@@ -629,6 +636,55 @@ class TradingEngine:
         self.logger.info("  - SIGNAL_GENERATED → _on_signal_generated")
         self.logger.info("  - ORDER_FILLED → _on_order_filled")
 
+    def _get_cached_position(self, symbol: str) -> Optional["Position"]:
+        """
+        Get cached position for symbol, refreshing if TTL expired.
+
+        Uses cached position to reduce API rate limit pressure.
+        Cache TTL is 5 seconds by default.
+
+        Args:
+            symbol: Trading pair to get position for
+
+        Returns:
+            Position if exists and cache valid, None otherwise
+        """
+        import time
+
+        current_time = time.time()
+
+        # Check if cache exists and is still valid
+        if symbol in self._position_cache:
+            cached_position, cache_time = self._position_cache[symbol]
+            if current_time - cache_time < self._position_cache_ttl:
+                return cached_position
+
+        # Cache expired or missing - refresh from API
+        try:
+            position = self.order_manager.get_position(symbol)
+            self._position_cache[symbol] = (position, current_time)
+            return position
+        except Exception as e:
+            self.logger.error(f"Failed to refresh position cache for {symbol}: {e}")
+            # Return stale cache if available, otherwise None
+            if symbol in self._position_cache:
+                return self._position_cache[symbol][0]
+            return None
+
+    def _invalidate_position_cache(self, symbol: str) -> None:
+        """
+        Invalidate position cache for symbol.
+
+        Called after order execution to ensure fresh position data
+        is fetched on next check.
+
+        Args:
+            symbol: Trading pair to invalidate cache for
+        """
+        if symbol in self._position_cache:
+            del self._position_cache[symbol]
+            self.logger.debug(f"Position cache invalidated for {symbol}")
+
     async def _on_candle_closed(self, event: Event) -> None:
         """
         Handle closed candle event - run strategy analysis (Issue #7 Phase 3).
@@ -685,7 +741,68 @@ class TradingEngine:
             f"@ {candle.close} (vol: {candle.volume})"
         )
 
-        # Step 3: Call strategy.analyze() to generate signal
+        # Step 2.5: Check for existing position and exit conditions (Issue #25)
+        current_position = self._get_cached_position(candle.symbol)
+
+        if current_position is not None:
+            # Position exists - check exit conditions first
+            self.logger.debug(
+                f"Position exists for {candle.symbol}: {current_position.side} "
+                f"@ {current_position.entry_price}, checking exit conditions"
+            )
+
+            try:
+                exit_signal = await strategy.check_exit(candle, current_position)
+            except Exception as e:
+                self.logger.error(
+                    f"Strategy check_exit failed for {candle.symbol}: {e}",
+                    exc_info=True
+                )
+                exit_signal = None
+
+            if exit_signal is not None:
+                # Exit signal generated - publish and skip entry analysis
+                self.logger.info(
+                    f"Exit signal generated: {exit_signal.signal_type.value} "
+                    f"@ {exit_signal.entry_price} (reason: {exit_signal.exit_reason})"
+                )
+
+                # Audit log: exit signal generated
+                try:
+                    from src.core.audit_logger import AuditEventType
+
+                    self.audit_logger.log_event(
+                        event_type=AuditEventType.SIGNAL_PROCESSING,
+                        operation="exit_analysis",
+                        symbol=candle.symbol,
+                        additional_data={
+                            "interval": candle.interval,
+                            "close_price": candle.close,
+                            "signal_generated": True,
+                            "signal_type": exit_signal.signal_type.value,
+                            "exit_price": exit_signal.entry_price,
+                            "exit_reason": exit_signal.exit_reason,
+                            "position_side": current_position.side,
+                            "position_quantity": current_position.quantity,
+                            "strategy_name": exit_signal.strategy_name,
+                        },
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Audit logging failed: {e}")
+
+                # Publish exit signal
+                signal_event = Event(EventType.SIGNAL_GENERATED, exit_signal)
+                await self.event_bus.publish(signal_event, queue_type=QueueType.SIGNAL)
+                return  # Skip entry analysis
+
+            # No exit signal - position still open, skip entry analysis
+            self.logger.debug(
+                f"No exit signal for {candle.symbol}, position still open - "
+                f"skipping entry analysis"
+            )
+            return
+
+        # Step 3: No position - Call strategy.analyze() to generate entry signal
         try:
             signal = await strategy.analyze(candle)
         except Exception as e:
@@ -696,7 +813,7 @@ class TradingEngine:
         # Step 4: If signal exists, publish SIGNAL_GENERATED event
         if signal is not None:
             self.logger.info(
-                f"Signal generated: {signal.signal_type.value} "
+                f"Entry signal generated: {signal.signal_type.value} "
                 f"@ {signal.entry_price} (TP: {signal.take_profit}, "
                 f"SL: {signal.stop_loss})"
             )
@@ -738,8 +855,8 @@ class TradingEngine:
 
         This is the critical trading logic that:
         1. Validates signal with RiskManager
-        2. Calculates position size
-        3. Executes market order with TP/SL
+        2. For entry signals: Calculates position size and executes with TP/SL
+        3. For exit signals: Uses position quantity and executes with reduce_only
 
         Args:
             event: Event containing Signal data
@@ -750,7 +867,7 @@ class TradingEngine:
         self.logger.info(f"Processing signal: {signal.signal_type.value} for {signal.symbol}")
 
         try:
-            # Step 2: Get current position from OrderManager
+            # Step 2: Get current position from OrderManager (fresh query for execution)
             current_position = self.order_manager.get_position(signal.symbol)
 
             # Step 3: Validate signal with RiskManager
@@ -780,7 +897,14 @@ class TradingEngine:
 
                 return
 
-            # Step 4: Get account balance
+            # Step 4: Handle exit vs entry signals differently (Issue #25)
+            if signal.is_exit_signal:
+                # Exit signal: use position quantity and reduce_only
+                await self._execute_exit_signal(signal, current_position)
+                return
+
+            # Entry signal: calculate position size and execute with TP/SL
+            # Step 5: Get account balance
             account_balance = self.order_manager.get_account_balance()
 
             if account_balance <= 0:
@@ -789,7 +913,7 @@ class TradingEngine:
                 )
                 return
 
-            # Step 5: Calculate position size using RiskManager
+            # Step 6: Calculate position size using RiskManager
             quantity = self.risk_manager.calculate_position_size(
                 account_balance=account_balance,
                 entry_price=signal.entry_price,
@@ -798,11 +922,14 @@ class TradingEngine:
                 symbol_info=None,  # OrderManager will handle rounding internally
             )
 
-            # Step 6: Execute signal via OrderManager
+            # Step 7: Execute signal via OrderManager
             # Returns (entry_order, [tp_order, sl_order])
             entry_order, tpsl_orders = self.order_manager.execute_signal(
                 signal=signal, quantity=quantity
             )
+
+            # Invalidate position cache after order execution
+            self._invalidate_position_cache(signal.symbol)
 
             # Step 7: Log successful trade execution
             self.logger.info(
@@ -860,6 +987,136 @@ class TradingEngine:
                 pass  # Exception context already logged
 
             # Don't re-raise - system should continue running
+
+    async def _execute_exit_signal(self, signal: Signal, position: "Position") -> None:
+        """
+        Execute an exit signal to close a position.
+
+        Uses position quantity and executes with reduce_only to prevent
+        accidentally opening a new position in the opposite direction.
+
+        Args:
+            signal: Exit signal (CLOSE_LONG or CLOSE_SHORT)
+            position: Current position to close
+
+        Process:
+            1. Cancel any existing TP/SL orders
+            2. Execute market order with reduce_only=True
+            3. Invalidate position cache
+            4. Log execution and audit trail
+        """
+        from src.models.signal import SignalType
+
+        try:
+            self.logger.info(
+                f"Executing exit signal: {signal.signal_type.value} for {signal.symbol} "
+                f"(qty: {position.quantity}, reason: {signal.exit_reason})"
+            )
+
+            # Step 1: Cancel any existing TP/SL orders first
+            try:
+                cancelled_count = self.order_manager.cancel_all_orders(signal.symbol)
+                if cancelled_count > 0:
+                    self.logger.info(
+                        f"Cancelled {cancelled_count} existing orders before exit"
+                    )
+            except Exception as e:
+                self.logger.warning(f"Failed to cancel existing orders: {e}")
+
+            # Step 2: Execute close order using position quantity
+            # Determine side based on signal type (SELL to close LONG, BUY to close SHORT)
+            close_side = "SELL" if signal.signal_type == SignalType.CLOSE_LONG else "BUY"
+
+            # Execute close order with reduce_only via async method
+            result = await self.order_manager.execute_market_close(
+                symbol=signal.symbol,
+                position_amt=position.quantity,
+                side=close_side,
+                reduce_only=True,
+            )
+
+            # Step 3: Invalidate position cache
+            self._invalidate_position_cache(signal.symbol)
+
+            # Step 4: Check result and log
+            if result.get("success"):
+                order_id = result.get("order_id")
+                self.logger.info(
+                    f"✅ Position closed successfully: "
+                    f"Order ID={order_id}, "
+                    f"Quantity={position.quantity}, "
+                    f"Exit reason={signal.exit_reason}"
+                )
+
+                # Audit log: exit trade executed
+                try:
+                    from src.core.audit_logger import AuditEventType
+
+                    self.audit_logger.log_event(
+                        event_type=AuditEventType.TRADE_EXECUTED,
+                        operation="execute_exit",
+                        symbol=signal.symbol,
+                        order_data={
+                            "signal_type": signal.signal_type.value,
+                            "exit_price": signal.entry_price,
+                            "exit_reason": signal.exit_reason,
+                            "quantity": position.quantity,
+                            "position_side": position.side,
+                            "position_entry": position.entry_price,
+                        },
+                        response={
+                            "close_order_id": order_id,
+                        },
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Audit logging failed: {e}")
+            else:
+                error_msg = result.get("error", "Unknown error")
+                self.logger.error(
+                    f"Failed to close position for {signal.symbol}: {error_msg}"
+                )
+
+                # Audit log: exit execution failed
+                try:
+                    from src.core.audit_logger import AuditEventType
+
+                    self.audit_logger.log_event(
+                        event_type=AuditEventType.TRADE_EXECUTION_FAILED,
+                        operation="execute_exit",
+                        symbol=signal.symbol,
+                        order_data={
+                            "signal_type": signal.signal_type.value,
+                            "exit_price": signal.entry_price,
+                            "exit_reason": signal.exit_reason,
+                        },
+                        error={"reason": error_msg},
+                    )
+                except Exception:
+                    pass
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to execute exit signal for {signal.symbol}: {e}",
+                exc_info=True
+            )
+
+            # Audit log: exit execution failed
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.TRADE_EXECUTION_FAILED,
+                    operation="execute_exit",
+                    symbol=signal.symbol,
+                    order_data={
+                        "signal_type": signal.signal_type.value,
+                        "exit_price": signal.entry_price,
+                        "exit_reason": signal.exit_reason,
+                    },
+                    error={"error_type": type(e).__name__, "error_message": str(e)},
+                )
+            except Exception:
+                pass
 
     async def _on_order_filled(self, event: Event) -> None:
         """
