@@ -147,7 +147,7 @@ class TradingBot:
 
         # Step 4: Log startup banner with environment info
         self.logger.info("=" * 50)
-        self.logger.info("ICT Trading Bot Starting (Issue #5 Refactored)...")
+        self.logger.info("ICT Trading Bot Starting ...")
         self.logger.info(f"Environment: {'TESTNET' if api_config.is_testnet else 'MAINNET'}")
         self.logger.info(f"Symbols: {', '.join(trading_config.symbols)}")
         self.logger.info(f"Intervals: {', '.join(trading_config.intervals)}")

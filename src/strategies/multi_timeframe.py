@@ -5,6 +5,12 @@ This module provides the MultiTimeframeStrategy base class that extends
 BaseStrategy to support analysis across multiple timeframes simultaneously.
 Enables strategies like ICT that require Higher Timeframe (HTF) trend analysis,
 Medium Timeframe (MTF) structure detection, and Lower Timeframe (LTF) entry timing.
+
+Issue #27: Simplified to leverage unified buffer structure from BaseStrategy.
+MultiTimeframeStrategy now primarily adds:
+- analyze_mtf() abstract method for multi-timeframe analysis
+- check_exit_mtf() for multi-timeframe exit logic
+- Feature cache support for pre-computed features
 """
 
 from abc import abstractmethod
@@ -24,15 +30,19 @@ class MultiTimeframeStrategy(BaseStrategy):
     """
     Base class for multi-timeframe trading strategies.
 
-    Extends BaseStrategy to support multiple interval buffers, enabling
-    top-down analysis from higher timeframes to lower timeframes.
+    Extends BaseStrategy to support analysis across multiple timeframes.
+    Issue #27: Now uses unified buffer structure from BaseStrategy.
 
-    Key Features:
-    - Separate candle buffers for each timeframe (e.g., 5m, 1h, 4h)
+    Key Features (inherited from BaseStrategy Issue #27):
+    - Separate candle buffers for each timeframe via self.buffers Dict
     - Per-interval historical data initialization
-    - Automatic buffer updates routed by interval
-    - analyze_mtf() method receives all interval buffers
+    - Automatic buffer updates routed by candle.interval
     - is_ready() validation ensures all intervals initialized
+
+    Additional MTF Features:
+    - analyze_mtf() method receives all interval buffers
+    - check_exit_mtf() for multi-timeframe exit logic
+    - Feature cache support for pre-computed features (Issue #19)
 
     Typical Usage (ICT Strategy):
     - HTF (4h): Identify market trend (bullish/bearish/sideways)
@@ -78,7 +88,7 @@ class MultiTimeframeStrategy(BaseStrategy):
 
     Integration with TradingEngine:
         ```python
-        # TradingEngine routes candles by interval
+        # TradingEngine routes candles by interval (unified interface)
         engine = TradingEngine(config)
         strategy = ICTStrategy('BTCUSDT', {
             'htf_interval': '4h',
@@ -89,8 +99,8 @@ class MultiTimeframeStrategy(BaseStrategy):
         engine.set_strategy(strategy)
 
         # Historical data initialized per-interval
-        # Real-time candles routed to correct buffers
-        # analyze_mtf() called on LTF interval close
+        # Real-time candles routed to correct buffers via update_buffer(candle)
+        # analyze_mtf() called on candle close
         ```
     """
 
@@ -103,12 +113,15 @@ class MultiTimeframeStrategy(BaseStrategy):
             intervals: List of intervals to analyze (e.g., ['5m', '1h', '4h'])
             config: Strategy configuration with buffer_size and strategy params
 
-        Attributes:
+        Attributes (inherited from BaseStrategy):
             intervals: List of intervals this strategy monitors
             buffers: Dict[interval, deque] - one buffer per interval
             _initialized: Dict[interval, bool] - initialization status per interval
 
-        Buffer Structure:
+        Additional Attributes:
+            _feature_cache: Optional FeatureStateCache for pre-computed features
+
+        Buffer Structure (inherited from BaseStrategy Issue #27):
             ```python
             {
                 '5m': deque([Candle, ...], maxlen=200),
@@ -116,12 +129,6 @@ class MultiTimeframeStrategy(BaseStrategy):
                 '4h': deque([Candle, ...], maxlen=200)
             }
             ```
-
-        Initialization Flow:
-            1. Call super().__init__() to set up BaseStrategy
-            2. Store intervals list
-            3. Create empty deque for each interval
-            4. Mark all intervals as uninitialized
 
         Example:
             ```python
@@ -138,164 +145,70 @@ class MultiTimeframeStrategy(BaseStrategy):
             ```
 
         Notes:
-            - BaseStrategy's single buffer (self.candle_buffer) is NOT used
-            - All candles stored in self.buffers instead
+            - Uses unified buffer structure from BaseStrategy (Issue #27)
             - Each interval has independent FIFO management
             - Buffer size applies to ALL intervals
         """
-        # Initialize BaseStrategy (sets symbol, config, buffer_size, logger)
-        super().__init__(symbol, config)
-
-        # Store intervals for this multi-timeframe strategy
-        self.intervals: List[str] = intervals
-
-        # Create separate buffer for each interval
-        self.buffers: Dict[str, deque] = {
-            interval: deque(maxlen=self.buffer_size) for interval in intervals
-        }
-
-        # Track initialization status per interval
-        self._initialized: Dict[str, bool] = {interval: False for interval in intervals}
+        # Initialize BaseStrategy with intervals (Issue #27 unified structure)
+        super().__init__(symbol, config, intervals=intervals)
 
         # Feature cache for pre-computed features (Issue #19)
         # Subclasses can initialize this for feature-aware analysis
         self._feature_cache: Optional["FeatureStateCache"] = None
 
-    def initialize_with_historical_data(self, interval: str, candles: List[Candle]) -> None:
+    def initialize_with_historical_data(
+        self, candles: List[Candle], interval: Optional[str] = None
+    ) -> None:
         """
         Initialize specific interval buffer with historical data.
 
-        Called once per interval during system startup after backfill.
-        Populates the interval's buffer with historical candles.
+        Issue #27: Unified signature with BaseStrategy (candles, interval=None).
+        The interval parameter is required for MTF strategies.
 
         Args:
-            interval: Interval to initialize (e.g., '1h')
             candles: Historical candles for this interval (chronological order)
-
-        Behavior:
-            1. Validates interval is registered
-            2. Clears existing buffer for this interval
-            3. Adds most recent buffer_size candles
-            4. Marks interval as initialized
-            5. Logs initialization progress
+            interval: Interval to initialize (e.g., '1h'). Required for MTF.
 
         Example:
             ```python
             # Called by TradingEngine for each interval
-            historical_1h = data_collector.get_candle_buffer('BTCUSDT_1h')
-            strategy.initialize_with_historical_data('1h', historical_1h)
-
-            historical_5m = data_collector.get_candle_buffer('BTCUSDT_5m')
-            strategy.initialize_with_historical_data('5m', historical_5m)
-
-            # strategy.buffers['1h'] now has up to 200 candles
-            # strategy.buffers['5m'] now has up to 200 candles
-            # strategy._initialized = {'5m': True, '1h': True, '4h': False}
+            strategy.initialize_with_historical_data(historical_1h, interval='1h')
+            strategy.initialize_with_historical_data(historical_5m, interval='5m')
             ```
 
-        Error Handling:
-            - Warns if interval not registered
-            - Warns if no candles provided
-            - Continues even on warnings
-
         Notes:
-            - Can be called multiple times (re-initialization)
-            - Only most recent buffer_size candles kept
-            - Does NOT call analyze() or generate signals
-            - Thread-safe (called before async event loop)
+            - Delegates to BaseStrategy.initialize_with_historical_data()
+            - Adds feature cache initialization (Issue #19)
         """
-        if interval not in self.intervals:
+        # Determine interval from parameter or first candle
+        target_interval = interval
+        if target_interval is None and candles:
+            target_interval = candles[0].interval if hasattr(candles[0], 'interval') else None
+
+        if target_interval is None:
             self.logger.warning(
-                f"[{self.__class__.__name__}] Interval '{interval}' not registered "
-                f"for {self.symbol}. Registered: {self.intervals}"
+                f"[{self.__class__.__name__}] No interval specified for {self.symbol}. "
+                f"Using first registered interval: {self.intervals[0] if self.intervals else 'unknown'}"
             )
-            return
+            target_interval = self.intervals[0] if self.intervals else "1m"
 
-        if not candles:
-            self.logger.warning(
-                f"[{self.__class__.__name__}] No historical candles provided "
-                f"for {self.symbol} {interval}"
-            )
-            self._initialized[interval] = True
-            return
-
-        self.logger.info(
-            f"[{self.__class__.__name__}] Initializing {self.symbol} {interval} "
-            f"buffer with {len(candles)} historical candles"
-        )
-
-        # Clear existing buffer
-        self.buffers[interval].clear()
-
-        # Add candles respecting maxlen (keeps most recent)
-        for candle in candles[-self.buffer_size :]:
-            self.buffers[interval].append(candle)
-
-        # Mark as initialized
-        self._initialized[interval] = True
+        # Call parent implementation with explicit interval
+        super().initialize_with_historical_data(candles, interval=target_interval)
 
         # Initialize feature cache for this interval if available (Issue #19)
-        if self._feature_cache is not None:
+        if (
+            self._feature_cache is not None
+            and target_interval in self.buffers
+            and self.buffers[target_interval]
+        ):
             feature_counts = self._feature_cache.initialize_from_history(
-                interval, list(self.buffers[interval])
+                target_interval, list(self.buffers[target_interval])
             )
             self.logger.info(
-                f"[{self.__class__.__name__}] {self.symbol} {interval} features initialized: "
+                f"[{self.__class__.__name__}] {self.symbol} {target_interval} features initialized: "
                 f"OBs={feature_counts.get('order_blocks', 0)}, "
                 f"FVGs={feature_counts.get('fvgs', 0)}"
             )
-
-        self.logger.info(
-            f"[{self.__class__.__name__}] {self.symbol} {interval} initialization complete: "
-            f"{len(self.buffers[interval])} candles in buffer"
-        )
-
-    def update_buffer(self, interval: str, candle: Candle) -> None:
-        """
-        Add candle to specific interval buffer with FIFO management.
-
-        Routes incoming candles to the correct interval buffer.
-        Automatic eviction when buffer reaches maxlen.
-
-        Args:
-            interval: Interval of the candle (e.g., '5m')
-            candle: New candle to add
-
-        Behavior:
-            - Validates interval is registered
-            - Appends candle to interval's buffer
-            - Deque automatically removes oldest if full
-
-        Example:
-            ```python
-            # In TradingEngine event handler
-            async def _on_candle_closed(self, event: Event):
-                candle = event.data
-
-                # Route to correct buffer
-                if isinstance(strategy, MultiTimeframeStrategy):
-                    strategy.update_buffer(candle.interval, candle)
-                else:
-                    strategy.update_buffer(candle)  # Single-interval
-            ```
-
-        Performance:
-            - Time Complexity: O(1)
-            - Space Complexity: O(buffer_size) per interval
-
-        Notes:
-            - No validation of chronological order
-            - Assumes candles arrive in order
-            - Silent if interval not registered
-        """
-        if interval not in self.intervals:
-            self.logger.warning(
-                f"[{self.__class__.__name__}] Attempted to update unknown interval '{interval}' "
-                f"for {self.symbol}. Registered: {self.intervals}"
-            )
-            return
-
-        self.buffers[interval].append(candle)
 
     async def analyze(self, candle: Candle) -> Optional[Signal]:
         """
@@ -312,10 +225,11 @@ class MultiTimeframeStrategy(BaseStrategy):
 
         Workflow:
             1. Check candle is closed
-            2. Update correct interval buffer
-            3. Check if all intervals ready
-            4. Call analyze_mtf() with all buffers
-            5. Return signal or None
+            2. Update correct interval buffer (via BaseStrategy.update_buffer)
+            3. Update feature cache if available
+            4. Check if all intervals ready
+            5. Call analyze_mtf() with all buffers
+            6. Return signal or None
 
         Example:
             ```python
@@ -323,7 +237,7 @@ class MultiTimeframeStrategy(BaseStrategy):
             signal = await strategy.analyze(candle_5m)
 
             # Internally:
-            # 1. Updates buffers['5m']
+            # 1. Updates buffers['5m'] via update_buffer(candle)
             # 2. Checks is_ready()
             # 3. Calls analyze_mtf(candle_5m, all_buffers)
             ```
@@ -337,8 +251,8 @@ class MultiTimeframeStrategy(BaseStrategy):
         if not candle.is_closed:
             return None
 
-        # Update the buffer for this interval
-        self.update_buffer(candle.interval, candle)
+        # Update the buffer for this interval (uses BaseStrategy.update_buffer)
+        self.update_buffer(candle)
 
         # Update feature cache for this interval if available (Issue #19)
         if self._feature_cache is not None and candle.interval in self.intervals:
@@ -421,8 +335,8 @@ class MultiTimeframeStrategy(BaseStrategy):
         if not candle.is_closed:
             return None
 
-        # Update the buffer for this interval
-        self.update_buffer(candle.interval, candle)
+        # Update the buffer for this interval (uses BaseStrategy.update_buffer)
+        self.update_buffer(candle)
 
         # Wait until all intervals have been initialized
         if not self.is_ready():

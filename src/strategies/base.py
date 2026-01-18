@@ -4,12 +4,16 @@ Abstract base class for trading strategies.
 This module defines the strategy interface contract that all trading strategies
 must implement. It provides common functionality for candle buffer management
 and defines abstract methods for signal generation and risk calculations.
+
+Issue #27: Unified buffer structure using Dict[str, deque] for both single
+and multi-timeframe strategies.
 """
 
 import logging
+import warnings
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from src.models.candle import Candle
 from src.models.position import Position
@@ -21,7 +25,7 @@ class BaseStrategy(ABC):
     Abstract base class for all trading strategies.
 
     Provides:
-    - Candle buffer management for historical data access
+    - Unified buffer management via buffers Dict[str, deque] (Issue #27)
     - Standard interface for signal generation
     - Configuration management
     - Type safety through full type hints
@@ -30,6 +34,14 @@ class BaseStrategy(ABC):
     - analyze(): Main strategy logic for signal generation
     - calculate_take_profit(): TP price calculation
     - calculate_stop_loss(): SL price calculation
+
+    Buffer Structure (Issue #27):
+        All strategies use self.buffers: Dict[str, deque] where:
+        - Key = interval string (e.g., '5m', '1h', '4h')
+        - Value = deque of Candle objects with maxlen=buffer_size
+
+        Single-timeframe strategies: buffers contains one interval
+        Multi-timeframe strategies: buffers contains multiple intervals
 
     Example:
         ```python
@@ -44,7 +56,9 @@ class BaseStrategy(ABC):
 
                 self.update_buffer(candle)
 
-                if len(self.candle_buffer) < self.my_param:
+                # Access buffer via interval key
+                buffer = self.buffers.get(candle.interval)
+                if not buffer or len(buffer) < self.my_param:
                     return None
 
                 # ... strategy logic ...
@@ -82,7 +96,9 @@ class BaseStrategy(ABC):
         ```
     """
 
-    def __init__(self, symbol: str, config: dict) -> None:
+    def __init__(
+        self, symbol: str, config: dict, intervals: Optional[List[str]] = None
+    ) -> None:
         """
         Initialize strategy with symbol and configuration.
 
@@ -90,30 +106,38 @@ class BaseStrategy(ABC):
             symbol: Trading pair (e.g., 'BTCUSDT', 'ETHUSDT')
             config: Strategy configuration dictionary with:
                 - buffer_size (int, optional): Max candles to store (default: 100)
+                - default_interval (str, optional): Default interval for single-TF (default: '1m')
                 - Additional strategy-specific parameters
+            intervals: List of intervals to track (e.g., ['5m', '1h', '4h']).
+                       If None, uses config['default_interval'] or '1m'.
 
         Attributes:
             symbol: Trading pair this strategy analyzes
             config: Configuration dictionary for strategy parameters
-            candle_buffer: Deque of historical candles (FIFO order with automatic eviction)
-            buffer_size: Maximum number of candles to keep in buffer
+            intervals: List of intervals this strategy tracks
+            buffers: Dict[str, deque] - one buffer per interval (Issue #27)
+            buffer_size: Maximum number of candles to keep per buffer
 
-        Buffer Management:
-            - Buffer stores candles in chronological order (oldest → newest)
-            - When buffer exceeds buffer_size, oldest candle is automatically removed (FIFO)
-            - Buffer persists across analyze() calls for indicator calculations
+        Buffer Management (Issue #27):
+            - Unified buffers Dict replaces old candle_buffer
+            - Each interval has its own deque with maxlen=buffer_size
+            - Buffers store candles in chronological order (oldest → newest)
+            - When buffer exceeds buffer_size, oldest candle is auto-removed (FIFO)
             - Uses collections.deque with maxlen for O(1) append/evict operations
 
         Example:
             ```python
-            config = {
-                'buffer_size': 200,  # Custom buffer size
-                'fast_period': 10,   # Strategy-specific param
-                'slow_period': 20    # Strategy-specific param
-            }
+            # Single-timeframe strategy (intervals auto-detected from config)
+            config = {'buffer_size': 200, 'default_interval': '5m'}
             strategy = MyStrategy('BTCUSDT', config)
-            # strategy.buffer_size = 200
-            # strategy.symbol = 'BTCUSDT'
+            # strategy.intervals = ['5m']
+            # strategy.buffers = {'5m': deque(maxlen=200)}
+
+            # Multi-timeframe strategy (intervals explicitly provided)
+            config = {'buffer_size': 200}
+            strategy = MTFStrategy('BTCUSDT', config, intervals=['5m', '1h', '4h'])
+            # strategy.intervals = ['5m', '1h', '4h']
+            # strategy.buffers = {'5m': deque(), '1h': deque(), '4h': deque()}
             ```
 
         Notes:
@@ -125,11 +149,52 @@ class BaseStrategy(ABC):
         self.symbol: str = symbol
         self.config: dict = config
         self.buffer_size: int = config.get("buffer_size", 100)
-        self.candle_buffer: deque = deque(maxlen=self.buffer_size)
-        self._initialized: bool = False  # Track historical data initialization
+
+        # Issue #27: Unified buffer structure
+        # Determine intervals from parameter or config
+        if intervals is not None:
+            self.intervals: List[str] = intervals
+        else:
+            # Single-timeframe: use default_interval from config
+            default_interval = config.get("default_interval", "1m")
+            self.intervals = [default_interval]
+
+        # Create buffers dict with one deque per interval
+        self.buffers: Dict[str, deque] = {
+            interval: deque(maxlen=self.buffer_size) for interval in self.intervals
+        }
+
+        # Track initialization status per interval
+        self._initialized: Dict[str, bool] = {
+            interval: False for interval in self.intervals
+        }
+
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def initialize_with_historical_data(self, candles: List[Candle]) -> None:
+    @property
+    def candle_buffer(self) -> deque:
+        """
+        DEPRECATED: Use self.buffers[interval] instead.
+
+        Returns the first buffer for backward compatibility.
+        This property exists only for legacy code support and will be removed
+        in a future version.
+
+        Returns:
+            First buffer in self.buffers (for single-timeframe strategies)
+
+        Warning:
+            This property is deprecated. Access buffers via:
+            - self.buffers[interval] for specific interval
+            - list(self.buffers.values())[0] for first buffer
+        """
+        if self.buffers:
+            return list(self.buffers.values())[0]
+        return deque(maxlen=self.buffer_size)
+
+    def initialize_with_historical_data(
+        self, candles: List[Candle], interval: Optional[str] = None
+    ) -> None:
         """
         Initialize strategy buffer with historical candle data.
 
@@ -142,12 +207,15 @@ class BaseStrategy(ABC):
 
         Args:
             candles: List of historical candles in chronological order (oldest first)
+            interval: Target interval to initialize. If None, auto-detects from
+                     candles[0].interval or uses first registered interval.
 
         Behavior:
-            1. Clears existing buffer
-            2. Adds most recent buffer_size candles (if more provided)
-            3. Sets self._initialized = True to mark strategy as warmed up
-            4. Logs initialization progress
+            1. Determines target interval (from parameter, candles, or default)
+            2. Clears existing buffer for that interval
+            3. Adds most recent buffer_size candles (if more provided)
+            4. Marks interval as initialized
+            5. Logs initialization progress
 
         Buffer Management:
             - If len(candles) <= buffer_size: All candles added
@@ -157,22 +225,20 @@ class BaseStrategy(ABC):
 
         Example:
             >>> # After backfill, TradingEngine calls this for each strategy
-            >>> historical_candles = data_collector.get_candle_buffer('BTCUSDT', '1m')
-            >>> strategy.initialize_with_historical_data(historical_candles)
-            >>> # strategy.candle_buffer now contains up to buffer_size candles
-            >>> # strategy._initialized = True
+            >>> historical_candles = data_collector.get_candle_buffer('BTCUSDT', '5m')
+            >>> strategy.initialize_with_historical_data(historical_candles, '5m')
+            >>> # strategy.buffers['5m'] now contains up to buffer_size candles
+            >>> # strategy._initialized['5m'] = True
             >>> # Strategy ready for real-time analysis
 
         Usage Pattern:
             ```python
-            # In TradingBot.initialize() after backfill completes:
-            if backfill_success:
-                for symbol in symbols:
-                    historical_candles = data_collector.get_candle_buffer(symbol, interval)
-                    strategy.initialize_with_historical_data(historical_candles)
+            # Single-timeframe strategy
+            strategy.initialize_with_historical_data(candles)  # Uses first interval
 
-            # Now when first real-time candle arrives:
-            await strategy.analyze(candle)  # Buffer already has historical context
+            # Multi-timeframe strategy
+            strategy.initialize_with_historical_data(candles_5m, '5m')
+            strategy.initialize_with_historical_data(candles_1h, '1h')
             ```
 
         Notes:
@@ -182,42 +248,64 @@ class BaseStrategy(ABC):
             - If buffer already has data, it will be replaced (not appended)
             - Thread-safe: Called from main thread before async event loop starts
         """
+        # Determine target interval
+        if interval is not None:
+            target_interval = interval
+        elif candles and hasattr(candles[0], "interval"):
+            target_interval = candles[0].interval
+        else:
+            target_interval = self.intervals[0] if self.intervals else "1m"
+
+        # Validate interval is registered
+        if target_interval not in self.buffers:
+            self.logger.warning(
+                f"[{self.__class__.__name__}] Interval '{target_interval}' not registered "
+                f"for {self.symbol}. Registered: {self.intervals}. "
+                f"Creating new buffer for this interval."
+            )
+            # Auto-register the interval
+            self.intervals.append(target_interval)
+            self.buffers[target_interval] = deque(maxlen=self.buffer_size)
+            self._initialized[target_interval] = False
+
         if not candles:
             self.logger.warning(
                 f"[{self.__class__.__name__}] No historical candles provided "
-                f"for {self.symbol}. Strategy will start with empty buffer."
+                f"for {self.symbol} {target_interval}. Strategy will start with empty buffer."
             )
-            self._initialized = True
+            self._initialized[target_interval] = True
             return
 
         self.logger.info(
-            f"[{self.__class__.__name__}] Initializing {self.symbol} buffer "
+            f"[{self.__class__.__name__}] Initializing {self.symbol} {target_interval} buffer "
             f"with {len(candles)} historical candles"
         )
 
         # Clear existing buffer (in case of re-initialization)
-        self.candle_buffer.clear()
+        self.buffers[target_interval].clear()
 
         # Add candles respecting maxlen (keeps most recent)
         # Slice to most recent buffer_size candles if more provided
         for candle in candles[-self.buffer_size :]:
-            self.candle_buffer.append(candle)
+            self.buffers[target_interval].append(candle)
 
-        # Mark as initialized
-        self._initialized = True
+        # Mark interval as initialized
+        self._initialized[target_interval] = True
 
         self.logger.info(
-            f"[{self.__class__.__name__}] {self.symbol} initialization complete: "
-            f"{len(self.candle_buffer)} candles in buffer"
+            f"[{self.__class__.__name__}] {self.symbol} {target_interval} initialization complete: "
+            f"{len(self.buffers[target_interval])} candles in buffer"
         )
 
     def update_buffer(self, candle: Candle) -> None:
         """
-        Add candle to buffer with automatic FIFO management.
+        Add candle to appropriate buffer based on candle.interval.
 
-        This method manages the historical candle buffer by appending
-        new candles. When the buffer reaches maxlen (buffer_size),
-        the deque automatically removes the oldest candle.
+        This method manages the historical candle buffers by routing
+        candles to the correct interval buffer. When a buffer reaches
+        maxlen (buffer_size), the deque automatically removes the oldest candle.
+
+        Issue #27: Unified buffer routing using candle.interval attribute.
 
         Buffer Order:
             buffer[0]  = oldest candle
@@ -230,64 +318,84 @@ class BaseStrategy(ABC):
             - Maintains chronological order
 
         Args:
-            candle: New candle to add to historical buffer
+            candle: New candle to add to historical buffer.
+                   Routes to self.buffers[candle.interval].
 
         Example:
             ```python
-            # Initial: buffer_size=3, buffer = deque([c1, c2, c3], maxlen=3)
-            strategy.update_buffer(c4)
-            # Result: buffer = deque([c2, c3, c4], maxlen=3) - c1 auto-removed
+            # Multi-timeframe strategy with buffers = {'5m': deque(), '1h': deque()}
+            strategy.update_buffer(candle_5m)  # Routes to buffers['5m']
+            strategy.update_buffer(candle_1h)  # Routes to buffers['1h']
 
-            # Buffer order after multiple updates:
-            # buffer[0]  = oldest (c2)
-            # buffer[1]  = middle (c3)
-            # buffer[2]  = newest (c4)
+            # Single-timeframe strategy with buffers = {'1m': deque()}
+            strategy.update_buffer(candle_1m)  # Routes to buffers['1m']
             ```
 
         Performance:
             - Time Complexity: O(1) for both append and auto-evict
-            - Space Complexity: O(buffer_size)
+            - Space Complexity: O(buffer_size) per interval
             - Improvement: Previous List.pop(0) was O(n)
 
         Usage Pattern:
             ```python
             async def analyze(self, candle: Candle) -> Optional[Signal]:
-                self.update_buffer(candle)  # Always call first
+                self.update_buffer(candle)  # Auto-routes by candle.interval
 
-                if len(self.candle_buffer) < self.min_periods:
+                buffer = self.buffers.get(candle.interval)
+                if not buffer or len(buffer) < self.min_periods:
                     return None  # Not enough data yet
 
                 # Now use buffer for calculations
-                closes = [c.close for c in self.candle_buffer]
+                closes = [c.close for c in buffer]
                 sma = np.mean(closes[-20:])  # Last 20 candles
                 # ...
             ```
 
         Notes:
-            - Called automatically by most strategy implementations
+            - Automatically routes candle to correct interval buffer
             - Buffer persists across analyze() calls (not cleared)
             - No validation - assumes candles added in chronological order
             - Deque maxlen handles FIFO automatically (no manual pop needed)
+            - Logs warning if interval not registered
         """
-        self.candle_buffer.append(candle)  # O(1) - maxlen handles FIFO  # Remove oldest candle
+        interval = candle.interval
 
-    def get_latest_candles(self, count: int) -> List[Candle]:
+        if interval not in self.buffers:
+            # Auto-register unknown interval (for flexibility)
+            self.logger.debug(
+                f"[{self.__class__.__name__}] Auto-registering interval '{interval}' "
+                f"for {self.symbol}"
+            )
+            self.intervals.append(interval)
+            self.buffers[interval] = deque(maxlen=self.buffer_size)
+            self._initialized[interval] = True  # Mark as ready (live data)
+
+        self.buffers[interval].append(candle)  # O(1) - maxlen handles FIFO
+
+    def get_latest_candles(
+        self, count: int, interval: Optional[str] = None
+    ) -> List[Candle]:
         """
         Get the most recent N candles from buffer.
 
-        Retrieves the last `count` candles from the buffer in chronological
-        order. Useful for indicator calculations or pattern detection.
+        Retrieves the last `count` candles from the specified interval buffer
+        in chronological order. Useful for indicator calculations or pattern detection.
 
         Args:
             count: Number of candles to retrieve
+            interval: Target interval buffer. If None, uses first registered interval.
 
         Returns:
             List of candles (newest last), empty if insufficient data
 
         Example:
             ```python
-            # Get last 20 candles for SMA calculation
+            # Single-timeframe: Get last 20 candles
             recent = strategy.get_latest_candles(20)
+
+            # Multi-timeframe: Get last 20 candles from specific interval
+            recent_1h = strategy.get_latest_candles(20, '1h')
+
             if recent:
                 closes = [c.close for c in recent]
                 sma = sum(closes) / len(closes)
@@ -298,23 +406,36 @@ class BaseStrategy(ABC):
             - Returned list maintains chronological order (oldest → newest)
             - Does not modify buffer, read-only operation
         """
-        if len(self.candle_buffer) < count:
+        target_interval = interval or (self.intervals[0] if self.intervals else None)
+        if not target_interval or target_interval not in self.buffers:
             return []
-        return list(self.candle_buffer)[-count:]
 
-    def get_buffer_size_current(self) -> int:
+        buffer = self.buffers[target_interval]
+        if len(buffer) < count:
+            return []
+        return list(buffer)[-count:]
+
+    def get_buffer_size_current(self, interval: Optional[str] = None) -> int:
         """
         Get current number of candles in buffer.
 
         Returns the actual number of candles currently stored, which may
         be less than buffer_size during initial warmup phase.
 
+        Args:
+            interval: Target interval buffer. If None, uses first registered interval.
+
         Returns:
             Current buffer length (0 to buffer_size)
 
         Example:
             ```python
+            # Single-timeframe
             current = strategy.get_buffer_size_current()
+
+            # Multi-timeframe
+            current_1h = strategy.get_buffer_size_current('1h')
+
             max_size = strategy.buffer_size
             progress = (current / max_size) * 100
             print(f"Buffer: {current}/{max_size} ({progress:.1f}%)")
@@ -325,9 +446,12 @@ class BaseStrategy(ABC):
             - Returns buffer_size when buffer is full
             - Useful for monitoring warmup progress
         """
-        return len(self.candle_buffer)
+        target_interval = interval or (self.intervals[0] if self.intervals else None)
+        if not target_interval or target_interval not in self.buffers:
+            return 0
+        return len(self.buffers[target_interval])
 
-    def is_buffer_ready(self, min_candles: int) -> bool:
+    def is_buffer_ready(self, min_candles: int, interval: Optional[str] = None) -> bool:
         """
         Check if buffer has minimum required candles for analysis.
 
@@ -336,6 +460,7 @@ class BaseStrategy(ABC):
 
         Args:
             min_candles: Minimum candles needed for analysis
+            interval: Target interval buffer. If None, uses first registered interval.
 
         Returns:
             True if buffer has enough data, False otherwise
@@ -346,21 +471,51 @@ class BaseStrategy(ABC):
                 self.update_buffer(candle)
 
                 # Check buffer readiness before analysis
-                if not self.is_buffer_ready(self.slow_period):
+                if not self.is_buffer_ready(self.slow_period, candle.interval):
                     return None  # Not enough data yet
 
                 # Proceed with calculations
-                closes = self.get_latest_candles(self.slow_period)
+                closes = self.get_latest_candles(self.slow_period, candle.interval)
                 sma = calculate_sma(closes)
                 # ...
             ```
 
         Notes:
-            - Cleaner than `if len(self.candle_buffer) < min_candles`
+            - Cleaner than `if len(self.buffers[interval]) < min_candles`
             - Consistent API across strategy implementations
-            - Foundation for MTF buffer ready checks
+            - Supports both single and multi-timeframe strategies
         """
-        return len(self.candle_buffer) >= min_candles
+        target_interval = interval or (self.intervals[0] if self.intervals else None)
+        if not target_interval or target_interval not in self.buffers:
+            return False
+        return len(self.buffers[target_interval]) >= min_candles
+
+    def is_ready(self) -> bool:
+        """
+        Check if all intervals have been initialized.
+
+        For single-timeframe strategies, this checks if the single buffer is ready.
+        For multi-timeframe strategies, this checks if ALL interval buffers are ready.
+
+        Returns:
+            True if all intervals initialized, False otherwise
+
+        Example:
+            ```python
+            if strategy.is_ready():
+                # All intervals have data
+                signal = await strategy.analyze(candle)
+            else:
+                # Still warming up
+                return None
+            ```
+
+        Notes:
+            - Called automatically by analyze() in MTF strategies
+            - Returns False until ALL intervals initialized
+            - Prevents analysis with incomplete data
+        """
+        return all(self._initialized.values())
 
     @abstractmethod
     async def analyze(self, candle: Candle) -> Optional[Signal]:

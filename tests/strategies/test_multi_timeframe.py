@@ -96,8 +96,9 @@ class TestMultiTimeframeInitialization:
         assert strategy.is_ready() is False
 
         # Initialize only one interval
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
         candles_5m = [create_candle("BTCUSDT", "5m", i) for i in range(10)]
-        strategy.initialize_with_historical_data("5m", candles_5m)
+        strategy.initialize_with_historical_data(candles_5m, interval="5m")
 
         assert strategy.is_ready() is False  # Still not all initialized
 
@@ -106,9 +107,10 @@ class TestMultiTimeframeInitialization:
         strategy = ConcreteMTFStrategy("BTCUSDT", intervals, mtf_config)
 
         # Initialize all intervals
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
         for interval in intervals:
             candles = [create_candle("BTCUSDT", interval, i) for i in range(10)]
-            strategy.initialize_with_historical_data(interval, candles)
+            strategy.initialize_with_historical_data(candles, interval=interval)
 
         assert strategy.is_ready() is True
 
@@ -121,7 +123,7 @@ class TestBufferManagement:
         strategy = ConcreteMTFStrategy("BTCUSDT", intervals, mtf_config)
 
         candles_1h = [create_candle("BTCUSDT", "1h", i) for i in range(50)]
-        strategy.initialize_with_historical_data("1h", candles_1h)
+        strategy.initialize_with_historical_data(candles_1h, interval="1h")
 
         assert len(strategy.buffers["1h"]) == 50
         assert strategy._initialized["1h"] is True
@@ -137,9 +139,10 @@ class TestBufferManagement:
         candles_1h = [create_candle("BTCUSDT", "1h", i) for i in range(50)]
         candles_4h = [create_candle("BTCUSDT", "4h", i) for i in range(70)]
 
-        strategy.initialize_with_historical_data("5m", candles_5m)
-        strategy.initialize_with_historical_data("1h", candles_1h)
-        strategy.initialize_with_historical_data("4h", candles_4h)
+        # Issue #27: Unified signature
+        strategy.initialize_with_historical_data(candles_5m, interval="5m")
+        strategy.initialize_with_historical_data(candles_1h, interval="1h")
+        strategy.initialize_with_historical_data(candles_4h, interval="4h")
 
         assert len(strategy.buffers["5m"]) == 30
         assert len(strategy.buffers["1h"]) == 50
@@ -154,7 +157,7 @@ class TestBufferManagement:
 
         # Provide 150 candles but buffer_size is 100
         candles_5m = [create_candle("BTCUSDT", "5m", i) for i in range(150)]
-        strategy.initialize_with_historical_data("5m", candles_5m)
+        strategy.initialize_with_historical_data(candles_5m, interval="5m")
 
         assert len(strategy.buffers["5m"]) == 100
         # Should keep most recent 100 candles
@@ -170,9 +173,10 @@ class TestBufferManagement:
         candle_1h = create_candle("BTCUSDT", "1h", 2)
         candle_4h = create_candle("BTCUSDT", "4h", 3)
 
-        strategy.update_buffer("5m", candle_5m)
-        strategy.update_buffer("1h", candle_1h)
-        strategy.update_buffer("4h", candle_4h)
+        # Issue #27: update_buffer() now routes by candle.interval automatically
+        strategy.update_buffer(candle_5m)
+        strategy.update_buffer(candle_1h)
+        strategy.update_buffer(candle_4h)
 
         assert len(strategy.buffers["5m"]) == 1
         assert len(strategy.buffers["1h"]) == 1
@@ -188,9 +192,10 @@ class TestBufferManagement:
         strategy = ConcreteMTFStrategy("BTCUSDT", intervals, config)
 
         # Add 15 candles to 5m buffer (maxlen=10)
+        # Issue #27: update_buffer() now routes by candle.interval automatically
         for i in range(15):
             candle = create_candle("BTCUSDT", "5m", i)
-            strategy.update_buffer("5m", candle)
+            strategy.update_buffer(candle)
 
         assert len(strategy.buffers["5m"]) == 10
         # Oldest 5 candles should be evicted
@@ -202,8 +207,9 @@ class TestBufferManagement:
         strategy = ConcreteMTFStrategy("BTCUSDT", intervals, mtf_config)
 
         # Add candles
+        # Issue #27: update_buffer() now routes by candle.interval automatically
         for i in range(5):
-            strategy.update_buffer("1h", create_candle("BTCUSDT", "1h", i))
+            strategy.update_buffer(create_candle("BTCUSDT", "1h", i))
 
         buffer_1h = strategy.get_buffer("1h")
         assert buffer_1h is not None
@@ -224,9 +230,10 @@ class TestAnalyzeRouting:
         strategy = ConcreteMTFStrategy("BTCUSDT", intervals, mtf_config)
 
         # Initialize all intervals
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
         for interval in intervals:
             candles = [create_candle("BTCUSDT", interval, i) for i in range(10)]
-            strategy.initialize_with_historical_data(interval, candles)
+            strategy.initialize_with_historical_data(candles, interval=interval)
 
         # Open candle should return None
         open_candle = create_candle("BTCUSDT", "5m", 20, is_closed=False)
@@ -241,9 +248,10 @@ class TestAnalyzeRouting:
         strategy = ConcreteMTFStrategy("BTCUSDT", intervals, mtf_config)
 
         # Initialize all intervals
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
         for interval in intervals:
             candles = [create_candle("BTCUSDT", interval, i) for i in range(10)]
-            strategy.initialize_with_historical_data(interval, candles)
+            strategy.initialize_with_historical_data(candles, interval=interval)
 
         # Analyze 5m candle
         candle_5m = create_candle("BTCUSDT", "5m", 100)
@@ -263,7 +271,7 @@ class TestAnalyzeRouting:
 
         # Only initialize 5m
         candles_5m = [create_candle("BTCUSDT", "5m", i) for i in range(10)]
-        strategy.initialize_with_historical_data("5m", candles_5m)
+        strategy.initialize_with_historical_data(candles_5m, interval="5m")
 
         # Try to analyze - should return None (not ready)
         candle = create_candle("BTCUSDT", "5m", 20)
@@ -275,8 +283,8 @@ class TestAnalyzeRouting:
         # Initialize remaining intervals
         candles_1h = [create_candle("BTCUSDT", "1h", i) for i in range(10)]
         candles_4h = [create_candle("BTCUSDT", "4h", i) for i in range(10)]
-        strategy.initialize_with_historical_data("1h", candles_1h)
-        strategy.initialize_with_historical_data("4h", candles_4h)
+        strategy.initialize_with_historical_data(candles_1h, interval="1h")
+        strategy.initialize_with_historical_data(candles_4h, interval="4h")
 
         # Now analyze should call analyze_mtf
         candle = create_candle("BTCUSDT", "5m", 30)
@@ -290,9 +298,10 @@ class TestAnalyzeRouting:
         strategy = ConcreteMTFStrategy("BTCUSDT", intervals, mtf_config)
 
         # Initialize all intervals
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
         for interval in intervals:
             candles = [create_candle("BTCUSDT", interval, i) for i in range(10)]
-            strategy.initialize_with_historical_data(interval, candles)
+            strategy.initialize_with_historical_data(candles, interval=interval)
 
         # Analyze
         test_candle = create_candle("BTCUSDT", "5m", 99)

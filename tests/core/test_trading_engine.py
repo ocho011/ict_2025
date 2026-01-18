@@ -36,7 +36,11 @@ def trading_engine():
     engine.data_collector.stop = AsyncMock()
 
     engine.strategy = AsyncMock()
-    engine.strategies = {"BTCUSDT": engine.strategy, "ETHUSDT": AsyncMock()}
+    # Issue #27: All strategies have intervals attribute (unified interface)
+    engine.strategy.intervals = ["1h"]
+    eth_strategy = AsyncMock()
+    eth_strategy.intervals = ["1h"]
+    engine.strategies = {"BTCUSDT": engine.strategy, "ETHUSDT": eth_strategy}
 
     engine.order_manager = Mock()
     engine.order_manager.get_position = Mock(return_value=None)
@@ -562,14 +566,19 @@ class TestStrategyCompatibilityValidation:
         engine.logger.error.assert_called()
 
     def test_validate_single_interval_strategy_single_collector(self):
-        """Test single-interval strategy passes with single-interval DataCollector."""
+        """Test single-interval strategy passes with single-interval DataCollector.
+
+        Issue #27: All strategies now have intervals attribute (unified interface).
+        """
         from src.strategies.base import BaseStrategy
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock single-interval strategy (BaseStrategy)
+        # Issue #27: Strategy must have intervals attribute
         engine.strategy = Mock(spec=BaseStrategy)
+        engine.strategy.intervals = ['5m']
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with single interval
@@ -586,32 +595,39 @@ class TestStrategyCompatibilityValidation:
         assert "✅ Strategy-DataCollector compatibility validated" in str(
             engine.logger.info.call_args
         )
-        engine.logger.warning.assert_not_called()
 
-    def test_validate_single_interval_strategy_multi_collector_warns(self):
-        """Test single-interval strategy warns when DataCollector has multiple intervals."""
+    def test_validate_single_interval_strategy_multi_collector_passes(self):
+        """Test single-interval strategy passes when DataCollector has multiple intervals.
+
+        Issue #27: No more warning for unused intervals - validation now unified.
+        Strategy only uses its own intervals; extra DataCollector intervals are allowed.
+        """
         from src.strategies.base import BaseStrategy
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock single-interval strategy (BaseStrategy)
+        # Issue #27: Strategy must have intervals attribute
         engine.strategy = Mock(spec=BaseStrategy)
+        engine.strategy.intervals = ['5m']
         engine.strategies = {"BTCUSDT": engine.strategy}
 
-        # Mock DataCollector with multiple intervals (wasteful)
+        # Mock DataCollector with multiple intervals
+        # Strategy only needs '5m', but DataCollector provides more
         engine.data_collector = Mock()
         engine.data_collector.intervals = ['5m', '1h', '4h']
 
         engine.logger = Mock()
 
-        # Validation should pass but log warning
+        # Issue #27: Validation should pass - strategy's intervals are available
         engine._validate_strategy_compatibility()
 
-        # Verify warning log was called
-        engine.logger.warning.assert_called()
-        assert "⚠️ Single-interval strategy" in str(engine.logger.warning.call_args)
-        assert "reduce WebSocket bandwidth" in str(engine.logger.warning.call_args)
+        # Verify info log was called
+        engine.logger.info.assert_called()
+        assert "✅ Strategy-DataCollector compatibility validated" in str(
+            engine.logger.info.call_args
+        )
 
 
 class TestInitializationOrder:
@@ -845,15 +861,20 @@ class TestIntervalFiltering:
         assert "Filtering 15m candle" in str(engine.logger.debug.call_args)
 
     @pytest.mark.asyncio
-    async def test_single_strategy_processes_first_interval(self):
-        """Test single-interval strategy processes first DataCollector interval."""
+    async def test_single_strategy_processes_registered_interval(self):
+        """Test single-interval strategy processes intervals it registered.
+
+        Issue #27: All strategies use strategy.intervals (unified interface).
+        """
         from src.strategies.base import BaseStrategy
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock single-interval strategy (BaseStrategy)
+        # Issue #27: Strategy must have intervals attribute
         engine.strategy = AsyncMock(spec=BaseStrategy)
+        engine.strategy.intervals = ['5m']
         engine.strategy.analyze = AsyncMock(return_value=None)
         engine.strategies = {"BTCUSDT": engine.strategy}
 
@@ -865,7 +886,7 @@ class TestIntervalFiltering:
         engine.event_bus = AsyncMock()
         engine.logger = Mock()
 
-        # Create candle with first interval '5m'
+        # Create candle with strategy's registered interval '5m'
         candle = Candle(
             symbol="BTCUSDT",
             interval="5m",
@@ -888,19 +909,24 @@ class TestIntervalFiltering:
         engine.strategy.analyze.assert_called_once_with(candle)
 
     @pytest.mark.asyncio
-    async def test_single_strategy_filters_non_first_interval(self):
-        """Test single-interval strategy filters out non-first intervals."""
+    async def test_single_strategy_filters_unregistered_interval(self):
+        """Test single-interval strategy filters out intervals not in strategy.intervals.
+
+        Issue #27: All strategies use strategy.intervals (unified interface).
+        """
         from src.strategies.base import BaseStrategy
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock single-interval strategy (BaseStrategy)
+        # Issue #27: Strategy must have intervals attribute
         engine.strategy = AsyncMock(spec=BaseStrategy)
+        engine.strategy.intervals = ['5m']  # Only '5m' registered
         engine.strategy.analyze = AsyncMock(return_value=None)
         engine.strategies = {"BTCUSDT": engine.strategy}
 
-        # Mock DataCollector with '5m' as first interval
+        # Mock DataCollector with multiple intervals
         engine.data_collector = Mock()
         engine.data_collector.intervals = ['5m', '1h']
 
@@ -908,7 +934,7 @@ class TestIntervalFiltering:
         engine.event_bus = AsyncMock()
         engine.logger = Mock()
 
-        # Create candle with non-first interval '1h'
+        # Create candle with unregistered interval '1h'
         candle = Candle(
             symbol="BTCUSDT",
             interval="1h",

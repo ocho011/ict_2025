@@ -60,7 +60,10 @@ def trading_engine_with_mtf(mock_config_manager):
         "mtf_interval": "1h",
         "htf_interval": "4h",
     }
-    engine.strategy = ICTStrategy("BTCUSDT", strategy_config)
+    strategy = ICTStrategy("BTCUSDT", strategy_config)
+    # Issue #27: Use strategies dict for multi-symbol support
+    engine.strategy = strategy  # Keep for backward compatibility
+    engine.strategies = {"BTCUSDT": strategy}
 
     # Mock data collector with MTF intervals
     engine.data_collector = Mock()
@@ -168,7 +171,9 @@ class TestMTFFailFastValidation:
             "mtf_interval": "1h",
             "htf_interval": "4h",
         }
-        engine.strategy = ICTStrategy("BTCUSDT", strategy_config)
+        strategy = ICTStrategy("BTCUSDT", strategy_config)
+        # Issue #27: Use strategies dict instead of strategy attribute
+        engine.strategies = {"BTCUSDT": strategy}
 
         # Create DataCollector with matching intervals
         engine.data_collector = Mock()
@@ -197,7 +202,9 @@ class TestMTFFailFastValidation:
             "mtf_interval": "1h",
             "htf_interval": "4h",
         }
-        engine.strategy = ICTStrategy("BTCUSDT", strategy_config)
+        strategy = ICTStrategy("BTCUSDT", strategy_config)
+        # Issue #27: Use strategies dict instead of strategy attribute
+        engine.strategies = {"BTCUSDT": strategy}
 
         # Create DataCollector missing '4h' interval
         engine.data_collector = Mock()
@@ -346,9 +353,10 @@ class TestMTFBackfillScenario:
         ]
 
         # Initialize with historical data
-        strategy.initialize_with_historical_data("5m", backfill_5m)
-        strategy.initialize_with_historical_data("1h", backfill_1h)
-        strategy.initialize_with_historical_data("4h", backfill_4h)
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
+        strategy.initialize_with_historical_data(backfill_5m, interval="5m")
+        strategy.initialize_with_historical_data(backfill_1h, interval="1h")
+        strategy.initialize_with_historical_data(backfill_4h, interval="4h")
 
         # Verify all buffers initialized
         assert len(strategy.buffers["5m"]) == 50
