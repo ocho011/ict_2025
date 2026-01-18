@@ -219,6 +219,11 @@ class TradingEngine:
         self.event_bus = event_bus
         trading_config = config_manager.trading_config
 
+        # Store logging config for conditional live data logging
+        self._log_live_data = getattr(
+            config_manager.logging_config, 'log_live_data', True
+        )
+
         # Step 1.5: Initialize BinanceServiceClient
         self.logger.info("Creating BinanceServiceClient...")
         from src.core.binance_service import BinanceServiceClient
@@ -1274,10 +1279,11 @@ class TradingEngine:
                 f"@ {candle.close} → EventBus"
             )
         else:
-            # Log continuous live data updates as requested by user
-            self.logger.info(
-                f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
-            )
+            # Log continuous live data updates (configurable via log_live_data)
+            if self._log_live_data:
+                self.logger.info(
+                    f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
+                )
 
     async def run(self) -> None:
         """

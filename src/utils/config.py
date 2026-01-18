@@ -136,6 +136,7 @@ class LoggingConfig:
 
     log_level: str = "INFO"
     log_dir: str = "logs"
+    log_live_data: bool = True  # Analysis mode: set False to disable live data logs
 
     def __post_init__(self):
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
@@ -619,6 +620,7 @@ class ConfigManager:
         return LoggingConfig(
             log_level=logging_section.get("log_level", "INFO"),
             log_dir=logging_section.get("log_dir", "logs"),
+            log_live_data=logging_section.getboolean("log_live_data", True),
         )
 
     @property
