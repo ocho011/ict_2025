@@ -87,7 +87,6 @@ class BinanceDataCollector:
 
         # Store configuration and service
         self.binance_service = binance_service
-        self.rest_client = binance_service  # Alias for compatibility with existing code
         self.is_testnet = binance_service.is_testnet
         self.symbols = [s.upper() for s in symbols]  # Normalize to uppercase
         self.intervals = intervals
@@ -380,7 +379,7 @@ class BinanceDataCollector:
 
         try:
             # Call Binance REST API
-            klines_data = self.rest_client.klines(symbol=symbol, interval=interval, limit=limit)
+            klines_data = self.binance_service.klines(symbol=symbol, interval=interval, limit=limit)
 
             # Parse each kline array into Candle object
             candles = []
