@@ -186,31 +186,36 @@ class MockSMACrossoverStrategy(BaseStrategy):
         if not candle.is_closed:
             return None
 
-        # Step 2: Update buffer with new candle
+        # Step 2: Update buffer with new candle (routes by candle.interval)
         self.update_buffer(candle)
 
-        # Step 3: Check buffer has enough data
-        if len(self.candle_buffer) < self.slow_period:
+        # Step 3: Get buffer for this interval (Issue #27: unified buffer access)
+        buffer = self.buffers.get(candle.interval)
+        if buffer is None:
+            return None
+
+        # Step 4: Check buffer has enough data
+        if len(buffer) < self.slow_period:
             # Log buffer warm-up progress
             self.logger.info(
-                f"📊 Buffer warming up: {len(self.candle_buffer)}/{self.slow_period} "
+                f"📊 Buffer warming up: {len(buffer)}/{self.slow_period} "
                 f"candles collected for {candle.symbol} {candle.interval}"
             )
             return None
 
-        # Step 4: Extract close prices for SMA calculation
-        close_prices = np.array([c.close for c in self.candle_buffer])
+        # Step 5: Extract close prices for SMA calculation
+        close_prices = np.array([c.close for c in buffer])
 
-        # Step 5: Calculate current SMAs
+        # Step 6: Calculate current SMAs
         current_fast_sma = np.mean(close_prices[-self.fast_period :])
         current_slow_sma = np.mean(close_prices[-self.slow_period :])
 
-        # Step 6: Calculate previous SMAs (for crossover detection)
+        # Step 7: Calculate previous SMAs (for crossover detection)
         # Need at least slow_period + 1 candles for previous calculation
-        if len(self.candle_buffer) < self.slow_period + 1:
+        if len(buffer) < self.slow_period + 1:
             self.logger.info(
                 f"📈 SMA ready, waiting for crossover detection data: "
-                f"{len(self.candle_buffer)}/{self.slow_period + 1} candles "
+                f"{len(buffer)}/{self.slow_period + 1} candles "
                 f"for {candle.symbol} {candle.interval}"
             )
             return None
@@ -218,7 +223,7 @@ class MockSMACrossoverStrategy(BaseStrategy):
         previous_fast_sma = np.mean(close_prices[-(self.fast_period + 1) : -1])
         previous_slow_sma = np.mean(close_prices[-(self.slow_period + 1) : -1])
 
-        # Step 7: Detect golden cross (fast crosses above slow)
+        # Step 8: Detect golden cross (fast crosses above slow)
         if previous_fast_sma <= previous_slow_sma and current_fast_sma > current_slow_sma:
             # Golden cross detected
             if self._last_signal_type == SignalType.LONG_ENTRY:

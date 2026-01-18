@@ -75,7 +75,7 @@ class EventBus:
             QueueType.ORDER: None,  # Never timeout for critical orders (block indefinitely)
         }
 
-        self.logger.debug("EventBus initialized (queues will be created in start())")
+        self.logger.info("EventBus initialized (queues will be created in start())")
 
     def subscribe(self, event_type: EventType, handler: Callable) -> None:
         """

@@ -154,8 +154,9 @@ class TestMultiSymbolIsolation:
         )
 
         # Add candles to respective buffers
-        engine.strategies["BTCUSDT"].update_buffer("5m", btc_candle)
-        engine.strategies["ETHUSDT"].update_buffer("5m", eth_candle)
+        # Issue #27: update_buffer() now routes by candle.interval automatically
+        engine.strategies["BTCUSDT"].update_buffer(btc_candle)
+        engine.strategies["ETHUSDT"].update_buffer(eth_candle)
 
         # Verify BTC buffer has only BTC candle
         btc_buffer = engine.strategies["BTCUSDT"].buffers["5m"]
@@ -398,8 +399,9 @@ class TestMultiCoinBackfillScenario:
         ]
 
         # Initialize with historical data
-        btc_strategy.initialize_with_historical_data("5m", btc_backfill_5m)
-        eth_strategy.initialize_with_historical_data("5m", eth_backfill_5m)
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
+        btc_strategy.initialize_with_historical_data(btc_backfill_5m, interval="5m")
+        eth_strategy.initialize_with_historical_data(eth_backfill_5m, interval="5m")
 
         # Verify BTC buffers initialized
         assert len(btc_strategy.buffers["5m"]) == 20

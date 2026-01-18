@@ -568,8 +568,9 @@ class TestICTStrategyFeatureCacheIntegration:
     ):
         """Test that feature cache is initialized when historical data is loaded."""
         # Initialize with historical data for each interval
-        ict_strategy.initialize_with_historical_data("5m", sample_candles)
-        ict_strategy.initialize_with_historical_data("1h", sample_candles[:30])
+        # Issue #27: Unified signature - initialize_with_historical_data(candles, interval=...)
+        ict_strategy.initialize_with_historical_data(sample_candles, interval="5m")
+        ict_strategy.initialize_with_historical_data(sample_candles[:30], interval="1h")
 
         # Check feature cache was initialized
         stats = ict_strategy.get_feature_cache_stats()
@@ -580,7 +581,7 @@ class TestICTStrategyFeatureCacheIntegration:
 
     def test_feature_cache_stats_method(self, ict_strategy, sample_candles):
         """Test get_feature_cache_stats returns correct data."""
-        ict_strategy.initialize_with_historical_data("5m", sample_candles)
+        ict_strategy.initialize_with_historical_data(sample_candles, interval="5m")
 
         stats = ict_strategy.get_feature_cache_stats()
 
@@ -630,7 +631,7 @@ class TestMultiTimeframeFeatureCacheIntegration:
 
     def test_feature_cache_initializes_on_history(self, mtf_strategy, sample_candles):
         """Test that feature cache initializes when history is loaded."""
-        mtf_strategy.initialize_with_historical_data("1h", sample_candles)
+        mtf_strategy.initialize_with_historical_data(sample_candles, interval="1h")
 
         cache = mtf_strategy.feature_cache
         stats = cache.get_cache_stats()
@@ -644,7 +645,8 @@ class TestMultiTimeframeFeatureCacheIntegration:
     ):
         """Test that feature cache updates when new candle is analyzed."""
         # Initialize with historical data
-        mtf_strategy.initialize_with_historical_data("1h", sample_candles[:40])
+        # Issue #27: Unified signature
+        mtf_strategy.initialize_with_historical_data(sample_candles[:40], interval="1h")
 
         # Create a new candle
         base_time = sample_candles[-1].close_time
