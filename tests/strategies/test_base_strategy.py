@@ -41,7 +41,8 @@ class ConcreteTestStrategy(BaseStrategy):
 
         self.update_buffer(candle)
 
-        if len(self.candle_buffer) < 2:
+        buffer = self.buffers.get(candle.interval)
+        if not buffer or len(buffer) < 2:
             return None
 
         # Simple condition: price above threshold
@@ -165,9 +166,11 @@ class TestBaseStrategyInitialization:
         assert strategy.symbol == "BTCUSDT"
         assert strategy.config == default_config
         assert strategy.buffer_size == 100  # Default value
-        assert isinstance(strategy.candle_buffer, deque)
-        assert strategy.candle_buffer.maxlen == 100
-        assert len(strategy.candle_buffer) == 0
+        # Access buffer via unified buffers dict (Issue #27)
+        default_buffer = strategy.buffers['1m']
+        assert isinstance(default_buffer, deque)
+        assert default_buffer.maxlen == 100
+        assert len(default_buffer) == 0
 
     def test_initialization_with_custom_buffer_size(self, custom_config):
         """Test initialization with custom buffer_size in config."""
@@ -176,9 +179,11 @@ class TestBaseStrategyInitialization:
         assert strategy.symbol == "ETHUSDT"
         assert strategy.config == custom_config
         assert strategy.buffer_size == 200  # Custom value
-        assert isinstance(strategy.candle_buffer, deque)
-        assert strategy.candle_buffer.maxlen == 200
-        assert len(strategy.candle_buffer) == 0
+        # Access buffer via unified buffers dict (Issue #27)
+        default_buffer = strategy.buffers['1m']
+        assert isinstance(default_buffer, deque)
+        assert default_buffer.maxlen == 200
+        assert len(default_buffer) == 0
 
     def test_config_stores_strategy_specific_parameters(self, custom_config):
         """Test that config dict stores strategy-specific parameters."""
@@ -209,12 +214,13 @@ class TestBufferManagement:
         """Test that update_buffer appends candle to buffer."""
         strategy = ConcreteTestStrategy("BTCUSDT", default_config)
 
-        assert len(strategy.candle_buffer) == 0
+        buffer = strategy.buffers['1m']
+        assert len(buffer) == 0
 
         strategy.update_buffer(sample_candle)
 
-        assert len(strategy.candle_buffer) == 1
-        assert strategy.candle_buffer[0] == sample_candle
+        assert len(buffer) == 1
+        assert buffer[0] == sample_candle
 
     def test_buffer_maintains_chronological_order(self, default_config):
         """Test that buffer maintains candles in chronological order."""
@@ -240,10 +246,11 @@ class TestBufferManagement:
         for candle in candles:
             strategy.update_buffer(candle)
 
-        assert len(strategy.candle_buffer) == 3
-        assert strategy.candle_buffer[0] == candles[0]  # Oldest
-        assert strategy.candle_buffer[1] == candles[1]  # Middle
-        assert strategy.candle_buffer[2] == candles[2]  # Newest
+        buffer = strategy.buffers['1m']
+        assert len(buffer) == 3
+        assert buffer[0] == candles[0]  # Oldest
+        assert buffer[1] == candles[1]  # Middle
+        assert buffer[2] == candles[2]  # Newest
 
     def test_buffer_fifo_behavior_when_full(self, default_config):
         """Test that oldest candle is removed when buffer exceeds buffer_size."""
@@ -272,10 +279,11 @@ class TestBufferManagement:
             strategy.update_buffer(candle)
 
         # Buffer should contain last 3 candles (FIFO removed first)
-        assert len(strategy.candle_buffer) == 3
-        assert strategy.candle_buffer[0] == candles[1]  # candles[0] removed
-        assert strategy.candle_buffer[1] == candles[2]
-        assert strategy.candle_buffer[2] == candles[3]
+        buffer = strategy.buffers['1m']
+        assert len(buffer) == 3
+        assert buffer[0] == candles[1]  # candles[0] removed
+        assert buffer[1] == candles[2]
+        assert buffer[2] == candles[3]
 
     def test_buffer_size_limit_enforcement(self, default_config):
         """Test that buffer never exceeds buffer_size."""
@@ -299,10 +307,10 @@ class TestBufferManagement:
             strategy.update_buffer(candle)
 
             # Buffer should never exceed buffer_size
-            assert len(strategy.candle_buffer) <= 5
+            assert len(strategy.buffers['1m']) <= 5
 
         # Final buffer size should be exactly buffer_size
-        assert len(strategy.candle_buffer) == 5
+        assert len(strategy.buffers['1m']) == 5
 
 
 # ============================================================================
@@ -333,7 +341,7 @@ class TestConcreteImplementation:
         signal = await strategy.analyze(sample_candle)
 
         assert signal is None
-        assert len(strategy.candle_buffer) == 1
+        assert len(strategy.buffers['1m']) == 1
 
     @pytest.mark.asyncio
     async def test_analyze_generates_signal_when_conditions_met(self, default_config):
@@ -382,12 +390,13 @@ class TestConcreteImplementation:
         """Test that analyze calls update_buffer internally."""
         strategy = ConcreteTestStrategy("BTCUSDT", default_config)
 
-        assert len(strategy.candle_buffer) == 0
+        buffer = strategy.buffers['1m']
+        assert len(buffer) == 0
 
         await strategy.analyze(sample_candle)
 
-        assert len(strategy.candle_buffer) == 1
-        assert strategy.candle_buffer[0] == sample_candle
+        assert len(buffer) == 1
+        assert buffer[0] == sample_candle
 
     def test_calculate_take_profit_long_default(self, default_config):
         """Test TP calculation for LONG position with default config."""

@@ -203,7 +203,7 @@ class TestMockSMAInitialization:
         assert strategy.stop_loss_percent == 0.01
         assert strategy.buffer_size == 100
         assert strategy._last_signal_type is None
-        assert len(strategy.candle_buffer) == 0
+        assert len(strategy.buffers['1m']) == 0
 
     def test_initialization_with_custom_config(self, custom_config):
         """Test initialization with custom configuration."""
@@ -294,7 +294,8 @@ class TestSMACalculation:
             await strategy.analyze(candle)
 
         # After processing all candles, check buffer
-        assert len(strategy.candle_buffer) == 21
+        buffer = strategy.buffers['1m']
+        assert len(buffer) == 21
 
         # Manually calculate expected SMAs
         close_prices = np.array(prices)
@@ -302,7 +303,7 @@ class TestSMACalculation:
         expected_slow_sma = np.mean(close_prices[-20:])  # Last 20
 
         # Calculate actual SMAs from buffer
-        actual_close_prices = np.array([c.close for c in strategy.candle_buffer])
+        actual_close_prices = np.array([c.close for c in buffer])
         actual_fast_sma = np.mean(actual_close_prices[-10:])
         actual_slow_sma = np.mean(actual_close_prices[-20:])
 
@@ -339,7 +340,7 @@ class TestSMACalculation:
             await strategy.analyze(candle)
 
         # Both SMAs should be 50000
-        close_prices = np.array([c.close for c in strategy.candle_buffer])
+        close_prices = np.array([c.close for c in strategy.buffers['1m']])
         assert np.mean(close_prices[-10:]) == 50000.0
         assert np.mean(close_prices[-20:]) == 50000.0
 
@@ -570,7 +571,7 @@ class TestBufferRequirements:
             await strategy.analyze(candle)
 
         # Buffer should have 21 candles
-        assert len(strategy.candle_buffer) == 21
+        assert len(strategy.buffers['1m']) == 21
 
     @pytest.mark.asyncio
     async def test_open_candle_returns_none(self, default_config):

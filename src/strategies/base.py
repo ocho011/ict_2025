@@ -10,7 +10,6 @@ and multi-timeframe strategies.
 """
 
 import logging
-import warnings
 from abc import ABC, abstractmethod
 from collections import deque
 from typing import Dict, List, Optional
@@ -170,27 +169,6 @@ class BaseStrategy(ABC):
         }
 
         self.logger = logging.getLogger(self.__class__.__name__)
-
-    @property
-    def candle_buffer(self) -> deque:
-        """
-        DEPRECATED: Use self.buffers[interval] instead.
-
-        Returns the first buffer for backward compatibility.
-        This property exists only for legacy code support and will be removed
-        in a future version.
-
-        Returns:
-            First buffer in self.buffers (for single-timeframe strategies)
-
-        Warning:
-            This property is deprecated. Access buffers via:
-            - self.buffers[interval] for specific interval
-            - list(self.buffers.values())[0] for first buffer
-        """
-        if self.buffers:
-            return list(self.buffers.values())[0]
-        return deque(maxlen=self.buffer_size)
 
     def initialize_with_historical_data(
         self, candles: List[Candle], interval: Optional[str] = None
@@ -574,12 +552,13 @@ class BaseStrategy(ABC):
                 # 2. Update buffer with new candle
                 self.update_buffer(candle)
 
-                # 3. Check sufficient data
-                if len(self.candle_buffer) < self.min_periods:
+                # 3. Check sufficient data (access buffer via interval key)
+                buffer = self.buffers.get(candle.interval)
+                if not buffer or len(buffer) < self.min_periods:
                     return None
 
                 # 4. Calculate indicators
-                closes = np.array([c.close for c in self.candle_buffer])
+                closes = np.array([c.close for c in buffer])
                 sma_fast = np.mean(closes[-self.fast_period:])
                 sma_slow = np.mean(closes[-self.slow_period:])
 
