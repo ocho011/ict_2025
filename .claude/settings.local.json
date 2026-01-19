@@ -38,7 +38,8 @@
       "mcp__serena__search_for_pattern",
       "Bash(git pull:*)",
       "Bash(gh issue view:*)",
-      "Bash(task-master add-task:*)"
+      "Bash(task-master add-task:*)",
+      "mcp__task-master-ai__get_tasks"
     ]
   },
   "enableAllProjectMcpServers": true,

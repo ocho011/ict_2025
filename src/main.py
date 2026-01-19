@@ -213,7 +213,7 @@ class TradingBot:
         )
 
         self.logger.info("✅ All components initialized successfully")
-        self.logger.debug(f"Lifecycle state: {self._lifecycle_state.name}")
+        self.logger.info(f"Lifecycle state: {self._lifecycle_state.name}")
 
     async def run(self) -> None:
         """
@@ -369,14 +369,14 @@ def main() -> None:
 
         # Log session start with system information AFTER logger is initialized
         logger = logging.getLogger(__name__)
-        logger.info("=" * 80)
+        logger.info("=" * 50)
         logger.info("🚀 TRADING BOT SESSION START")
-        logger.info("=" * 80)
+        logger.info("=" * 50)
         logger.info(f"Session Start Time: {session_start.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"Python Version: {platform.python_version()}")
         logger.info(f"Platform: {platform.system()} {platform.release()}")
         logger.info(f"Working Directory: {os.getcwd()}")
-        logger.info("=" * 80)
+        logger.info("=" * 50)
 
         # Run trading system
         asyncio.run(bot.run())
@@ -396,12 +396,12 @@ def main() -> None:
         session_duration = session_end - session_start
 
         logger = logging.getLogger(__name__)
-        logger.info("=" * 80)
+        logger.info("=" * 50)
         logger.info("🛑 TRADING BOT SESSION END")
-        logger.info("=" * 80)
+        logger.info("=" * 50)
         logger.info(f"Session End Time: {session_end.strftime('%Y-%m-%d %H:%M:%S')}")
         logger.info(f"Session Duration: {session_duration}")
-        logger.info("=" * 80)
+        logger.info("=" * 50)
 
         # FINAL STEP: Stop QueueListener to flush remaining logs
         if bot.trading_logger:

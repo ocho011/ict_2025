@@ -429,7 +429,7 @@ class EventBus:
                 QueueType.SIGNAL: asyncio.Queue(maxsize=100),  # Medium priority, must process
                 QueueType.ORDER: asyncio.Queue(maxsize=50),  # Critical, never drop
             }
-            self.logger.debug(
+            self.logger.info(
                 "Created queues with current event loop: DATA(1000), SIGNAL(100), ORDER(50)"
             )
 
