@@ -42,7 +42,7 @@ class EngineState(Enum):
         
     States:
         CREATED: Initial state after __init__()
-        INITIALIZED: After set_components() called
+        INITIALIZED: After initialize_components() called
         RUNNING: Event loop active, run() executing
         STOPPING: Shutdown initiated
         STOPPED: Shutdown complete
@@ -92,7 +92,7 @@ class TradingEngine:
         """
         Initialize TradingEngine with minimal setup.
 
-        Components are injected via set_components() method after construction.
+        Components are created via initialize_components() method after construction.
         This allows for better testability and clear separation between
         bootstrap (TradingBot) and execution (TradingEngine).
 
@@ -119,7 +119,7 @@ class TradingEngine:
             2. Inject audit logger
             3. Set component placeholders to None
             4. Initialize state machine (CREATED)
-            5. Wait for set_components() call
+            5. Wait for initialize_components() call
 
         Example:
             ```python
@@ -127,13 +127,12 @@ class TradingEngine:
             
             audit_logger = AuditLogger(log_dir="logs/audit")
             engine = TradingEngine(audit_logger=audit_logger)
-            engine.set_components(
+            engine.initialize_components(
+                config_manager=config_manager,
                 event_bus=event_bus,
-                data_collector=collector,
-                strategy=strategy,
-                order_manager=order_manager,
-                risk_manager=risk_manager,
-                config_manager=config_manager
+                api_key="...",
+                api_secret="...",
+                is_testnet=True
             )
             await engine.run()
             ```
@@ -143,7 +142,7 @@ class TradingEngine:
         # Inject audit logger
         self.audit_logger = audit_logger
 
-        # Components (injected via set_components)
+        # Components (created via initialize_components)
         self.event_bus: Optional[EventBus] = None
         self.data_collector: Optional[BinanceDataCollector] = None
         self.strategies: dict[str, BaseStrategy] = {}  # Issue #8: Multi-coin support
@@ -209,7 +208,6 @@ class TradingEngine:
 
         Notes:
             - Must be called before run()
-            - Replaces old set_components() pattern
             - Components are created internally, not injected
         """
         self.logger.info("Initializing TradingEngine components...")
@@ -377,51 +375,6 @@ class TradingEngine:
                     f"Single-interval strategy with {list(required_intervals)[0]}"
                 )
 
-    def set_components(
-        self,
-        event_bus: EventBus,
-        data_collector: BinanceDataCollector,
-        strategy: BaseStrategy,
-        order_manager: OrderExecutionManager,
-        risk_manager: RiskManager,
-        config_manager: ConfigManager,
-    ) -> None:
-        """
-        [DEPRECATED] Inject all required components in one call.
-
-        This method is deprecated as of Issue #5 refactoring.
-        Use initialize_components() instead, which creates components internally.
-
-        Args:
-            event_bus: EventBus instance for pub-sub coordination
-            data_collector: BinanceDataCollector for WebSocket streaming
-            strategy: Trading strategy implementing BaseStrategy
-            order_manager: OrderExecutionManager for order execution
-            risk_manager: RiskManager for validation and position sizing
-            config_manager: ConfigManager for trading configuration
-
-        Notes:
-            - Kept for backward compatibility during transition
-            - Will be removed in future version
-        """
-        self.logger.warning(
-            "set_components() is deprecated. Use initialize_components() instead."
-        )
-
-        self.event_bus = event_bus
-        self.data_collector = data_collector
-        self.strategy = strategy
-        self.order_manager = order_manager
-        self.risk_manager = risk_manager
-        self.config_manager = config_manager
-
-        # Setup handlers AFTER all components available
-        self._setup_event_handlers()
-
-        # State transition: CREATED → INITIALIZED
-        self._engine_state = EngineState.INITIALIZED
-
-        self.logger.info("✅ TradingEngine components injected and handlers registered")
 
     async def initialize_strategy_with_backfill(self, limit: int = 100) -> None:
         """
@@ -466,7 +419,7 @@ class TradingEngine:
 
         Notes:
             - Called ONCE during startup (warmup phase)
-            - Must be called AFTER set_components()
+            - Must be called AFTER initialize_components()
             - Must be called BEFORE start_streaming()
             - Does NOT trigger signal generation
         """
@@ -576,7 +529,7 @@ class TradingEngine:
             - Logging at each pipeline stage
 
         Notes:
-            - Called automatically by set_components()
+            - Called automatically by initialize_components()
             - Requires event_bus to be injected first
             - Private method (internal setup only)
 

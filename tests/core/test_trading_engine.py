@@ -7,7 +7,7 @@ Separation of Concerns pattern.
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, Mock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -81,67 +81,83 @@ class TestTradingEngineInit:
         assert engine.config_manager is None
         assert engine._running is False
 
-    def test_set_components_injects_all_dependencies(self):
-        """Verify set_components() injects all required components (DEPRECATED)."""
+    @patch('src.core.binance_service.BinanceServiceClient')
+    @patch('src.execution.order_manager.OrderExecutionManager')
+    @patch('src.risk.manager.RiskManager')
+    @patch('src.strategies.StrategyFactory.create')
+    @patch('src.core.data_collector.BinanceDataCollector')
+    def test_initialize_components_success(
+        self,
+        mock_collector_cls,
+        mock_strategy_factory,
+        mock_risk_cls,
+        mock_order_cls,
+        mock_service_cls,
+    ):
+        """Verify initialize_components() creates and wires all components."""
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
-        # Create mocks
-        mock_event_bus = Mock()
-        mock_event_bus.subscribe = Mock()
-        mock_collector = Mock()
-        mock_strategy = Mock()
-        mock_order_manager = Mock()
-        mock_risk_manager = Mock()
+        # Mock dependencies
         mock_config_manager = Mock()
-
-        # Inject components (without trading_bot - removed in Issue #5)
-        engine.set_components(
-            event_bus=mock_event_bus,
-            data_collector=mock_collector,
-            strategy=mock_strategy,
-            order_manager=mock_order_manager,
-            risk_manager=mock_risk_manager,
-            config_manager=mock_config_manager,
-        )
-
-        # Verify injection
-        assert engine.event_bus is mock_event_bus
-        assert engine.data_collector is mock_collector
-        assert engine.strategy is mock_strategy
-        assert engine.order_manager is mock_order_manager
-        assert engine.risk_manager is mock_risk_manager
-        assert engine.config_manager is mock_config_manager
-
-    def test_set_components_registers_handlers(self):
-        """Verify set_components() registers event handlers (DEPRECATED)."""
-        mock_audit_logger = MagicMock()
-        engine = TradingEngine(audit_logger=mock_audit_logger)
-
-        # Create mock EventBus
+        mock_config_manager.trading_config = Mock()
+        mock_config_manager.trading_config.symbols = ["BTCUSDT"]
+        mock_config_manager.trading_config.intervals = ["1h"]
+        mock_config_manager.trading_config.leverage = 10
+        mock_config_manager.trading_config.margin_type = "ISOLATED"
+        mock_config_manager.trading_config.strategy = "ict"
+        mock_config_manager.trading_config.take_profit_ratio = 2.0
+        mock_config_manager.trading_config.stop_loss_percent = 0.01
+        mock_config_manager.trading_config.ict_config = {"use_killzones": True}
+        mock_config_manager.trading_config.max_risk_per_trade = 0.02
+        
         mock_event_bus = Mock()
         mock_event_bus.subscribe = Mock()
 
-        # Inject components (without trading_bot - removed in Issue #5)
-        engine.set_components(
+        # Mock component instances
+        mock_service = Mock()
+        mock_service_cls.return_value = mock_service
+        
+        mock_order_manager = Mock()
+        mock_order_manager.set_leverage = Mock(return_value=True)
+        mock_order_manager.set_margin_type = Mock(return_value=True)
+        mock_order_cls.return_value = mock_order_manager
+        
+        mock_risk = Mock()
+        mock_risk_cls.return_value = mock_risk
+        
+        mock_strategy = Mock()
+        # Ensure strategy intervals match config so validation passes
+        mock_strategy.intervals = ["1h"] 
+        mock_strategy_factory.return_value = mock_strategy
+        
+        mock_collector = Mock()
+        mock_collector.intervals = ["1h"]
+        mock_collector_cls.return_value = mock_collector
+
+        # Initialize
+        engine.initialize_components(
+            config_manager=mock_config_manager,
             event_bus=mock_event_bus,
-            data_collector=Mock(),
-            strategy=Mock(),
-            order_manager=Mock(),
-            risk_manager=Mock(),
-            config_manager=Mock(),
+            api_key="test_key",
+            api_secret="test_secret",
+            is_testnet=True,
         )
 
-        # Verify handlers subscribed
+        # Verify components stored
+        assert engine.config_manager is mock_config_manager
+        assert engine.event_bus is mock_event_bus
+        assert engine.order_manager is mock_order_manager
+        assert engine.risk_manager is mock_risk
+        assert engine.data_collector is mock_collector
+        assert engine.strategies["BTCUSDT"] is mock_strategy
+
+        # Verify handlers registered
         assert mock_event_bus.subscribe.call_count == 3
-
-        # Verify correct event types registered
-        subscribe_calls = mock_event_bus.subscribe.call_args_list
-        event_types = [call[0][0] for call in subscribe_calls]
-
-        assert EventType.CANDLE_CLOSED in event_types
-        assert EventType.SIGNAL_GENERATED in event_types
-        assert EventType.ORDER_FILLED in event_types
+        
+        # Verify API configuration calls
+        mock_order_manager.set_leverage.assert_called_with("BTCUSDT", 10)
+        mock_order_manager.set_margin_type.assert_called_with("BTCUSDT", "ISOLATED")
 
 
 class TestEventHandlers:

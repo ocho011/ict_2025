@@ -437,6 +437,8 @@ class EventBus:
         self.logger.info("Starting EventBus processors")
 
         # Create processor tasks with descriptive names
+        # Per-queue event processor (Processors are defined as queue-level event handlers 
+        # responsible for processing events within their respective queues.)
         self._processor_tasks = [
             asyncio.create_task(self._process_queue(QueueType.DATA), name="data_processor"),
             asyncio.create_task(self._process_queue(QueueType.SIGNAL), name="signal_processor"),

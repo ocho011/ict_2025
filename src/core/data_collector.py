@@ -260,6 +260,9 @@ class BinanceDataCollector:
                 self.logger.info(f"Establishing connection for {symbol}...")
                 
                 # Initialize WebSocket client with message handler
+                # The _handle_kline_message method is not called manually; 
+                # the WebSocket engine (internal library loop) automatically invokes this registered 
+                # handler whenever a new message is received from the server.
                 client = UMFuturesWebsocketClient(
                     stream_url=stream_url, on_message=self._handle_kline_message
                 )
