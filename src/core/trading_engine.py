@@ -11,7 +11,7 @@ Coordinates:
 import asyncio
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Dict, Any
 
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
@@ -600,23 +600,18 @@ class TradingEngine:
 
     async def _on_candle_closed(self, event: Event) -> None:
         """
-        Handle closed candle event - run strategy analysis (Issue #7 Phase 3).
+        Handle closed candle event - run strategy analysis (Issue #7 Phase 3, #42 Refactor).
 
         This handler is called when a candle fully closes (is_closed=True).
         It runs the trading strategy analysis and publishes signals if conditions are met.
 
-        Phase 3 Enhancement:
-            - Filters out candles with intervals not required by the strategy
-            - Prevents unnecessary analyze() calls for unused intervals
-            - Reduces processing overhead in multi-interval configurations
-
         Args:
             event: Event containing closed Candle data
         """
-        # Step 1: Extract candle from event data
+        # 1. Validation (Guard Clauses)
         candle: Candle = event.data
 
-        # Step 1: Unknown symbol validation (Issue #8 Phase 2 - Fail-fast)
+        # Unknown symbol validation (Issue #8 Phase 2 - Fail-fast)
         if candle.symbol not in self.strategies:
             self.logger.error(
                 f"❌ Unknown symbol: {candle.symbol}. "
@@ -627,8 +622,7 @@ class TradingEngine:
         # Get strategy for this symbol
         strategy = self.strategies[candle.symbol]
 
-        # Step 1.5: Filter intervals based on strategy configuration (Issue #27 unified)
-        # All strategies now have intervals attribute - no isinstance check needed
+        # Filter intervals based on strategy configuration (Issue #27 unified)
         if candle.interval not in strategy.intervals:
             self.logger.debug(
                 f"Filtering {candle.interval} candle for {candle.symbol} "
@@ -636,74 +630,66 @@ class TradingEngine:
             )
             return
 
-        # Step 2: Log candle received (info level)
+        # Log candle received (info level)
         self.logger.info(
             f"Analyzing closed candle: {candle.symbol} {candle.interval} "
             f"@ {candle.close} (vol: {candle.volume})"
         )
 
-        # Step 2.5: Check for existing position and exit conditions (Issue #25)
+        # 2. Routing (Issue #42)
         current_position = self._get_cached_position(candle.symbol)
 
         if current_position is not None:
-            # Position exists - check exit conditions first
-            self.logger.debug(
-                f"Position exists for {candle.symbol}: {current_position.side} "
-                f"@ {current_position.entry_price}, checking exit conditions"
+            # Position exists - check exit conditions first (Issue #25)
+            await self._process_exit_strategy(candle, strategy, current_position)
+            return  # Always skip entry analysis if position exists
+
+        # 3. No position - check entry conditions
+        await self._process_entry_strategy(candle, strategy)
+
+    async def _process_exit_strategy(
+        self, candle: Candle, strategy: BaseStrategy, position: "Position"
+    ) -> bool:
+        """
+        기존 포지션에 대한 청산 조건 확인 (Issue #42).
+
+        Returns:
+            True if exit signal was generated and published, False otherwise.
+        """
+        self.logger.debug(
+            f"Position exists for {candle.symbol}: {position.side} "
+            f"@ {position.entry_price}, checking exit conditions"
+        )
+
+        try:
+            exit_signal = await strategy.check_exit(candle, position)
+        except Exception as e:
+            self.logger.error(
+                f"Strategy check_exit failed for {candle.symbol}: {e}", exc_info=True
             )
+            exit_signal = None
 
-            try:
-                exit_signal = await strategy.check_exit(candle, current_position)
-            except Exception as e:
-                self.logger.error(
-                    f"Strategy check_exit failed for {candle.symbol}: {e}",
-                    exc_info=True
-                )
-                exit_signal = None
-
-            if exit_signal is not None:
-                # Exit signal generated - publish and skip entry analysis
-                self.logger.info(
-                    f"Exit signal generated: {exit_signal.signal_type.value} "
-                    f"@ {exit_signal.entry_price} (reason: {exit_signal.exit_reason})"
-                )
-
-                # Audit log: exit signal generated
-                try:
-                    from src.core.audit_logger import AuditEventType
-
-                    self.audit_logger.log_event(
-                        event_type=AuditEventType.SIGNAL_PROCESSING,
-                        operation="exit_analysis",
-                        symbol=candle.symbol,
-                        additional_data={
-                            "interval": candle.interval,
-                            "close_price": candle.close,
-                            "signal_generated": True,
-                            "signal_type": exit_signal.signal_type.value,
-                            "exit_price": exit_signal.entry_price,
-                            "exit_reason": exit_signal.exit_reason,
-                            "position_side": current_position.side,
-                            "position_quantity": current_position.quantity,
-                            "strategy_name": exit_signal.strategy_name,
-                        },
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Audit logging failed: {e}")
-
-                # Publish exit signal
-                signal_event = Event(EventType.SIGNAL_GENERATED, exit_signal)
-                await self.event_bus.publish(signal_event, queue_type=QueueType.SIGNAL)
-                return  # Skip entry analysis
-
-            # No exit signal - position still open, skip entry analysis
-            self.logger.debug(
-                f"No exit signal for {candle.symbol}, position still open - "
-                f"skipping entry analysis"
+        if exit_signal is not None:
+            await self._publish_signal_with_audit(
+                signal=exit_signal,
+                candle=candle,
+                operation="exit_analysis",
+                audit_data={
+                    "position_side": position.side,
+                    "position_quantity": position.quantity,
+                },
             )
-            return
+            return True
 
-        # Step 3: No position - Call strategy.analyze() to generate entry signal
+        self.logger.debug(
+            f"No exit signal for {candle.symbol}, position still open - skipping entry analysis"
+        )
+        return False
+
+    async def _process_entry_strategy(self, candle: Candle, strategy: BaseStrategy) -> None:
+        """
+        신규 진입 조건 확인 (Issue #42).
+        """
         try:
             signal = await strategy.analyze(candle)
         except Exception as e:
@@ -711,44 +697,84 @@ class TradingEngine:
             self.logger.error(f"Strategy analysis failed for {candle.symbol}: {e}", exc_info=True)
             return
 
-        # Step 4: If signal exists, publish SIGNAL_GENERATED event
+        # If signal exists, publish SIGNAL_GENERATED event
         if signal is not None:
+            await self._publish_signal_with_audit(
+                signal=signal, candle=candle, operation="candle_analysis"
+            )
+        else:
+            # Info log for no signal (shows strategy is working)
+            self.logger.info(
+                f"✓ No signal: {candle.symbol} {candle.interval} (strategy conditions not met)"
+            )
+
+    async def _publish_signal_with_audit(
+        self,
+        signal: Signal,
+        candle: Candle,
+        operation: str,
+        audit_data: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """
+        Audit Log 기록 및 EventBus 발행 공통 처리 (Issue #42).
+        """
+        # 1. Log generation status
+        if signal.is_exit_signal:
+            self.logger.info(
+                f"Exit signal generated: {signal.signal_type.value} "
+                f"@ {signal.entry_price} (reason: {signal.exit_reason})"
+            )
+        else:
             self.logger.info(
                 f"Entry signal generated: {signal.signal_type.value} "
                 f"@ {signal.entry_price} (TP: {signal.take_profit}, "
                 f"SL: {signal.stop_loss})"
             )
 
-            # Audit log: signal generated from candle analysis
-            try:
-                from src.core.audit_logger import AuditEventType
+        # 2. Audit log: signal generated
+        try:
+            from src.core.audit_logger import AuditEventType
 
-                self.audit_logger.log_event(
-                    event_type=AuditEventType.SIGNAL_PROCESSING,
-                    operation="candle_analysis",
-                    symbol=candle.symbol,
-                    additional_data={
-                        "interval": candle.interval,
-                        "close_price": candle.close,
-                        "signal_generated": True,
-                        "signal_type": signal.signal_type.value,
+            full_audit_data = {
+                "interval": candle.interval,
+                "close_price": candle.close,
+                "signal_generated": True,
+                "signal_type": signal.signal_type.value,
+                "strategy_name": signal.strategy_name,
+            }
+
+            if signal.is_exit_signal:
+                full_audit_data.update(
+                    {
+                        "exit_price": signal.entry_price,
+                        "exit_reason": signal.exit_reason,
+                    }
+                )
+            else:
+                full_audit_data.update(
+                    {
                         "entry_price": signal.entry_price,
                         "take_profit": signal.take_profit,
                         "stop_loss": signal.stop_loss,
-                        "strategy_name": signal.strategy_name,
-                    },
+                    }
                 )
-            except Exception as e:
-                self.logger.warning(f"Audit logging failed: {e}")
 
-            # Create event and publish to 'signal' queue
-            signal_event = Event(EventType.SIGNAL_GENERATED, signal)
-            await self.event_bus.publish(signal_event, queue_type=QueueType.SIGNAL)
-        else:
-            # Info log for no signal (shows strategy is working)
-            self.logger.info(
-                f"✓ No signal: {candle.symbol} {candle.interval} " f"(strategy conditions not met)"
+            # Add any additional audit data passed in
+            if audit_data:
+                full_audit_data.update(audit_data)
+
+            self.audit_logger.log_event(
+                event_type=AuditEventType.SIGNAL_PROCESSING,
+                operation=operation,
+                symbol=candle.symbol,
+                additional_data=full_audit_data,
             )
+        except Exception as e:
+            self.logger.warning(f"Audit logging failed: {e}")
+
+        # 3. Create event and publish to 'signal' queue
+        signal_event = Event(EventType.SIGNAL_GENERATED, signal)
+        await self.event_bus.publish(signal_event, queue_type=QueueType.SIGNAL)
 
     async def _on_signal_generated(self, event: Event) -> None:
         """
