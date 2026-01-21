@@ -10,6 +10,7 @@ Coordinates:
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Dict, Any
 
@@ -561,9 +562,8 @@ class TradingEngine:
 
         Returns:
             Position if exists and cache valid, None otherwise
+            (Returns None on API failure to prevent using stale/uncertain data - Issue #41)
         """
-        import time
-
         current_time = time.time()
 
         # Check if cache exists and is still valid
@@ -578,10 +578,13 @@ class TradingEngine:
             self._position_cache[symbol] = (position, current_time)
             return position
         except Exception as e:
-            self.logger.error(f"Failed to refresh position cache for {symbol}: {e}")
-            # Return stale cache if available, otherwise None
-            if symbol in self._position_cache:
-                return self._position_cache[symbol][0]
+            self.logger.error(
+                f"Failed to refresh position cache for {symbol}: {e}. "
+                f"Returning None to indicate uncertain state (Issue #41)."
+            )
+            # CRITICAL: Do NOT update self._position_cache[symbol] here.
+            # This allows callers to distinguish between success (None in cache)
+            # and failure (expired data in cache).
             return None
 
     def _invalidate_position_cache(self, symbol: str) -> None:
@@ -638,6 +641,24 @@ class TradingEngine:
 
         # 2. Routing (Issue #42)
         current_position = self._get_cached_position(candle.symbol)
+
+        # Issue #41: Handle uncertain position state.
+        # If _get_cached_position returns None, it could be "No Position" or "API Failure".
+        # We must skip analysis if the state is uncertain to prevent incorrect entries.
+        if current_position is None:
+            # Check if cache was actually updated successfully (confirmed None state)
+            if candle.symbol not in self._position_cache:
+                self.logger.warning(f"Position state unknown for {candle.symbol}, skipping analysis")
+                return
+
+            _, cache_time = self._position_cache[candle.symbol]
+            if time.time() - cache_time >= self._position_cache_ttl:
+                # Cache is stale, meaning _get_cached_position failed to refresh it
+                self.logger.warning(
+                    f"Position state uncertain for {candle.symbol} (cache expired and refresh failed), "
+                    f"skipping analysis to prevent incorrect entry"
+                )
+                return
 
         if current_position is not None:
             # Position exists - check exit conditions first (Issue #25)

@@ -804,6 +804,8 @@ class TestIntervalFiltering:
 
         # Mock other components
         engine.event_bus = AsyncMock()
+        engine.order_manager = Mock()
+        engine.order_manager.get_position.return_value = None
         engine.logger = Mock()
 
         # Create candle with required interval '5m'
@@ -848,6 +850,8 @@ class TestIntervalFiltering:
 
         # Mock other components
         engine.event_bus = AsyncMock()
+        engine.order_manager = Mock()
+        engine.order_manager.get_position.return_value = None
         engine.logger = Mock()
 
         # Create candle with unrequired interval '15m'
@@ -900,6 +904,8 @@ class TestIntervalFiltering:
 
         # Mock other components
         engine.event_bus = AsyncMock()
+        engine.order_manager = Mock()
+        engine.order_manager.get_position.return_value = None
         engine.logger = Mock()
 
         # Create candle with strategy's registered interval '5m'
@@ -948,6 +954,8 @@ class TestIntervalFiltering:
 
         # Mock other components
         engine.event_bus = AsyncMock()
+        engine.order_manager = Mock()
+        engine.order_manager.get_position.return_value = None
         engine.logger = Mock()
 
         # Create candle with unregistered interval '1h'
@@ -1078,3 +1086,95 @@ class TestBackfillIntervalFix:
         ]
         assert set(called_intervals) == {"5m", "1h"}
         assert set(called_intervals).issubset(set(mock_data_collector.intervals))
+
+
+class TestIssue41PositionUncertainty:
+    """Tests for Issue #41: Handle uncertain position state gracefully."""
+
+    @pytest.mark.asyncio
+    async def test_on_candle_closed_skips_on_position_refresh_failure(self):
+        """Verify _on_candle_closed() skips analysis when position refresh fails."""
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock strategy
+        engine.strategy = AsyncMock()
+        engine.strategy.intervals = ['1h']
+        engine.strategies = {"BTCUSDT": engine.strategy}
+
+        # Mock OrderManager to RAISE an exception on get_position
+        engine.order_manager = Mock()
+        engine.order_manager.get_position.side_effect = Exception("API Connection Error")
+
+        # Mock other components
+        engine.event_bus = AsyncMock()
+        engine.logger = Mock()
+        engine._position_cache_ttl = 5.0
+
+        # Create candle
+        candle = Candle(
+            symbol="BTCUSDT",
+            interval="1h",
+            open_time=datetime.now(timezone.utc),
+            close_time=datetime.now(timezone.utc),
+            open=50000.0,
+            high=51000.0,
+            low=49000.0,
+            close=50500.0,
+            volume=100.0,
+            is_closed=True,
+        )
+        event = Event(EventType.CANDLE_CLOSED, candle)
+
+        # Process candle - should skip analysis because refresh fails and returns None
+        # but cache is not updated (missing/stale)
+        await engine._on_candle_closed(event)
+
+        # Verify strategy.analyze() was NEVER called
+        engine.strategy.analyze.assert_not_called()
+
+        # Verify warning log was called for uncertain state
+        engine.logger.warning.assert_called()
+        assert any("uncertain" in str(arg).lower() or "unknown" in str(arg).lower()
+                  for call in engine.logger.warning.call_args_list for arg in call[0])
+
+    @pytest.mark.asyncio
+    async def test_on_candle_closed_proceeds_on_confirmed_no_position(self):
+        """Verify _on_candle_closed() proceeds when position state is confirmed (None)."""
+        mock_audit_logger = MagicMock()
+        engine = TradingEngine(audit_logger=mock_audit_logger)
+
+        # Mock strategy
+        engine.strategy = AsyncMock()
+        engine.strategy.intervals = ['1h']
+        engine.strategy.analyze = AsyncMock(return_value=None)
+        engine.strategies = {"BTCUSDT": engine.strategy}
+
+        # Mock OrderManager to return None (No position)
+        engine.order_manager = Mock()
+        engine.order_manager.get_position.return_value = None
+
+        # Mock other components
+        engine.event_bus = AsyncMock()
+        engine.logger = Mock()
+
+        # Create candle
+        candle = Candle(
+            symbol="BTCUSDT",
+            interval="1h",
+            open_time=datetime.now(timezone.utc),
+            close_time=datetime.now(timezone.utc),
+            open=50000.0,
+            high=51000.0,
+            low=49000.0,
+            close=50500.0,
+            volume=100.0,
+            is_closed=True,
+        )
+        event = Event(EventType.CANDLE_CLOSED, candle)
+
+        # Process candle - should proceed to analysis
+        await engine._on_candle_closed(event)
+
+        # Verify strategy.analyze() WAS called
+        engine.strategy.analyze.assert_called_once_with(candle)
