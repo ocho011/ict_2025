@@ -8,14 +8,12 @@ import pytest
 
 from src.models.candle import Candle
 from src.models.enriched_candle import EnrichedCandle
-from src.models.ict_signals import (
-    Displacement,
-    StructureBreak,
-)
 from src.models.features import (
+    Displacement,
     FairValueGap,
     FeatureStatus,
     OrderBlock,
+    StructureBreak,
 )
 
 
@@ -71,6 +69,8 @@ def sample_order_block():
 def sample_displacement():
     """Create a sample Displacement."""
     return Displacement(
+        id="5m_0_disp",
+        interval="5m",
         index=0,
         direction="bullish",
         start_price=50000.0,
@@ -84,6 +84,8 @@ def sample_displacement():
 def sample_structure_break():
     """Create a sample Structure Break."""
     return StructureBreak(
+        id="5m_0_bos",
+        interval="5m",
         index=0,
         type="BOS",
         direction="bullish",
@@ -157,6 +159,8 @@ class TestBullishSetup:
     ):
         """Test bullish setup fails with bearish structure break."""
         bearish_break = StructureBreak(
+            id="5m_0_bos_bearish",
+            interval="5m",
             index=0,
             type="BOS",
             direction="bearish",
@@ -188,6 +192,8 @@ class TestBearishSetup:
             gap_size=100.0,
         )
         bearish_break = StructureBreak(
+            id="5m_0_bos_bearish",
+            interval="5m",
             index=0,
             type="BOS",
             direction="bearish",
@@ -379,6 +385,8 @@ class TestChangeOfCharacter:
     def test_has_change_of_character_true(self, sample_candle):
         """Test CHoCH detection."""
         choch = StructureBreak(
+            id="5m_0_choch",
+            interval="5m",
             index=0,
             type="CHoCH",
             direction="bullish",
@@ -394,6 +402,8 @@ class TestChangeOfCharacter:
     def test_has_change_of_character_bos(self, sample_candle):
         """Test CHoCH detection with BOS (should be False)."""
         bos = StructureBreak(
+            id="5m_0_bos",
+            interval="5m",
             index=0,
             type="BOS",
             direction="bullish",

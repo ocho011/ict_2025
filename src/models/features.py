@@ -44,6 +44,11 @@ class FeatureType(Enum):
     FAIR_VALUE_GAP = "fvg"
     MARKET_STRUCTURE = "market_structure"
     LIQUIDITY = "liquidity"
+    SWING_POINT = "swing_point"
+    STRUCTURE_BREAK = "structure_break"
+    INDUCEMENT = "inducement"
+    DISPLACEMENT = "displacement"
+    LIQUIDITY_SWEEP = "liquidity_sweep"
 
 
 @dataclass(frozen=True)
@@ -418,3 +423,70 @@ class LiquidityLevel:
             swept=True,
             sweep_timestamp=datetime.utcnow(),
         )
+
+@dataclass(frozen=True)
+class SwingPoint:
+    id: str
+    interval: str
+    index: int
+    price: float
+    type: str  # "high" or "low"
+    timestamp: datetime
+    strength: int = 5
+
+
+@dataclass(frozen=True)
+class StructureBreak:
+    id: str
+    interval: str
+    index: int
+    type: str  # "BOS" or "CHoCH"
+    direction: str  # "bullish" or "bearish"
+    broken_level: float
+    timestamp: datetime
+
+
+@dataclass(frozen=True)
+class Inducement:
+    id: str
+    interval: str
+    index: int
+    type: str  # "liquidity_grab", "minor_break", etc.
+    direction: str  # "bullish" or "bearish"
+    price: float
+    timestamp: datetime
+
+
+@dataclass(frozen=True)
+class Displacement:
+    id: str
+    interval: str
+    index: int
+    direction: str  # "bullish" or "bearish"
+    start_price: float
+    end_price: float
+    displacement_ratio: float
+    timestamp: datetime
+
+
+@dataclass(frozen=True)
+class LiquiditySweep:
+    id: str
+    interval: str
+    index: int
+    direction: str  # "bullish" or "bearish"
+    swept_level: float
+    reversal_started: bool
+    timestamp: datetime
+
+
+@dataclass(frozen=True)
+class Mitigation:
+    id: str
+    interval: str
+    index: int
+    type: str  # "FVG", "OB", etc.
+    high: float
+    low: float
+    timestamp: datetime
+    mitigated: bool = False

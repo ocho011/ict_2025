@@ -7,7 +7,7 @@ from collections import deque
 from typing import List, Optional, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import StructureBreak, SwingPoint
+from src.models import StructureBreak, SwingPoint
 
 
 def identify_swing_highs(
@@ -51,6 +51,8 @@ def identify_swing_highs(
         if is_higher_than_left and is_higher_than_right:
             swing_highs.append(
                 SwingPoint(
+                    id=f"{candles_list[i].interval}_{i}_high",
+                    interval=candles_list[i].interval,
                     index=i,
                     price=current_high,
                     type="high",
@@ -101,6 +103,8 @@ def identify_swing_lows(
         if is_lower_than_left and is_lower_than_right:
             swing_lows.append(
                 SwingPoint(
+                    id=f"{candles_list[i].interval}_{i}_low",
+                    interval=candles_list[i].interval,
                     index=i,
                     price=current_low,
                     type="low",
@@ -161,6 +165,8 @@ def detect_bos(
 
             bos_events.append(
                 StructureBreak(
+                    id=f"{candles_list[break_index].interval}_{break_index}_bos_bullish",
+                    interval=candles_list[break_index].interval,
                     index=break_index,
                     type="BOS",
                     direction="bullish",
@@ -185,6 +191,8 @@ def detect_bos(
 
             bos_events.append(
                 StructureBreak(
+                    id=f"{candles_list[break_index].interval}_{break_index}_bos_bearish",
+                    interval=candles_list[break_index].interval,
                     index=break_index,
                     type="BOS",
                     direction="bearish",
@@ -245,6 +253,8 @@ def detect_choch(
                 if recent_lows and any(sl.price < prev_swing_high.price for sl in recent_lows):
                     choch_events.append(
                         StructureBreak(
+                            id=f"{candles_list[j].interval}_{j}_choch_bullish",
+                            interval=candles_list[j].interval,
                             index=j,
                             type="CHoCH",
                             direction="bullish",
@@ -271,6 +281,8 @@ def detect_choch(
                 if recent_highs and any(sh.price > prev_swing_low.price for sh in recent_highs):
                     choch_events.append(
                         StructureBreak(
+                            id=f"{candles_list[j].interval}_{j}_choch_bearish",
+                            interval=candles_list[j].interval,
                             index=j,
                             type="CHoCH",
                             direction="bearish",

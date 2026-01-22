@@ -10,13 +10,11 @@ from typing import Optional
 
 from src.models.candle import Candle
 from src.models.enriched_candle import EnrichedCandle
-from src.models.ict_signals import (
-    Displacement,
-    StructureBreak,
-)
 from src.models.features import (
+    Displacement,
     FairValueGap,
     OrderBlock,
+    StructureBreak,
 )
 
 
