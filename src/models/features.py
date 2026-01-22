@@ -97,9 +97,13 @@ class OrderBlock:
     def __post_init__(self):
         """Validate OrderBlock on creation."""
         if self.direction not in ("bullish", "bearish"):
-            raise ValueError(f"Invalid direction: {self.direction}. Must be 'bullish' or 'bearish'")
+            raise ValueError(
+                f"Invalid direction: {self.direction}. Must be 'bullish' or 'bearish'"
+            )
         if self.high <= self.low:
-            raise ValueError(f"Invalid OB zone: high ({self.high}) must be > low ({self.low})")
+            raise ValueError(
+                f"Invalid OB zone: high ({self.high}) must be > low ({self.low})"
+            )
         if self.strength < 0:
             raise ValueError(f"Invalid strength: {self.strength}. Must be >= 0")
 
@@ -142,7 +146,9 @@ class OrderBlock:
             strength=self.strength,
             status=new_status,
             touch_count=updates.get("touch_count", self.touch_count),
-            mitigation_percent=updates.get("mitigation_percent", self.mitigation_percent),
+            mitigation_percent=updates.get(
+                "mitigation_percent", self.mitigation_percent
+            ),
             created_at=self.created_at,
             last_updated=datetime.utcnow(),
         )
@@ -197,7 +203,9 @@ class FairValueGap:
     def __post_init__(self):
         """Validate FVG on creation."""
         if self.direction not in ("bullish", "bearish"):
-            raise ValueError(f"Invalid direction: {self.direction}. Must be 'bullish' or 'bearish'")
+            raise ValueError(
+                f"Invalid direction: {self.direction}. Must be 'bullish' or 'bearish'"
+            )
         if self.gap_high <= self.gap_low:
             raise ValueError(
                 f"Invalid FVG: gap_high ({self.gap_high}) must be > gap_low ({self.gap_low})"
@@ -232,7 +240,11 @@ class FairValueGap:
 
         Returns True if FVG is no longer tradeable (mitigated, filled, or invalidated).
         """
-        return self.status in (FeatureStatus.MITIGATED, FeatureStatus.FILLED, FeatureStatus.INVALIDATED)
+        return self.status in (
+            FeatureStatus.MITIGATED,
+            FeatureStatus.FILLED,
+            FeatureStatus.INVALIDATED,
+        )
 
     @property
     def index(self) -> int:
@@ -295,7 +307,9 @@ class MarketStructure:
     def __post_init__(self):
         """Validate MarketStructure on creation."""
         if self.trend not in ("bullish", "bearish", "sideways"):
-            raise ValueError(f"Invalid trend: {self.trend}. Must be 'bullish', 'bearish', or 'sideways'")
+            raise ValueError(
+                f"Invalid trend: {self.trend}. Must be 'bullish', 'bearish', or 'sideways'"
+            )
         if self.last_swing_high <= self.last_swing_low:
             raise ValueError(
                 f"Invalid swings: last_swing_high ({self.last_swing_high}) "
@@ -363,13 +377,16 @@ class LiquidityLevel:
     price: float
     strength: int
     timestamp: datetime
+    candle_index: int = 0
     swept: bool = False
     sweep_timestamp: Optional[datetime] = None
 
     def __post_init__(self):
         """Validate LiquidityLevel on creation."""
         if self.level_type not in ("bsl", "ssl"):
-            raise ValueError(f"Invalid level_type: {self.level_type}. Must be 'bsl' or 'ssl'")
+            raise ValueError(
+                f"Invalid level_type: {self.level_type}. Must be 'bsl' or 'ssl'"
+            )
         if self.strength < 1:
             raise ValueError(f"Invalid strength: {self.strength}. Must be >= 1")
 
@@ -397,6 +414,7 @@ class LiquidityLevel:
             price=self.price,
             strength=self.strength,
             timestamp=self.timestamp,
+            candle_index=self.candle_index,
             swept=True,
             sweep_timestamp=datetime.utcnow(),
         )

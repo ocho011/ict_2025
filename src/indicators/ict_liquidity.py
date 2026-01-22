@@ -4,18 +4,20 @@ Identifies equal highs/lows, premium/discount zones, and liquidity sweeps
 """
 
 from collections import deque
-from typing import List, Optional, Tuple, Union
+from typing import List, Literal, Optional, Tuple, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import LiquidityLevel, LiquiditySweep
+from src.models.ict_signals import LiquiditySweep
+from src.models.features import LiquidityLevel
 
 
 def find_equal_highs(
     candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
     tolerance_percent: float = 0.001,
     min_touches: int = 2,
     lookback: int = 20,
-) -> List[LiquidityLevel]:
+) -> List["LiquidityLevel"]:
     """
     Find equal highs (Buy Side Liquidity - BSL).
 
@@ -24,6 +26,7 @@ def find_equal_highs(
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         tolerance_percent: Price tolerance for "equal" (default 0.1%)
         min_touches: Minimum number of touches required (default 2)
         lookback: Number of candles to look back for patterns
@@ -77,15 +80,18 @@ def find_equal_highs(
         # If we have enough touches, create liquidity level
         if len(touches) >= min_touches:
             avg_price = sum(h for _, _, h, _ in touches) / len(touches)
+            level_id = f"{interval}_{avg_price}_bsl"
 
             equal_highs.append(
                 LiquidityLevel(
-                    index=current_idx,
-                    type="BSL",
+                    id=level_id,
+                    interval=interval,
+                    level_type="bsl",
                     price=avg_price,
+                    strength=len(touches),
                     timestamp=current_time,
+                    candle_index=current_idx,
                     swept=False,
-                    num_touches=len(touches),
                 )
             )
 
@@ -96,10 +102,11 @@ def find_equal_highs(
 
 def find_equal_lows(
     candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
     tolerance_percent: float = 0.001,
     min_touches: int = 2,
     lookback: int = 20,
-) -> List[LiquidityLevel]:
+) -> List["LiquidityLevel"]:
     """
     Find equal lows (Sell Side Liquidity - SSL).
 
@@ -108,6 +115,7 @@ def find_equal_lows(
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         tolerance_percent: Price tolerance for "equal" (default 0.1%)
         min_touches: Minimum number of touches required (default 2)
         lookback: Number of candles to look back for patterns
@@ -161,15 +169,18 @@ def find_equal_lows(
         # If we have enough touches, create liquidity level
         if len(touches) >= min_touches:
             avg_price = sum(l for _, _, l, _ in touches) / len(touches)
+            level_id = f"{interval}_{avg_price}_ssl"
 
             equal_lows.append(
                 LiquidityLevel(
-                    index=current_idx,
-                    type="SSL",
+                    id=level_id,
+                    interval=interval,
+                    level_type="ssl",
                     price=avg_price,
+                    strength=len(touches),
                     timestamp=current_time,
+                    candle_index=current_idx,
                     swept=False,
-                    num_touches=len(touches),
                 )
             )
 
@@ -245,7 +256,7 @@ def is_in_discount(current_price: float, range_low: float, range_high: float) ->
 
 def detect_liquidity_sweep(
     candles: Union[List[Candle], deque[Candle]],
-    liquidity_levels: List[LiquidityLevel],
+    liquidity_levels: List["LiquidityLevel"],
     reversal_threshold: float = 0.5,
 ) -> List[LiquiditySweep]:
     """
@@ -270,20 +281,20 @@ def detect_liquidity_sweep(
             continue  # Already swept
 
         # Check each candle after the liquidity level
-        for i in range(level.index + 1, len(candles_list)):
+        for i in range(level.candle_index + 1, len(candles_list)):
             candle = candles_list[i]
 
             swept = False
             reversal_started = False
-            direction = None
+            direction: Optional[Literal["bullish", "bearish"]] = None
 
             # Check for BSL sweep (price goes above, then reverses down)
-            if level.type == "BSL" and candle.high > level.price:
+            if level.level_type == "bsl" and candle.high > level.price:
                 swept = True
                 direction = "bearish"
 
                 # Check if price reversed back through the level
-                # A true reversal means price comes back below the swept level
+                # A true ICT reversal: price must come back below the swept level
                 for j in range(i + 1, min(i + 5, len(candles_list))):
                     future_candle = candles_list[j]
 
@@ -293,12 +304,12 @@ def detect_liquidity_sweep(
                         break
 
             # Check for SSL sweep (price goes below, then reverses up)
-            elif level.type == "SSL" and candle.low < level.price:
+            elif level.level_type == "ssl" and candle.low < level.price:
                 swept = True
                 direction = "bullish"
 
                 # Check if price reversed back through the level
-                # A true reversal means price comes back above the swept level
+                # A true ICT reversal: price must come back above the swept level
                 for j in range(i + 1, min(i + 5, len(candles_list))):
                     future_candle = candles_list[j]
 
@@ -307,9 +318,7 @@ def detect_liquidity_sweep(
                         reversal_started = True
                         break
 
-            if swept:
-                level.swept = True
-
+            if swept and direction is not None:
                 sweeps.append(
                     LiquiditySweep(
                         index=i,
@@ -372,7 +381,9 @@ def find_liquidity_voids(
 
 
 def get_liquidity_draw(
-    current_price: float, liquidity_levels: List[LiquidityLevel], direction: str = "both"
+    current_price: float,
+    liquidity_levels: List[LiquidityLevel],
+    direction: str = "both",
 ) -> Optional[LiquidityLevel]:
     """
     Get the nearest liquidity draw (magnet) for price.

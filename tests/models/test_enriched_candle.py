@@ -10,9 +10,12 @@ from src.models.candle import Candle
 from src.models.enriched_candle import EnrichedCandle
 from src.models.ict_signals import (
     Displacement,
-    FairValueGap,
-    OrderBlock,
     StructureBreak,
+)
+from src.models.features import (
+    FairValueGap,
+    FeatureStatus,
+    OrderBlock,
 )
 
 
@@ -37,12 +40,14 @@ def sample_candle():
 def sample_fvg():
     """Create a sample FVG."""
     return FairValueGap(
-        index=0,
+        id="fvg_1",
+        interval="5m",
         direction="bullish",
         gap_high=50100.0,
         gap_low=50000.0,
         timestamp=datetime.now(timezone.utc),
-        filled=False,
+        candle_index=0,
+        gap_size=100.0,
     )
 
 
@@ -50,11 +55,13 @@ def sample_fvg():
 def sample_order_block():
     """Create a sample Order Block."""
     return OrderBlock(
-        index=0,
+        id="ob_1",
+        interval="5m",
         direction="bullish",
         high=50200.0,
         low=50000.0,
         timestamp=datetime.now(timezone.utc),
+        candle_index=0,
         displacement_size=300.0,
         strength=1.8,
     )
@@ -171,11 +178,14 @@ class TestBearishSetup:
     def test_has_bearish_setup_true(self, sample_candle):
         """Test bearish setup detection (FVG + BOS)."""
         bearish_fvg = FairValueGap(
-            index=0,
+            id="fvg_bearish",
+            interval="5m",
             direction="bearish",
             gap_high=50100.0,
             gap_low=50000.0,
             timestamp=datetime.now(timezone.utc),
+            candle_index=0,
+            gap_size=100.0,
         )
         bearish_break = StructureBreak(
             index=0,
@@ -230,12 +240,14 @@ class TestFVGMethods:
     def test_has_unfilled_fvgs(self, sample_candle):
         """Test unfilled FVG detection."""
         unfilled_fvg = FairValueGap(
-            index=0,
+            id="fvg_u",
+            interval="5m",
             direction="bullish",
             gap_high=50100.0,
             gap_low=50000.0,
             timestamp=datetime.now(timezone.utc),
-            filled=False,
+            candle_index=0,
+            gap_size=100.0,
         )
         enriched = EnrichedCandle(candle=sample_candle, fvgs=(unfilled_fvg,))
 
@@ -244,12 +256,15 @@ class TestFVGMethods:
     def test_has_unfilled_fvgs_all_filled(self, sample_candle):
         """Test unfilled FVG detection when all filled."""
         filled_fvg = FairValueGap(
-            index=0,
+            id="fvg_f",
+            interval="5m",
             direction="bullish",
             gap_high=50100.0,
             gap_low=50000.0,
             timestamp=datetime.now(timezone.utc),
-            filled=True,
+            candle_index=0,
+            gap_size=100.0,
+            status=FeatureStatus.FILLED,
         )
         enriched = EnrichedCandle(candle=sample_candle, fvgs=(filled_fvg,))
 
@@ -258,18 +273,24 @@ class TestFVGMethods:
     def test_get_bullish_fvgs(self, sample_candle):
         """Test filtering bullish FVGs."""
         bullish_fvg = FairValueGap(
-            index=0,
+            id="fvg_bull",
+            interval="5m",
             direction="bullish",
             gap_high=50100.0,
             gap_low=50000.0,
             timestamp=datetime.now(timezone.utc),
+            candle_index=0,
+            gap_size=100.0,
         )
         bearish_fvg = FairValueGap(
-            index=1,
+            id="fvg_bear",
+            interval="5m",
             direction="bearish",
             gap_high=50100.0,
             gap_low=50000.0,
             timestamp=datetime.now(timezone.utc),
+            candle_index=1,
+            gap_size=100.0,
         )
         enriched = EnrichedCandle(
             candle=sample_candle, fvgs=(bullish_fvg, bearish_fvg)
@@ -282,18 +303,24 @@ class TestFVGMethods:
     def test_get_bearish_fvgs(self, sample_candle):
         """Test filtering bearish FVGs."""
         bullish_fvg = FairValueGap(
-            index=0,
+            id="fvg_bull",
+            interval="5m",
             direction="bullish",
             gap_high=50100.0,
             gap_low=50000.0,
             timestamp=datetime.now(timezone.utc),
+            candle_index=0,
+            gap_size=100.0,
         )
         bearish_fvg = FairValueGap(
-            index=1,
+            id="fvg_bear",
+            interval="5m",
             direction="bearish",
             gap_high=50100.0,
             gap_low=50000.0,
             timestamp=datetime.now(timezone.utc),
+            candle_index=1,
+            gap_size=100.0,
         )
         enriched = EnrichedCandle(
             candle=sample_candle, fvgs=(bullish_fvg, bearish_fvg)
@@ -310,20 +337,24 @@ class TestOrderBlockMethods:
     def test_get_strongest_order_block(self, sample_candle):
         """Test getting strongest order block."""
         ob1 = OrderBlock(
-            index=0,
+            id="ob1",
+            interval="5m",
             direction="bullish",
             high=50200.0,
             low=50000.0,
             timestamp=datetime.now(timezone.utc),
+            candle_index=0,
             displacement_size=300.0,
             strength=1.5,
         )
         ob2 = OrderBlock(
-            index=1,
+            id="ob2",
+            interval="5m",
             direction="bullish",
             high=50300.0,
             low=50100.0,
             timestamp=datetime.now(timezone.utc),
+            candle_index=1,
             displacement_size=400.0,
             strength=2.1,
         )

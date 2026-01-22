@@ -51,7 +51,11 @@ from src.indicators.ict_order_block import (
 )
 
 # ICT Smart Money Concepts
-from src.indicators.ict_smc import detect_displacement, detect_inducement, find_mitigation_zone
+from src.indicators.ict_smc import (
+    detect_displacement,
+    detect_inducement,
+    find_mitigation_zone,
+)
 from src.models.candle import Candle
 from src.models.signal import Signal, SignalType
 from src.strategies.multi_timeframe import MultiTimeframeStrategy
@@ -106,9 +110,9 @@ class ICTStrategy(MultiTimeframeStrategy):
             - LTF (Low Timeframe): Entry timing (default: 5m)
         """
         # Configure MTF intervals
-        ltf_interval = config.get('ltf_interval', '5m')
-        mtf_interval = config.get('mtf_interval', '1h')
-        htf_interval = config.get('htf_interval', '4h')
+        ltf_interval = config.get("ltf_interval", "5m")
+        mtf_interval = config.get("mtf_interval", "1h")
+        htf_interval = config.get("htf_interval", "4h")
 
         intervals = [ltf_interval, mtf_interval, htf_interval]
 
@@ -203,9 +207,7 @@ class ICTStrategy(MultiTimeframeStrategy):
                 f"[{self.__class__.__name__}] Feature cache enabled for {self.symbol}"
             )
 
-    async def analyze_mtf(
-        self, candle: Candle, buffers: dict
-    ) -> Optional[Signal]:
+    async def analyze_mtf(self, candle: Candle, buffers: dict) -> Optional[Signal]:
         """
         Analyze candle using ICT methodology with Multi-Timeframe structure (Issue #7).
 
@@ -270,7 +272,9 @@ class ICTStrategy(MultiTimeframeStrategy):
             trend = get_current_trend(candle_buffer, swing_lookback=self.swing_lookback)
 
         if trend is None or trend == "sideways":
-            self.logger.debug(f"[{self.symbol}] No clear trend detected (swing_lookback={self.swing_lookback})")
+            self.logger.debug(
+                f"[{self.symbol}] No clear trend detected (swing_lookback={self.swing_lookback})"
+            )
             return None  # No clear trend
 
         # Step 3: Premium/Discount Zone
@@ -281,37 +285,65 @@ class ICTStrategy(MultiTimeframeStrategy):
         current_price = candle.close
 
         # Step 4: FVG/OB Detection - Use feature cache if available (Issue #19)
+        mtf_interval = self.mtf_interval
         if self._feature_cache is not None:
             # Use pre-computed features from cache (O(f) lookup)
-            mtf_interval = self.mtf_interval
-            bullish_fvgs_cached = self._feature_cache.get_active_fvgs(mtf_interval, "bullish")
-            bearish_fvgs_cached = self._feature_cache.get_active_fvgs(mtf_interval, "bearish")
-            bullish_obs_cached = self._feature_cache.get_active_order_blocks(mtf_interval, "bullish")
-            bearish_obs_cached = self._feature_cache.get_active_order_blocks(mtf_interval, "bearish")
+            bullish_fvgs_cached = self._feature_cache.get_active_fvgs(
+                mtf_interval, "bullish"
+            )
+            bearish_fvgs_cached = self._feature_cache.get_active_fvgs(
+                mtf_interval, "bearish"
+            )
+            bullish_obs_cached = self._feature_cache.get_active_order_blocks(
+                mtf_interval, "bullish"
+            )
+            bearish_obs_cached = self._feature_cache.get_active_order_blocks(
+                mtf_interval, "bearish"
+            )
 
             # Convert cached features to legacy format for compatibility
             # Note: Cached OBs already have strength filtering applied at detection
             bullish_fvgs = bullish_fvgs_cached
             bearish_fvgs = bearish_fvgs_cached
-            bullish_obs = [ob for ob in bullish_obs_cached if ob.strength >= self.ob_min_strength]
-            bearish_obs = [ob for ob in bearish_obs_cached if ob.strength >= self.ob_min_strength]
+            bullish_obs = [
+                ob for ob in bullish_obs_cached if ob.strength >= self.ob_min_strength
+            ]
+            bearish_obs = [
+                ob for ob in bearish_obs_cached if ob.strength >= self.ob_min_strength
+            ]
         else:
             # Fallback: Full recalculation (O(n) per call)
             bullish_fvgs = detect_bullish_fvg(
-                candle_buffer, min_gap_percent=self.fvg_min_gap_percent
+                candle_buffer,
+                interval=mtf_interval,
+                min_gap_percent=self.fvg_min_gap_percent,
             )
             bearish_fvgs = detect_bearish_fvg(
-                candle_buffer, min_gap_percent=self.fvg_min_gap_percent
+                candle_buffer,
+                interval=mtf_interval,
+                min_gap_percent=self.fvg_min_gap_percent,
             )
 
             bullish_obs, bearish_obs = (
-                identify_bullish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
-                identify_bearish_ob(candle_buffer, displacement_ratio=self.displacement_ratio),
+                identify_bullish_ob(
+                    candle_buffer,
+                    interval=mtf_interval,
+                    displacement_ratio=self.displacement_ratio,
+                ),
+                identify_bearish_ob(
+                    candle_buffer,
+                    interval=mtf_interval,
+                    displacement_ratio=self.displacement_ratio,
+                ),
             )
 
             # Filter OBs by strength
-            bullish_obs = [ob for ob in bullish_obs if ob.strength >= self.ob_min_strength]
-            bearish_obs = [ob for ob in bearish_obs if ob.strength >= self.ob_min_strength]
+            bullish_obs = [
+                ob for ob in bullish_obs if ob.strength >= self.ob_min_strength
+            ]
+            bearish_obs = [
+                ob for ob in bearish_obs if ob.strength >= self.ob_min_strength
+            ]
 
         # Step 5: Liquidity Analysis
         equal_highs = find_equal_highs(
@@ -336,7 +368,9 @@ class ICTStrategy(MultiTimeframeStrategy):
         # and cached FVGs are immutable so find_mitigation_zone would fail)
         if self._feature_cache is None:
             _mitigations = find_mitigation_zone(
-                candle_buffer, fvgs=bullish_fvgs + bearish_fvgs, obs=bullish_obs + bearish_obs
+                candle_buffer,
+                fvgs=bullish_fvgs + bearish_fvgs,
+                obs=bullish_obs + bearish_obs,
             )
 
         # Condition tracking for tuning analysis
@@ -361,9 +395,13 @@ class ICTStrategy(MultiTimeframeStrategy):
             # Mitigation means price is dipping INTO the zone from above
             candidate_fvgs = [f for f in bullish_fvgs if f.gap_low < current_price]
             candidate_obs = [ob for ob in bullish_obs if ob.low < current_price]
-            
-            nearest_fvg = find_nearest_fvg(candidate_fvgs, current_price, direction="bullish")
-            nearest_ob = find_nearest_ob(candidate_obs, current_price, direction="bullish")
+
+            nearest_fvg = find_nearest_fvg(
+                candidate_fvgs, current_price, direction="bullish"
+            )
+            nearest_ob = find_nearest_ob(
+                candidate_obs, current_price, direction="bullish"
+            )
 
             # Track FVG/OB condition
             has_fvg_ob = nearest_fvg is not None or nearest_ob is not None
@@ -381,7 +419,9 @@ class ICTStrategy(MultiTimeframeStrategy):
 
             # Check for recent displacement (bullish move)
             recent_displacement = any(
-                disp.direction == "bullish" for disp in displacements[-3:] if displacements
+                disp.direction == "bullish"
+                for disp in displacements[-3:]
+                if displacements
             )
 
             # Track displacement condition
@@ -393,7 +433,11 @@ class ICTStrategy(MultiTimeframeStrategy):
             # 2. Recent bearish inducement (trapped shorts)
             # 3. Recent bullish displacement (smart money buying)
             # 4. Near bullish FVG or OB (mitigation zone)
-            if recent_inducement and recent_displacement and (nearest_fvg or nearest_ob):
+            if (
+                recent_inducement
+                and recent_displacement
+                and (nearest_fvg or nearest_ob)
+            ):
                 # All conditions met
                 self.condition_stats["all_conditions_ok"] += 1
                 self.condition_stats["signals_generated"] += 1
@@ -408,10 +452,14 @@ class ICTStrategy(MultiTimeframeStrategy):
                 side = "LONG"
 
                 # Calculate TP (next BSL or displacement extension)
-                take_profit = self.calculate_take_profit(entry_price, side, candle_buffer)
+                take_profit = self.calculate_take_profit(
+                    entry_price, side, candle_buffer
+                )
 
                 # Calculate SL (below FVG/OB zone)
-                stop_loss = self.calculate_stop_loss(entry_price, side, nearest_fvg, nearest_ob)
+                stop_loss = self.calculate_stop_loss(
+                    entry_price, side, nearest_fvg, nearest_ob
+                )
 
                 return Signal(
                     signal_type=SignalType.LONG_ENTRY,
@@ -425,7 +473,9 @@ class ICTStrategy(MultiTimeframeStrategy):
                         "trend": trend,
                         "zone": "discount",
                         "killzone": (
-                            get_active_killzone(candle.open_time) if self.use_killzones else None
+                            get_active_killzone(candle.open_time)
+                            if self.use_killzones
+                            else None
                         ),
                         "fvg_present": nearest_fvg is not None,
                         "ob_present": nearest_ob is not None,
@@ -443,9 +493,13 @@ class ICTStrategy(MultiTimeframeStrategy):
             # Mitigation means price is rising INTO the zone from below
             candidate_fvgs = [f for f in bearish_fvgs if f.gap_high > current_price]
             candidate_obs = [ob for ob in bearish_obs if ob.high > current_price]
-            
-            nearest_fvg = find_nearest_fvg(candidate_fvgs, current_price, direction="bearish")
-            nearest_ob = find_nearest_ob(candidate_obs, current_price, direction="bearish")
+
+            nearest_fvg = find_nearest_fvg(
+                candidate_fvgs, current_price, direction="bearish"
+            )
+            nearest_ob = find_nearest_ob(
+                candidate_obs, current_price, direction="bearish"
+            )
 
             # Track FVG/OB condition
             has_fvg_ob = nearest_fvg is not None or nearest_ob is not None
@@ -463,7 +517,9 @@ class ICTStrategy(MultiTimeframeStrategy):
 
             # Check for recent displacement (bearish move)
             recent_displacement = any(
-                disp.direction == "bearish" for disp in displacements[-3:] if displacements
+                disp.direction == "bearish"
+                for disp in displacements[-3:]
+                if displacements
             )
 
             # Track displacement condition
@@ -475,7 +531,11 @@ class ICTStrategy(MultiTimeframeStrategy):
             # 2. Recent bullish inducement (trapped longs)
             # 3. Recent bearish displacement (smart money selling)
             # 4. Near bearish FVG or OB (mitigation zone)
-            if recent_inducement and recent_displacement and (nearest_fvg or nearest_ob):
+            if (
+                recent_inducement
+                and recent_displacement
+                and (nearest_fvg or nearest_ob)
+            ):
                 # All conditions met
                 self.condition_stats["all_conditions_ok"] += 1
                 self.condition_stats["signals_generated"] += 1
@@ -490,10 +550,14 @@ class ICTStrategy(MultiTimeframeStrategy):
                 side = "SHORT"
 
                 # Calculate TP (next SSL or displacement extension)
-                take_profit = self.calculate_take_profit(entry_price, side, candle_buffer)
+                take_profit = self.calculate_take_profit(
+                    entry_price, side, candle_buffer
+                )
 
                 # Calculate SL (above FVG/OB zone)
-                stop_loss = self.calculate_stop_loss(entry_price, side, nearest_fvg, nearest_ob)
+                stop_loss = self.calculate_stop_loss(
+                    entry_price, side, nearest_fvg, nearest_ob
+                )
 
                 return Signal(
                     signal_type=SignalType.SHORT_ENTRY,
@@ -507,7 +571,9 @@ class ICTStrategy(MultiTimeframeStrategy):
                         "trend": trend,
                         "zone": "premium",
                         "killzone": (
-                            get_active_killzone(candle.open_time) if self.use_killzones else None
+                            get_active_killzone(candle.open_time)
+                            if self.use_killzones
+                            else None
                         ),
                         "fvg_present": nearest_fvg is not None,
                         "ob_present": nearest_ob is not None,
@@ -530,7 +596,9 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         return None
 
-    def calculate_take_profit(self, entry_price: float, side: str, candle_buffer: list) -> float:
+    def calculate_take_profit(
+        self, entry_price: float, side: str, candle_buffer: list
+    ) -> float:
         """
         Calculate take profit using risk-reward ratio.
 
@@ -630,7 +698,9 @@ class ICTStrategy(MultiTimeframeStrategy):
             "fvg_ob_rate": stats["fvg_ob_ok"] / total if total > 0 else 0,
             "inducement_rate": stats["inducement_ok"] / total if total > 0 else 0,
             "displacement_rate": stats["displacement_ok"] / total if total > 0 else 0,
-            "all_conditions_rate": stats["all_conditions_ok"] / total if total > 0 else 0,
+            "all_conditions_rate": stats["all_conditions_ok"] / total
+            if total > 0
+            else 0,
             "signal_rate": stats["signals_generated"] / total if total > 0 else 0,
         }
         return stats

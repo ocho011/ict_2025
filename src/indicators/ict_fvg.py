@@ -7,12 +7,15 @@ from collections import deque
 from typing import List, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import FairValueGap
+
+from src.models.features import FairValueGap
 
 
 def detect_bullish_fvg(
-    candles: Union[List[Candle], deque[Candle]], min_gap_percent: float = 0.001
-) -> List[FairValueGap]:
+    candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
+    min_gap_percent: float = 0.001,
+) -> List["FairValueGap"]:
     """
     Detect bullish Fair Value Gaps (FVG).
 
@@ -21,6 +24,7 @@ def detect_bullish_fvg(
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         min_gap_percent: Minimum gap size as percentage of price (default 0.1%)
 
     Returns:
@@ -50,14 +54,18 @@ def detect_bullish_fvg(
             gap_percent = gap_size / avg_price
 
             if gap_percent >= min_gap_percent:
+                fvg_id = f"{interval}_{_candle_1.open_time.timestamp()}_bullish"
+
                 bullish_fvgs.append(
                     FairValueGap(
-                        index=i,
+                        id=fvg_id,
+                        interval=interval,
                         direction="bullish",
                         gap_high=gap_high,
                         gap_low=gap_low,
-                        timestamp=candle_0.open_time,
-                        filled=False,
+                        timestamp=_candle_1.open_time,
+                        candle_index=i + 1,
+                        gap_size=gap_size,
                     )
                 )
 
@@ -65,8 +73,10 @@ def detect_bullish_fvg(
 
 
 def detect_bearish_fvg(
-    candles: Union[List[Candle], deque[Candle]], min_gap_percent: float = 0.001
-) -> List[FairValueGap]:
+    candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
+    min_gap_percent: float = 0.001,
+) -> List["FairValueGap"]:
     """
     Detect bearish Fair Value Gaps (FVG).
 
@@ -75,6 +85,7 @@ def detect_bearish_fvg(
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         min_gap_percent: Minimum gap size as percentage of price (default 0.1%)
 
     Returns:
@@ -104,21 +115,25 @@ def detect_bearish_fvg(
             gap_percent = gap_size / avg_price
 
             if gap_percent >= min_gap_percent:
+                fvg_id = f"{interval}_{_candle_1.open_time.timestamp()}_bearish"
+
                 bearish_fvgs.append(
                     FairValueGap(
-                        index=i,
+                        id=fvg_id,
+                        interval=interval,
                         direction="bearish",
                         gap_high=gap_high,
                         gap_low=gap_low,
-                        timestamp=candle_0.open_time,
-                        filled=False,
+                        timestamp=_candle_1.open_time,
+                        candle_index=i + 1,
+                        gap_size=gap_size,
                     )
                 )
 
     return bearish_fvgs
 
 
-def is_fvg_filled(fvg: FairValueGap, current_price: float) -> bool:
+def is_fvg_filled(fvg: "FairValueGap", current_price: float) -> bool:
     """
     Check if a Fair Value Gap has been filled/mitigated.
 
@@ -131,10 +146,11 @@ def is_fvg_filled(fvg: FairValueGap, current_price: float) -> bool:
     Returns:
         True if the FVG has been filled
     """
-    # FVG is filled when price enters the gap zone
+    # Check if price enters the gap zone
     if fvg.gap_low <= current_price <= fvg.gap_high:
         return True
-    return False
+    # Or use the filled property from features.FairValueGap
+    return fvg.filled
 
 
 def get_fvg_levels(fvg: FairValueGap) -> tuple[float, float, float]:
@@ -151,41 +167,62 @@ def get_fvg_levels(fvg: FairValueGap) -> tuple[float, float, float]:
 
 
 def update_fvg_status(
-    fvgs: List[FairValueGap], candles: Union[List[Candle], deque[Candle]], start_index: int = 0
-) -> None:
+    fvgs: List["FairValueGap"],
+    candles: Union[List[Candle], deque[Candle]],
+    start_index: int = 0,
+) -> List["FairValueGap"]:
     """
     Update filled status for all FVGs based on subsequent price action.
 
-    This function modifies FVG objects in-place.
+    This function returns new FVG objects with updated status (immutable pattern).
 
     Args:
         fvgs: List of FairValueGap objects to update
         candles: List or deque of Candle objects
         start_index: Index in candles to start checking from
+
+    Returns:
+        List of FairValueGap objects with updated status
     """
+    from src.models.features import FeatureStatus
+
     candles_list = list(candles)
+    updated_fvgs: List["FairValueGap"] = []
 
     for fvg in fvgs:
-        if fvg.filled:
-            continue  # Already filled
+        if fvg.status in (
+            FeatureStatus.MITIGATED,
+            FeatureStatus.FILLED,
+            FeatureStatus.INVALIDATED,
+        ):
+            updated_fvgs.append(fvg)
+            continue  # Already filled/mitigated
 
+        filled = False
         # Check all candles after the FVG formation
-        for i in range(max(start_index, fvg.index + 3), len(candles_list)):
+        for i in range(max(start_index, fvg.index + 2), len(candles_list)):
             candle = candles_list[i]
 
             # Check if candle trades within the FVG zone
             # FVG is filled if candle high is above gap_low AND candle low is below gap_high
             if candle.low <= fvg.gap_high and candle.high >= fvg.gap_low:
-                fvg.filled = True
+                filled = True
                 break
+
+        if filled:
+            updated_fvgs.append(fvg.with_status(FeatureStatus.FILLED, fill_percent=1.0))
+        else:
+            updated_fvgs.append(fvg)
+
+    return updated_fvgs
 
 
 def find_nearest_fvg(
-    fvgs: List[FairValueGap],
+    fvgs: List["FairValueGap"],
     current_price: float,
     direction: str = "bullish",
     only_unfilled: bool = True,
-) -> Union[FairValueGap, None]:
+) -> Union["FairValueGap", None]:
     """
     Find the nearest FVG to current price.
 
@@ -198,8 +235,16 @@ def find_nearest_fvg(
     Returns:
         Nearest FairValueGap or None if not found
     """
+    from src.models.features import FeatureStatus
+
     filtered_fvgs = [
-        fvg for fvg in fvgs if fvg.direction == direction and (not only_unfilled or not fvg.filled)
+        fvg
+        for fvg in fvgs
+        if fvg.direction == direction
+        and (
+            not only_unfilled
+            or fvg.status in (FeatureStatus.ACTIVE, FeatureStatus.TOUCHED)
+        )
     ]
 
     if not filtered_fvgs:
@@ -242,25 +287,27 @@ def get_entry_zone(fvg: FairValueGap, zone_percent: float = 0.5) -> tuple[float,
 
 def detect_all_fvg(
     candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
     min_gap_percent: float = 0.001,
     auto_update_status: bool = True,
-) -> tuple[List[FairValueGap], List[FairValueGap]]:
+) -> tuple[List["FairValueGap"], List["FairValueGap"]]:
     """
     Detect both bullish and bearish FVGs in one call.
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         min_gap_percent: Minimum gap size as percentage of price
         auto_update_status: Automatically update filled status
 
     Returns:
         Tuple of (bullish_fvgs, bearish_fvgs)
     """
-    bullish_fvgs = detect_bullish_fvg(candles, min_gap_percent)
-    bearish_fvgs = detect_bearish_fvg(candles, min_gap_percent)
+    bullish_fvgs = detect_bullish_fvg(candles, interval, min_gap_percent)
+    bearish_fvgs = detect_bearish_fvg(candles, interval, min_gap_percent)
 
     if auto_update_status:
-        update_fvg_status(bullish_fvgs, candles)
-        update_fvg_status(bearish_fvgs, candles)
+        bullish_fvgs = update_fvg_status(bullish_fvgs, candles)
+        bearish_fvgs = update_fvg_status(bearish_fvgs, candles)
 
     return (bullish_fvgs, bearish_fvgs)
