@@ -7,10 +7,13 @@ from collections import deque
 from typing import List, Optional, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import OrderBlock
+
+from src.models.features import OrderBlock
 
 
-def calculate_average_range(candles: Union[List[Candle], deque[Candle]], period: int = 20) -> float:
+def calculate_average_range(
+    candles: Union[List[Candle], deque[Candle]], period: int = 20
+) -> float:
     """
     Calculate average candle range over period.
 
@@ -37,9 +40,10 @@ def calculate_average_range(candles: Union[List[Candle], deque[Candle]], period:
 
 def identify_bullish_ob(
     candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
     displacement_ratio: float = 1.5,
     avg_range_period: int = 20,
-) -> List[OrderBlock]:
+) -> List["OrderBlock"]:
     """
     Identify bullish Order Blocks (demand zones).
 
@@ -48,6 +52,7 @@ def identify_bullish_ob(
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         displacement_ratio: Minimum ratio of displacement to average range (default 1.5x)
         avg_range_period: Period for calculating average range
 
@@ -88,13 +93,19 @@ def identify_bullish_ob(
                     displacement_size = current_candle.high - current_candle.low
                     strength = displacement_size / avg_range
 
+                    ob_id = (
+                        f"{interval}_{prev_candle.open_time.timestamp()}_{i}_bullish"
+                    )
+
                     bullish_obs.append(
                         OrderBlock(
-                            index=j,
+                            id=ob_id,
+                            interval=interval,
                             direction="bullish",
                             high=prev_candle.high,
                             low=prev_candle.low,
                             timestamp=prev_candle.open_time,
+                            candle_index=j,
                             displacement_size=displacement_size,
                             strength=strength,
                         )
@@ -106,9 +117,10 @@ def identify_bullish_ob(
 
 def identify_bearish_ob(
     candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
     displacement_ratio: float = 1.5,
     avg_range_period: int = 20,
-) -> List[OrderBlock]:
+) -> List["OrderBlock"]:
     """
     Identify bearish Order Blocks (supply zones).
 
@@ -117,6 +129,7 @@ def identify_bearish_ob(
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         displacement_ratio: Minimum ratio of displacement to average range (default 1.5x)
         avg_range_period: Period for calculating average range
 
@@ -157,13 +170,19 @@ def identify_bearish_ob(
                     displacement_size = current_candle.high - current_candle.low
                     strength = displacement_size / avg_range
 
+                    ob_id = (
+                        f"{interval}_{prev_candle.open_time.timestamp()}_{i}_bearish"
+                    )
+
                     bearish_obs.append(
                         OrderBlock(
-                            index=j,
+                            id=ob_id,
+                            interval=interval,
                             direction="bearish",
                             high=prev_candle.high,
                             low=prev_candle.low,
                             timestamp=prev_candle.open_time,
+                            candle_index=j,
                             displacement_size=displacement_size,
                             strength=strength,
                         )
@@ -218,7 +237,9 @@ def get_ob_zone(ob: OrderBlock, zone_percent: float = 0.5) -> tuple[float, float
     return (zone_low, zone_high)
 
 
-def filter_obs_by_strength(obs: List[OrderBlock], min_strength: float = 1.5) -> List[OrderBlock]:
+def filter_obs_by_strength(
+    obs: List[OrderBlock], min_strength: float = 1.5
+) -> List[OrderBlock]:
     """
     Filter Order Blocks by minimum strength requirement.
 
@@ -259,15 +280,17 @@ def find_nearest_ob(
 
 def detect_all_ob(
     candles: Union[List[Candle], deque[Candle]],
+    interval: str = "1h",
     displacement_ratio: float = 1.5,
     avg_range_period: int = 20,
     min_strength: Optional[float] = None,
-) -> tuple[List[OrderBlock], List[OrderBlock]]:
+) -> tuple[List["OrderBlock"], List["OrderBlock"]]:
     """
     Detect both bullish and bearish Order Blocks in one call.
 
     Args:
         candles: List or deque of Candle objects
+        interval: Timeframe (e.g., '1h', '4h')
         displacement_ratio: Minimum ratio of displacement to average range
         avg_range_period: Period for calculating average range
         min_strength: Optional minimum strength filter
@@ -275,8 +298,12 @@ def detect_all_ob(
     Returns:
         Tuple of (bullish_obs, bearish_obs)
     """
-    bullish_obs = identify_bullish_ob(candles, displacement_ratio, avg_range_period)
-    bearish_obs = identify_bearish_ob(candles, displacement_ratio, avg_range_period)
+    bullish_obs = identify_bullish_ob(
+        candles, interval, displacement_ratio, avg_range_period
+    )
+    bearish_obs = identify_bearish_ob(
+        candles, interval, displacement_ratio, avg_range_period
+    )
 
     # Apply strength filter if specified
     if min_strength is not None:

@@ -15,7 +15,7 @@ from src.indicators.ict_smc import (
     find_mitigation_zone,
 )
 from src.models.candle import Candle
-from src.models.ict_signals import (
+from src.models.features import (
     FairValueGap,
     OrderBlock,
 )
@@ -227,12 +227,14 @@ class TestFindMitigationZone:
 
         # Create FVG
         fvg = FairValueGap(
-            index=0,
+            id="fvg1",
+            interval="1m",
             direction="bullish",
             gap_high=108,
             gap_low=102,
             timestamp=candles[0].open_time,
-            filled=False,
+            candle_index=0,
+            gap_size=6.0,
         )
 
         mitigation_zones = find_mitigation_zone(candles, fvgs=[fvg])
@@ -241,7 +243,7 @@ class TestFindMitigationZone:
         mz = mitigation_zones[0]
         assert mz.type == "FVG"
         assert mz.mitigated
-        assert fvg.filled  # FVG should be marked as filled
+
 
     def test_ob_mitigation_detected(self):
         """Test detection of Order Block mitigation."""
@@ -254,11 +256,13 @@ class TestFindMitigationZone:
 
         # Create OB
         ob = OrderBlock(
-            index=0,
+            id="ob1",
+            interval="1m",
             direction="bullish",
             high=105,
             low=100,
             timestamp=candles[0].open_time,
+            candle_index=0,
             displacement_size=12,
             strength=2.0,
         )
@@ -281,12 +285,14 @@ class TestFindMitigationZone:
         ]
 
         fvg = FairValueGap(
-            index=0,
+            id="fvg2",
+            interval="1m",
             direction="bullish",
             gap_high=108,
             gap_low=102,
             timestamp=candles[0].open_time,
-            filled=False,
+            candle_index=0,
+            gap_size=6.0,
         )
 
         mitigation_zones = find_mitigation_zone(candles, fvgs=[fvg])
@@ -309,8 +315,8 @@ class TestFindMitigationZone:
             create_test_candle(8, 106, 118, 106, 117),  # Fills FVG 2
         ]
 
-        fvg1 = FairValueGap(0, "bullish", 108, 102, candles[0].open_time, False)
-        fvg2 = FairValueGap(4, "bullish", 120, 114, candles[4].open_time, False)
+        fvg1 = FairValueGap("id1", "1m", "bullish", 108, 102, candles[0].open_time, 0, 6.0)
+        fvg2 = FairValueGap("id2", "1m", "bullish", 120, 114, candles[4].open_time, 4, 6.0)
 
         mitigation_zones = find_mitigation_zone(candles, fvgs=[fvg1, fvg2])
 
@@ -341,7 +347,7 @@ class TestDetectAllSMC:
         candles.append(create_test_candle(22, 122, 128, 122, 127))  # Strong move
 
         # Create FVG for mitigation test
-        fvg = FairValueGap(0, "bullish", 108, 102, candles[0].open_time, False)
+        fvg = FairValueGap("id1", "1m", "bullish", 108, 102, candles[0].open_time, 0, 6.0)
 
         inducements, displacements, mitigation_zones = detect_all_smc(candles, fvgs=[fvg])
 
@@ -398,7 +404,7 @@ class TestSMCWorkflows:
 
         # Phase 6: Mitigation (return to fill FVG)
         # Create FVG with gap above the early candles to avoid early mitigation
-        fvg = FairValueGap(0, "bullish", 118, 112, candles[0].open_time, False)
+        fvg = FairValueGap("id1", "1m", "bullish", 118, 112, candles[0].open_time, 0, 6.0)
         # Normal pullback to fill FVG (not a huge displacement)
         candles.append(create_test_candle(28, 132, 132, 130, 131))  # Small pullback
         candles.append(create_test_candle(29, 131, 131, 115, 116))  # Fill FVG

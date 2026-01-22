@@ -18,7 +18,7 @@ from src.indicators.ict_liquidity import (
     is_in_premium,
 )
 from src.models.candle import Candle
-from src.models.ict_signals import LiquidityLevel
+from src.models.features import LiquidityLevel
 
 
 def create_test_candle(
@@ -62,8 +62,8 @@ class TestFindEqualHighs:
 
         assert len(equal_highs) > 0
         bsl = equal_highs[0]
-        assert bsl.type == "BSL"
-        assert bsl.num_touches == 2
+        assert bsl.level_type == "bsl"
+        assert bsl.strength == 2
         assert pytest.approx(bsl.price, abs=0.1) == 110
 
     def test_multiple_equal_highs(self):
@@ -117,8 +117,8 @@ class TestFindEqualLows:
 
         assert len(equal_lows) > 0
         ssl = equal_lows[0]
-        assert ssl.type == "SSL"
-        assert ssl.num_touches == 2
+        assert ssl.level_type == "ssl"
+        assert ssl.strength == 2
         assert pytest.approx(ssl.price, abs=0.1) == 95
 
     def test_multiple_equal_lows(self):
@@ -184,12 +184,14 @@ class TestDetectLiquiditySweep:
 
         # Create liquidity level
         bsl = LiquidityLevel(
-            index=0,
-            type="BSL",
+            id="lvl1",
+            interval="1m",
+            level_type="bsl",
             price=110,
+            strength=2,
             timestamp=candles[0].open_time,
+            candle_index=0,
             swept=False,
-            num_touches=2,
         )
 
         # Add sweep candle (goes above BSL)
@@ -216,12 +218,14 @@ class TestDetectLiquiditySweep:
 
         # Create liquidity level
         ssl = LiquidityLevel(
-            index=0,
-            type="SSL",
+            id="lvl2",
+            interval="1m",
+            level_type="ssl",
             price=90,
+            strength=2,
             timestamp=candles[0].open_time,
+            candle_index=0,
             swept=False,
-            num_touches=2,
         )
 
         # Add sweep candle (goes below SSL)
@@ -244,12 +248,14 @@ class TestDetectLiquiditySweep:
         ]
 
         bsl = LiquidityLevel(
-            index=0,
-            type="BSL",
+            id="lvl3",
+            interval="1m",
+            level_type="bsl",
             price=110,
+            strength=2,
             timestamp=candles[0].open_time,
+            candle_index=0,
             swept=False,
-            num_touches=2,
         )
 
         # Sweep but no reversal - price stays high
@@ -303,9 +309,9 @@ class TestGetLiquidityDraw:
     def test_nearest_liquidity_draw_above(self):
         """Test finding nearest liquidity above current price."""
         levels = [
-            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(1, "BSL", 130, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(2, "SSL", 90, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel("id1", "1m", "bsl", 110, 2, datetime(2025, 1, 1), 0, False),
+            LiquidityLevel("id2", "1m", "bsl", 130, 2, datetime(2025, 1, 1), 1, False),
+            LiquidityLevel("id3", "1m", "ssl", 90, 2, datetime(2025, 1, 1), 2, False),
         ]
 
         # Current price 105 - nearest above is 110
@@ -317,9 +323,9 @@ class TestGetLiquidityDraw:
     def test_nearest_liquidity_draw_below(self):
         """Test finding nearest liquidity below current price."""
         levels = [
-            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(1, "SSL", 90, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(2, "SSL", 70, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel("id1", "1m", "bsl", 110, 2, datetime(2025, 1, 1), 0, False),
+            LiquidityLevel("id2", "1m", "ssl", 90, 2, datetime(2025, 1, 1), 1, False),
+            LiquidityLevel("id3", "1m", "ssl", 70, 2, datetime(2025, 1, 1), 2, False),
         ]
 
         # Current price 105 - nearest below is 90
@@ -331,8 +337,8 @@ class TestGetLiquidityDraw:
     def test_nearest_liquidity_draw_both(self):
         """Test finding nearest liquidity in any direction."""
         levels = [
-            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), False, 2),
-            LiquidityLevel(1, "SSL", 90, datetime(2025, 1, 1), False, 2),
+            LiquidityLevel("id1", "1m", "bsl", 110, 2, datetime(2025, 1, 1), 0, False),
+            LiquidityLevel("id2", "1m", "ssl", 90, 2, datetime(2025, 1, 1), 1, False),
         ]
 
         # Current price 105 - nearest is 110 (5 points away vs 15)
@@ -344,7 +350,7 @@ class TestGetLiquidityDraw:
     def test_no_unswept_liquidity(self):
         """Test when all liquidity is swept."""
         levels = [
-            LiquidityLevel(0, "BSL", 110, datetime(2025, 1, 1), True, 2),  # Swept
+            LiquidityLevel("id1", "1m", "bsl", 110, 2, datetime(2025, 1, 1), 0, True),  # Swept
         ]
 
         draw = get_liquidity_draw(105, levels, direction="both")

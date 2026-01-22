@@ -9,14 +9,18 @@ from typing import List, Optional, Union
 from src.models.candle import Candle
 from src.models.ict_signals import (
     Displacement,
-    FairValueGap,
     Inducement,
     MitigationZone,
+)
+from src.models.features import (
+    FairValueGap,
     OrderBlock,
 )
 
 
-def calculate_average_range(candles: Union[List[Candle], deque[Candle]], period: int = 20) -> float:
+def calculate_average_range(
+    candles: Union[List[Candle], deque[Candle]], period: int = 20
+) -> float:
     """
     Calculate average candle range over period.
 
@@ -190,12 +194,12 @@ def find_mitigation_zone(
             if fvg.filled:
                 continue  # Already mitigated
 
-            # Check if price has entered the FVG zone
-            # Skip the 3-candle FVG pattern itself (indices: fvg.index, fvg.index+1, fvg.index+2)
-            for i in range(fvg.index + 3, len(candles_list)):
+            # Check if price has entered FVG zone
+            # Skip the 3-candle FVG pattern itself (indices: fvg.candle_index, fvg.candle_index+1, fvg.candle_index+2)
+            for i in range(fvg.candle_index + 3, len(candles_list)):
                 candle = candles_list[i]
 
-                # Price has entered the FVG zone
+                # Price has entered FVG zone
                 if candle.low <= fvg.gap_high and candle.high >= fvg.gap_low:
                     mitigation_zones.append(
                         MitigationZone(
@@ -207,14 +211,36 @@ def find_mitigation_zone(
                             mitigated=True,
                         )
                     )
-                    fvg.filled = True  # Mark FVG as filled
+                    # Note: FVG is immutable, so we don't mark it as filled here
+                    # The caller should use feature_cache or update_fvg_status
+                    break
+
+    # Check OB mitigation
+    if obs:
+        for ob in obs:
+            # Check if price has entered OB zone
+            for i in range(ob.candle_index + 1, len(candles_list)):
+                candle = candles_list[i]
+
+                # Price has entered OB zone
+                if candle.low <= ob.high and candle.high >= ob.low:
+                    mitigation_zones.append(
+                        MitigationZone(
+                            index=i,
+                            type="OB",
+                            high=ob.high,
+                            low=ob.low,
+                            timestamp=candle.open_time,
+                            mitigated=True,
+                        )
+                    )
                     break
 
     # Check OB mitigation
     if obs:
         for ob in obs:
             # Check if price has entered the OB zone
-            for i in range(ob.index + 1, len(candles_list)):
+            for i in range(ob.candle_index + 1, len(candles_list)):
                 candle = candles_list[i]
 
                 # Price has entered the OB zone

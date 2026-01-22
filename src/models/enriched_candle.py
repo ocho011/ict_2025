@@ -13,9 +13,11 @@ from typing import Optional
 from src.models.candle import Candle
 from src.models.ict_signals import (
     Displacement,
+    StructureBreak,
+)
+from src.models.features import (
     FairValueGap,
     OrderBlock,
-    StructureBreak,
 )
 
 

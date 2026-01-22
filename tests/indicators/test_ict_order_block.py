@@ -18,11 +18,16 @@ from src.indicators.ict_order_block import (
     validate_ob_strength,
 )
 from src.models.candle import Candle
-from src.models.ict_signals import OrderBlock
+from src.models.features import OrderBlock
 
 
 def create_test_candle(
-    index: int, open_price: float, high: float, low: float, close: float, base_time: datetime = None
+    index: int,
+    open_price: float,
+    high: float,
+    low: float,
+    close: float,
+    base_time: datetime = None,
 ) -> Candle:
     """Helper to create test candles."""
     if base_time is None:
@@ -98,7 +103,7 @@ class TestIdentifyBullishOB:
         assert len(obs) > 0
         ob = obs[0]
         assert ob.direction == "bullish"
-        assert ob.index == 20  # The bearish candle before displacement
+        assert ob.candle_index == 20  # The bearish candle before displacement
         assert ob.low == 118
         assert ob.high == 121
 
@@ -149,7 +154,9 @@ class TestIdentifyBullishOB:
         # Second set with OB
         for i in range(22, 30):
             candles.append(
-                create_test_candle(i, 125 + i - 22, 127 + i - 22, 125 + i - 22, 126 + i - 22)
+                create_test_candle(
+                    i, 125 + i - 22, 127 + i - 22, 125 + i - 22, 126 + i - 22
+                )
             )
         candles.append(create_test_candle(30, 133, 134, 131, 132))  # OB 2
         candles.append(create_test_candle(31, 132, 138, 132, 137))  # Displacement 2
@@ -162,7 +169,9 @@ class TestIdentifyBullishOB:
         """Test that function works with deque input."""
         candles_list = []
         for i in range(20):
-            candles_list.append(create_test_candle(i, 100 + i, 102 + i, 100 + i, 101 + i))
+            candles_list.append(
+                create_test_candle(i, 100 + i, 102 + i, 100 + i, 101 + i)
+            )
         candles_list.append(create_test_candle(20, 120, 121, 118, 119))
         candles_list.append(create_test_candle(21, 119, 125, 119, 124))
 
@@ -196,7 +205,7 @@ class TestIdentifyBearishOB:
         assert len(obs) > 0
         ob = obs[0]
         assert ob.direction == "bearish"
-        assert ob.index == 20  # The bullish candle before displacement
+        assert ob.candle_index == 20  # The bullish candle before displacement
         assert ob.low == 120
         assert ob.high == 122
 
@@ -223,11 +232,13 @@ class TestValidateOBStrength:
     def test_validate_strong_ob(self):
         """Test validation of strong OB."""
         ob = OrderBlock(
-            index=10,
+            id="test_1",
+            interval="1h",
             direction="bullish",
             high=110,
             low=100,
             timestamp=datetime(2025, 1, 1),
+            candle_index=10,
             displacement_size=15.0,
             strength=2.5,  # Strong
         )
@@ -238,11 +249,13 @@ class TestValidateOBStrength:
     def test_validate_weak_ob(self):
         """Test validation of weak OB."""
         ob = OrderBlock(
-            index=10,
+            id="test_2",
+            interval="1h",
             direction="bullish",
             high=110,
             low=100,
             timestamp=datetime(2025, 1, 1),
+            candle_index=10,
             displacement_size=8.0,
             strength=1.2,  # Weak
         )
@@ -257,11 +270,13 @@ class TestGetOBZone:
     def test_bullish_ob_zone(self):
         """Test zone for bullish OB (lower portion)."""
         ob = OrderBlock(
-            index=10,
+            id="test_3",
+            interval="1h",
             direction="bullish",
             high=110,
             low=100,
             timestamp=datetime(2025, 1, 1),
+            candle_index=10,
             displacement_size=15.0,
             strength=2.0,
         )
@@ -275,11 +290,13 @@ class TestGetOBZone:
     def test_bearish_ob_zone(self):
         """Test zone for bearish OB (upper portion)."""
         ob = OrderBlock(
-            index=10,
+            id="test_4",
+            interval="1h",
             direction="bearish",
             high=110,
             low=100,
             timestamp=datetime(2025, 1, 1),
+            candle_index=10,
             displacement_size=15.0,
             strength=2.0,
         )
@@ -297,9 +314,13 @@ class TestFilterOBsByStrength:
     def test_filter_by_strength(self):
         """Test filtering OBs by minimum strength."""
         obs = [
-            OrderBlock(0, "bullish", 110, 100, datetime(2025, 1, 1), 15.0, 2.5),  # Strong
-            OrderBlock(1, "bullish", 120, 110, datetime(2025, 1, 1), 8.0, 1.2),  # Weak
-            OrderBlock(2, "bullish", 130, 120, datetime(2025, 1, 1), 12.0, 1.8),  # Medium
+            OrderBlock(
+                "id1", "1m", "bullish", 110, 100, datetime(2025, 1, 1), 0, 15.0, 2.5
+            ),  # Strong
+            OrderBlock("id2", "1m", "bullish", 120, 110, datetime(2025, 1, 1), 1, 8.0, 1.2),  # Weak
+            OrderBlock(
+                "id3", "1m", "bullish", 130, 120, datetime(2025, 1, 1), 2, 12.0, 1.8
+            ),  # Medium
         ]
 
         filtered = filter_obs_by_strength(obs, min_strength=1.5)
@@ -314,9 +335,15 @@ class TestFindNearestOB:
     def test_find_nearest_bullish_ob(self):
         """Test finding nearest bullish OB to current price."""
         obs = [
-            OrderBlock(0, "bullish", 110, 100, datetime(2025, 1, 1), 15.0, 2.0),  # Mid: 105
-            OrderBlock(1, "bullish", 130, 120, datetime(2025, 1, 1), 15.0, 2.0),  # Mid: 125
-            OrderBlock(2, "bullish", 90, 80, datetime(2025, 1, 1), 15.0, 2.0),  # Mid: 85
+            OrderBlock(
+                "id1", "1m", "bullish", 110, 100, datetime(2025, 1, 1), 0, 15.0, 2.0
+            ),  # Mid: 105
+            OrderBlock(
+                "id2", "1m", "bullish", 130, 120, datetime(2025, 1, 1), 1, 15.0, 2.0
+            ),  # Mid: 125
+            OrderBlock(
+                "id3", "1m", "bullish", 90, 80, datetime(2025, 1, 1), 2, 15.0, 2.0
+            ),  # Mid: 85
         ]
 
         # Current price 115 - nearest is 100-110 OB (mid 105)
@@ -327,7 +354,7 @@ class TestFindNearestOB:
     def test_find_nearest_no_match(self):
         """Test when no OB matches direction."""
         obs = [
-            OrderBlock(0, "bearish", 110, 100, datetime(2025, 1, 1), 15.0, 2.0),
+            OrderBlock("id1", "1m", "bearish", 110, 100, datetime(2025, 1, 1), 0, 15.0, 2.0),
         ]
 
         nearest = find_nearest_ob(obs, 105, "bullish")
@@ -350,7 +377,9 @@ class TestDetectAllOB:
         # Setup for bearish OB
         for i in range(22, 30):
             candles.append(
-                create_test_candle(i, 125 + i - 22, 127 + i - 22, 125 + i - 22, 126 + i - 22)
+                create_test_candle(
+                    i, 125 + i - 22, 127 + i - 22, 125 + i - 22, 126 + i - 22
+                )
             )
         candles.append(create_test_candle(30, 133, 135, 133, 134))  # Bearish OB
         candles.append(create_test_candle(31, 134, 134, 128, 129))  # Down displacement
@@ -372,7 +401,9 @@ class TestDetectAllOB:
         candles.append(create_test_candle(20, 120, 121, 118, 119))
         candles.append(create_test_candle(21, 119, 125, 119, 124))
 
-        bullish_obs, bearish_obs = detect_all_ob(candles, displacement_ratio=1.5, min_strength=2.0)
+        bullish_obs, bearish_obs = detect_all_ob(
+            candles, displacement_ratio=1.5, min_strength=2.0
+        )
 
         # All returned OBs should meet strength requirement
         for ob in bullish_obs + bearish_obs:
