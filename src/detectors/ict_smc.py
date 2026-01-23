@@ -7,13 +7,11 @@ from collections import deque
 from typing import List, Optional, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import (
+from src.models import (
     Displacement,
-    Inducement,
-    MitigationZone,
-)
-from src.models.features import (
     FairValueGap,
+    Inducement,
+    Mitigation,
     OrderBlock,
 )
 
@@ -83,10 +81,12 @@ def detect_inducement(
         if current_candle.low < recent_low and next_candle.close > recent_low:
             inducements.append(
                 Inducement(
+                    id=f"{current_candle.interval}_{i}_inducement_bearish",
+                    interval=current_candle.interval,
                     index=i,
                     type="liquidity_grab",
                     direction="bearish",  # Fake bearish move
-                    price_level=recent_low,
+                    price=recent_low,
                     timestamp=current_candle.open_time,
                 )
             )
@@ -96,10 +96,12 @@ def detect_inducement(
         elif current_candle.high > recent_high and next_candle.close < recent_high:
             inducements.append(
                 Inducement(
+                    id=f"{current_candle.interval}_{i}_inducement_bullish",
+                    interval=current_candle.interval,
                     index=i,
                     type="liquidity_grab",
                     direction="bullish",  # Fake bullish move
-                    price_level=recent_high,
+                    price=recent_high,
                     timestamp=current_candle.open_time,
                 )
             )
@@ -151,6 +153,8 @@ def detect_displacement(
 
             displacements.append(
                 Displacement(
+                    id=f"{candle.interval}_{i}_displacement",
+                    interval=candle.interval,
                     index=i,
                     direction=direction,
                     start_price=candle.open,
@@ -167,7 +171,7 @@ def find_mitigation_zone(
     candles: Union[List[Candle], deque[Candle]],
     fvgs: Optional[List[FairValueGap]] = None,
     obs: Optional[List[OrderBlock]] = None,
-) -> List[MitigationZone]:
+) -> List[Mitigation]:
     """
     Find mitigation zones - areas where price fills imbalances or order blocks.
 
@@ -182,7 +186,7 @@ def find_mitigation_zone(
     Returns:
         List of MitigationZone objects
     """
-    mitigation_zones: List[MitigationZone] = []
+    mitigation_zones: List[Mitigation] = []
     candles_list = list(candles)
 
     if not fvgs and not obs:
@@ -202,7 +206,9 @@ def find_mitigation_zone(
                 # Price has entered FVG zone
                 if candle.low <= fvg.gap_high and candle.high >= fvg.gap_low:
                     mitigation_zones.append(
-                        MitigationZone(
+                        Mitigation(
+                            id=f"{candle.interval}_{i}_mitigation_fvg",
+                            interval=candle.interval,
                             index=i,
                             type="FVG",
                             high=fvg.gap_high,
@@ -212,7 +218,7 @@ def find_mitigation_zone(
                         )
                     )
                     # Note: FVG is immutable, so we don't mark it as filled here
-                    # The caller should use feature_cache or update_fvg_status
+                    # The caller should use indicator_cache or update_fvg_status
                     break
 
     # Check OB mitigation
@@ -225,28 +231,9 @@ def find_mitigation_zone(
                 # Price has entered OB zone
                 if candle.low <= ob.high and candle.high >= ob.low:
                     mitigation_zones.append(
-                        MitigationZone(
-                            index=i,
-                            type="OB",
-                            high=ob.high,
-                            low=ob.low,
-                            timestamp=candle.open_time,
-                            mitigated=True,
-                        )
-                    )
-                    break
-
-    # Check OB mitigation
-    if obs:
-        for ob in obs:
-            # Check if price has entered the OB zone
-            for i in range(ob.candle_index + 1, len(candles_list)):
-                candle = candles_list[i]
-
-                # Price has entered the OB zone
-                if candle.low <= ob.high and candle.high >= ob.low:
-                    mitigation_zones.append(
-                        MitigationZone(
+                        Mitigation(
+                            id=f"{candle.interval}_{i}_mitigation_ob",
+                            interval=candle.interval,
                             index=i,
                             type="OB",
                             high=ob.high,
@@ -266,7 +253,7 @@ def detect_all_smc(
     inducement_lookback: int = 10,
     fvgs: Optional[List[FairValueGap]] = None,
     obs: Optional[List[OrderBlock]] = None,
-) -> tuple[List[Inducement], List[Displacement], List[MitigationZone]]:
+) -> tuple[List[Inducement], List[Displacement], List[Mitigation]]:
     """
     Detect all Smart Money Concepts in one call.
 

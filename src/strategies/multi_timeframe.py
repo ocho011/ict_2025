@@ -10,7 +10,7 @@ Issue #27: Simplified to leverage unified buffer structure from BaseStrategy.
 MultiTimeframeStrategy now primarily adds:
 - analyze_mtf() abstract method for multi-timeframe analysis
 - check_exit_mtf() for multi-timeframe exit logic
-- Feature cache support for pre-computed features
+- Indicator cache support for pre-computed indicators
 """
 
 from abc import abstractmethod
@@ -23,7 +23,7 @@ from src.models.signal import Signal
 from src.strategies.base import BaseStrategy
 
 if TYPE_CHECKING:
-    from src.strategies.feature_cache import FeatureStateCache
+    from src.strategies.indicator_cache import IndicatorStateCache
 
 
 class MultiTimeframeStrategy(BaseStrategy):
@@ -33,16 +33,16 @@ class MultiTimeframeStrategy(BaseStrategy):
     Extends BaseStrategy to support analysis across multiple timeframes.
     Issue #27: Now uses unified buffer structure from BaseStrategy.
 
-    Key Features (inherited from BaseStrategy Issue #27):
+    Key Indicators (inherited from BaseStrategy Issue #27):
     - Separate candle buffers for each timeframe via self.buffers Dict
     - Per-interval historical data initialization
     - Automatic buffer updates routed by candle.interval
     - is_ready() validation ensures all intervals initialized
 
-    Additional MTF Features:
+    Additional MTF Indicators:
     - analyze_mtf() method receives all interval buffers
     - check_exit_mtf() for multi-timeframe exit logic
-    - Feature cache support for pre-computed features (Issue #19)
+    - Indicator cache support for pre-computed indicators (Issue #19)
 
     Typical Usage (ICT Strategy):
     - HTF (4h): Identify market trend (bullish/bearish/sideways)
@@ -119,7 +119,7 @@ class MultiTimeframeStrategy(BaseStrategy):
             _initialized: Dict[interval, bool] - initialization status per interval
 
         Additional Attributes:
-            _feature_cache: Optional FeatureStateCache for pre-computed features
+            _indicator_cache: Optional IndicatorStateCache for pre-computed indicators
 
         Buffer Structure (inherited from BaseStrategy Issue #27):
             ```python
@@ -152,9 +152,9 @@ class MultiTimeframeStrategy(BaseStrategy):
         # Initialize BaseStrategy with intervals (Issue #27 unified structure)
         super().__init__(symbol, config, intervals=intervals)
 
-        # Feature cache for pre-computed features (Issue #19)
-        # Subclasses can initialize this for feature-aware analysis
-        self._feature_cache: Optional["FeatureStateCache"] = None
+        # Indicator cache for pre-computed indicators (Issue #19)
+        # Subclasses can initialize this for indicator-aware analysis
+        self._indicator_cache: Optional["IndicatorStateCache"] = None
 
     def initialize_with_historical_data(
         self, candles: List[Candle], interval: Optional[str] = None
@@ -178,7 +178,7 @@ class MultiTimeframeStrategy(BaseStrategy):
 
         Notes:
             - Delegates to BaseStrategy.initialize_with_historical_data()
-            - Adds feature cache initialization (Issue #19)
+            - Adds indicator cache initialization (Issue #19)
         """
         # Determine interval from parameter or first candle
         target_interval = interval
@@ -195,19 +195,19 @@ class MultiTimeframeStrategy(BaseStrategy):
         # Call parent implementation with explicit interval
         super().initialize_with_historical_data(candles, interval=target_interval)
 
-        # Initialize feature cache for this interval if available (Issue #19)
+        # Initialize indicator cache for this interval if available (Issue #19)
         if (
-            self._feature_cache is not None
+            self._indicator_cache is not None
             and target_interval in self.buffers
             and self.buffers[target_interval]
         ):
-            feature_counts = self._feature_cache.initialize_from_history(
+            indicator_counts = self._indicator_cache.initialize_from_history(
                 target_interval, list(self.buffers[target_interval])
             )
             self.logger.info(
-                f"[{self.__class__.__name__}] {self.symbol} {target_interval} features initialized: "
-                f"OBs={feature_counts.get('order_blocks', 0)}, "
-                f"FVGs={feature_counts.get('fvgs', 0)}"
+                f"[{self.__class__.__name__}] {self.symbol} {target_interval} indicators initialized: "
+                f"OBs={indicator_counts.get('order_blocks', 0)}, "
+                f"FVGs={indicator_counts.get('fvgs', 0)}"
             )
 
     async def analyze(self, candle: Candle) -> Optional[Signal]:
@@ -226,7 +226,7 @@ class MultiTimeframeStrategy(BaseStrategy):
         Workflow:
             1. Check candle is closed
             2. Update correct interval buffer (via BaseStrategy.update_buffer)
-            3. Update feature cache if available
+            3. Update indicator cache if available
             4. Check if all intervals ready
             5. Call analyze_mtf() with all buffers
             6. Return signal or None
@@ -254,9 +254,9 @@ class MultiTimeframeStrategy(BaseStrategy):
         # Update the buffer for this interval (uses BaseStrategy.update_buffer)
         self.update_buffer(candle)
 
-        # Update feature cache for this interval if available (Issue #19)
-        if self._feature_cache is not None and candle.interval in self.intervals:
-            self._feature_cache.update_on_new_candle(
+        # Update indicator cache for this interval if available (Issue #19)
+        if self._indicator_cache is not None and candle.interval in self.intervals:
+            self._indicator_cache.update_on_new_candle(
                 candle.interval, candle, self.buffers[candle.interval]
             )
 
@@ -425,33 +425,33 @@ class MultiTimeframeStrategy(BaseStrategy):
         return self.buffers.get(interval)
 
     @property
-    def feature_cache(self) -> Optional["FeatureStateCache"]:
+    def indicator_cache(self) -> Optional["IndicatorStateCache"]:
         """
-        Get the feature cache instance.
+        Get the indicator cache instance.
 
         Returns:
-            FeatureStateCache if initialized, None otherwise
+            IndicatorStateCache if initialized, None otherwise
         """
-        return self._feature_cache
+        return self._indicator_cache
 
-    def set_feature_cache(self, cache: "FeatureStateCache") -> None:
+    def set_indicator_cache(self, cache: "IndicatorStateCache") -> None:
         """
-        Set the feature cache for pre-computed feature management.
+        Set the indicator cache for pre-computed indicator management.
 
         Args:
-            cache: FeatureStateCache instance
+            cache: IndicatorStateCache instance
 
         Example:
             ```python
-            from src.strategies.feature_cache import FeatureStateCache
+            from src.strategies.indicator_cache import IndicatorStateCache
 
-            cache = FeatureStateCache(config={'max_order_blocks': 20})
-            strategy.set_feature_cache(cache)
+            cache = IndicatorStateCache(config={'max_order_blocks': 20})
+            strategy.set_indicator_cache(cache)
             ```
         """
-        self._feature_cache = cache
+        self._indicator_cache = cache
         self.logger.info(
-            f"[{self.__class__.__name__}] Feature cache configured for {self.symbol}"
+            f"[{self.__class__.__name__}] Indicator cache configured for {self.symbol}"
         )
 
     def is_ready(self) -> bool:

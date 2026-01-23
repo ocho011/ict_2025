@@ -8,7 +8,7 @@ from typing import List, Union
 
 from src.models.candle import Candle
 
-from src.models.features import FairValueGap
+from src.models.indicators import FairValueGap
 
 
 def detect_bullish_fvg(
@@ -149,7 +149,7 @@ def is_fvg_filled(fvg: "FairValueGap", current_price: float) -> bool:
     # Check if price enters the gap zone
     if fvg.gap_low <= current_price <= fvg.gap_high:
         return True
-    # Or use the filled property from features.FairValueGap
+    # Or use the filled property from indicators.FairValueGap
     return fvg.filled
 
 
@@ -184,16 +184,16 @@ def update_fvg_status(
     Returns:
         List of FairValueGap objects with updated status
     """
-    from src.models.features import FeatureStatus
+    from src.models.indicators import IndicatorStatus
 
     candles_list = list(candles)
     updated_fvgs: List["FairValueGap"] = []
 
     for fvg in fvgs:
         if fvg.status in (
-            FeatureStatus.MITIGATED,
-            FeatureStatus.FILLED,
-            FeatureStatus.INVALIDATED,
+            IndicatorStatus.MITIGATED,
+            IndicatorStatus.FILLED,
+            IndicatorStatus.INVALIDATED,
         ):
             updated_fvgs.append(fvg)
             continue  # Already filled/mitigated
@@ -210,7 +210,7 @@ def update_fvg_status(
                 break
 
         if filled:
-            updated_fvgs.append(fvg.with_status(FeatureStatus.FILLED, fill_percent=1.0))
+            updated_fvgs.append(fvg.with_status(IndicatorStatus.FILLED, fill_percent=1.0))
         else:
             updated_fvgs.append(fvg)
 
@@ -235,7 +235,7 @@ def find_nearest_fvg(
     Returns:
         Nearest FairValueGap or None if not found
     """
-    from src.models.features import FeatureStatus
+    from src.models.indicators import IndicatorStatus
 
     filtered_fvgs = [
         fvg
@@ -243,7 +243,7 @@ def find_nearest_fvg(
         if fvg.direction == direction
         and (
             not only_unfilled
-            or fvg.status in (FeatureStatus.ACTIVE, FeatureStatus.TOUCHED)
+            or fvg.status in (IndicatorStatus.ACTIVE, IndicatorStatus.TOUCHED)
         )
     ]
 

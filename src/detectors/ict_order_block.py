@@ -8,7 +8,7 @@ from typing import List, Optional, Union
 
 from src.models.candle import Candle
 
-from src.models.features import OrderBlock
+from src.models.indicators import OrderBlock
 
 
 def calculate_average_range(

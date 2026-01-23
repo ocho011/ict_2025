@@ -7,8 +7,7 @@ from collections import deque
 from typing import List, Literal, Optional, Tuple, Union
 
 from src.models.candle import Candle
-from src.models.ict_signals import LiquiditySweep
-from src.models.features import LiquidityLevel
+from src.models import LiquidityLevel, LiquiditySweep
 
 
 def find_equal_highs(
@@ -321,6 +320,8 @@ def detect_liquidity_sweep(
             if swept and direction is not None:
                 sweeps.append(
                     LiquiditySweep(
+                        id=f"{level.interval}_{i}_sweep_{level.level_type}",
+                        interval=level.interval,
                         index=i,
                         direction=direction,
                         swept_level=level.price,

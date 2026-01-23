@@ -3,7 +3,7 @@ Tests for Feature State Cache and Feature Models (Issue #19).
 
 This module tests:
 1. Feature model creation and validation
-2. FeatureStateCache initialization from history
+2. IndicatorStateCache initialization from history
 3. Incremental feature updates on new candles
 4. Feature lifecycle (active → touched → mitigated → filled)
 5. Query methods for active features
@@ -15,14 +15,14 @@ from datetime import datetime, timedelta
 import pytest
 
 from src.models.candle import Candle
-from src.models.features import (
+from src.models.indicators import (
     FairValueGap,
-    FeatureStatus,
+    IndicatorStatus,
     LiquidityLevel,
     MarketStructure,
     OrderBlock,
 )
-from src.strategies.feature_cache import FeatureStateCache
+from src.strategies.indicator_cache import IndicatorStateCache
 
 
 # -----------------------------------------------------------------------------
@@ -79,9 +79,9 @@ def sample_candles():
 
 
 @pytest.fixture
-def feature_cache():
-    """Create a FeatureStateCache instance."""
-    return FeatureStateCache(
+def indicator_cache():
+    """Create a IndicatorStateCache instance."""
+    return IndicatorStateCache(
         config={
             "max_order_blocks": 20,
             "max_fvgs": 15,
@@ -119,7 +119,7 @@ class TestOrderBlockModel:
         assert ob.zone_size == 100.0
         assert ob.midpoint == 50050.0
         assert ob.is_active is True
-        assert ob.status == FeatureStatus.ACTIVE
+        assert ob.status == IndicatorStatus.ACTIVE
 
     def test_create_valid_bearish_ob(self):
         """Test creating a valid bearish Order Block."""
@@ -182,14 +182,14 @@ class TestOrderBlockModel:
             strength=2.0,
         )
 
-        updated = ob.with_status(FeatureStatus.MITIGATED, touch_count=2)
+        updated = ob.with_status(IndicatorStatus.MITIGATED, touch_count=2)
 
         # Original unchanged
-        assert ob.status == FeatureStatus.ACTIVE
+        assert ob.status == IndicatorStatus.ACTIVE
         assert ob.touch_count == 0
 
         # New instance updated
-        assert updated.status == FeatureStatus.MITIGATED
+        assert updated.status == IndicatorStatus.MITIGATED
         assert updated.touch_count == 2
         assert updated.id == ob.id  # Same ID
 
@@ -229,10 +229,10 @@ class TestFairValueGapModel:
             gap_size=100.0,
         )
 
-        updated = fvg.with_status(FeatureStatus.FILLED, fill_percent=1.0)
+        updated = fvg.with_status(IndicatorStatus.FILLED, fill_percent=1.0)
 
-        assert fvg.status == FeatureStatus.ACTIVE
-        assert updated.status == FeatureStatus.FILLED
+        assert fvg.status == IndicatorStatus.ACTIVE
+        assert updated.status == IndicatorStatus.FILLED
         assert updated.fill_percent == 1.0
 
 
@@ -266,55 +266,55 @@ class TestMarketStructureModel:
 
 
 # -----------------------------------------------------------------------------
-# Test FeatureStateCache
+# Test IndicatorStateCache
 # -----------------------------------------------------------------------------
 
 
-class TestFeatureStateCacheInitialization:
-    """Tests for FeatureStateCache initialization."""
+class TestIndicatorStateCacheInitialization:
+    """Tests for IndicatorStateCache initialization."""
 
-    def test_initialize_from_history(self, feature_cache, sample_candles):
+    def test_initialize_from_history(self, indicator_cache, sample_candles):
         """Test initializing cache from historical candles."""
-        counts = feature_cache.initialize_from_history("1h", sample_candles)
+        counts = indicator_cache.initialize_from_history("1h", sample_candles)
 
         assert "order_blocks" in counts
         assert "fvgs" in counts
         assert "structure" in counts
 
         # Should have detected some features
-        stats = feature_cache.get_cache_stats()
+        stats = indicator_cache.get_cache_stats()
         assert "1h" in stats
         assert stats["1h"]["has_structure"] is True
 
-    def test_initialize_empty_candles(self, feature_cache):
+    def test_initialize_empty_candles(self, indicator_cache):
         """Test initializing with empty candles."""
-        counts = feature_cache.initialize_from_history("1h", [])
+        counts = indicator_cache.initialize_from_history("1h", [])
 
         assert counts["order_blocks"] == 0
         assert counts["fvgs"] == 0
         assert counts["structure"] is False
 
-    def test_get_market_structure_after_init(self, feature_cache, sample_candles):
+    def test_get_market_structure_after_init(self, indicator_cache, sample_candles):
         """Test market structure is available after initialization."""
-        feature_cache.initialize_from_history("1h", sample_candles)
+        indicator_cache.initialize_from_history("1h", sample_candles)
 
-        structure = feature_cache.get_market_structure("1h")
+        structure = indicator_cache.get_market_structure("1h")
 
         assert structure is not None
         assert structure.interval == "1h"
         assert structure.trend in ("bullish", "bearish", "sideways")
 
 
-class TestFeatureStateCacheQueries:
-    """Tests for FeatureStateCache query methods."""
+class TestIndicatorStateCacheQueries:
+    """Tests for IndicatorStateCache query methods."""
 
-    def test_get_active_order_blocks(self, feature_cache, sample_candles):
+    def test_get_active_order_blocks(self, indicator_cache, sample_candles):
         """Test getting active Order Blocks."""
-        feature_cache.initialize_from_history("1h", sample_candles)
+        indicator_cache.initialize_from_history("1h", sample_candles)
 
-        all_obs = feature_cache.get_active_order_blocks("1h")
-        bullish_obs = feature_cache.get_active_order_blocks("1h", "bullish")
-        bearish_obs = feature_cache.get_active_order_blocks("1h", "bearish")
+        all_obs = indicator_cache.get_active_order_blocks("1h")
+        bullish_obs = indicator_cache.get_active_order_blocks("1h", "bullish")
+        bearish_obs = indicator_cache.get_active_order_blocks("1h", "bearish")
 
         # All active should be sum of bullish and bearish
         assert len(all_obs) == len(bullish_obs) + len(bearish_obs)
@@ -323,20 +323,20 @@ class TestFeatureStateCacheQueries:
         for ob in all_obs:
             assert ob.is_active is True
 
-    def test_get_active_fvgs(self, feature_cache, sample_candles):
+    def test_get_active_fvgs(self, indicator_cache, sample_candles):
         """Test getting active FVGs."""
-        feature_cache.initialize_from_history("1h", sample_candles)
+        indicator_cache.initialize_from_history("1h", sample_candles)
 
-        all_fvgs = feature_cache.get_active_fvgs("1h")
-        bullish_fvgs = feature_cache.get_active_fvgs("1h", "bullish")
-        bearish_fvgs = feature_cache.get_active_fvgs("1h", "bearish")
+        all_fvgs = indicator_cache.get_active_fvgs("1h")
+        bullish_fvgs = indicator_cache.get_active_fvgs("1h", "bullish")
+        bearish_fvgs = indicator_cache.get_active_fvgs("1h", "bearish")
 
         assert len(all_fvgs) == len(bullish_fvgs) + len(bearish_fvgs)
 
-    def test_find_nearest_order_block(self, feature_cache):
+    def test_find_nearest_order_block(self, indicator_cache):
         """Test finding nearest Order Block to price."""
         # Manually add OBs for testing
-        feature_cache._order_blocks["1h"] = deque(maxlen=20)
+        indicator_cache._order_blocks["1h"] = deque(maxlen=20)
 
         ob1 = OrderBlock(
             id="ob1",
@@ -361,16 +361,16 @@ class TestFeatureStateCacheQueries:
             strength=2.0,
         )
 
-        feature_cache._order_blocks["1h"].append(ob1)
-        feature_cache._order_blocks["1h"].append(ob2)
+        indicator_cache._order_blocks["1h"].append(ob1)
+        indicator_cache._order_blocks["1h"].append(ob2)
 
         # Find nearest bullish OB below price 50000
-        nearest = feature_cache.find_nearest_order_block("1h", 50000.0, "bullish")
+        nearest = indicator_cache.find_nearest_order_block("1h", 50000.0, "bullish")
 
         assert nearest is not None
         assert nearest.id == "ob2"  # Closer to 50000
 
-    def test_is_price_in_order_block(self, feature_cache):
+    def test_is_price_in_order_block(self, indicator_cache):
         """Test price in OB zone detection."""
         ob = OrderBlock(
             id="test",
@@ -384,34 +384,34 @@ class TestFeatureStateCacheQueries:
             strength=2.0,
         )
 
-        assert feature_cache.is_price_in_order_block(50050.0, ob) is True
-        assert feature_cache.is_price_in_order_block(50000.0, ob) is True  # Boundary
-        assert feature_cache.is_price_in_order_block(50100.0, ob) is True  # Boundary
-        assert feature_cache.is_price_in_order_block(49999.0, ob) is False
-        assert feature_cache.is_price_in_order_block(50101.0, ob) is False
+        assert indicator_cache.is_price_in_order_block(50050.0, ob) is True
+        assert indicator_cache.is_price_in_order_block(50000.0, ob) is True  # Boundary
+        assert indicator_cache.is_price_in_order_block(50100.0, ob) is True  # Boundary
+        assert indicator_cache.is_price_in_order_block(49999.0, ob) is False
+        assert indicator_cache.is_price_in_order_block(50101.0, ob) is False
 
 
-class TestFeatureStateCacheUpdates:
-    """Tests for FeatureStateCache incremental updates."""
+class TestIndicatorStateCacheUpdates:
+    """Tests for IndicatorStateCache incremental updates."""
 
-    def test_update_on_new_candle(self, feature_cache, sample_candles):
+    def test_update_on_new_candle(self, indicator_cache, sample_candles):
         """Test updating cache on new candle."""
         # Initialize with first 40 candles
-        feature_cache.initialize_from_history("1h", sample_candles[:40])
+        indicator_cache.initialize_from_history("1h", sample_candles[:40])
 
         # Update with new candle
         new_candle = sample_candles[40]
         buffer = deque(sample_candles[:41], maxlen=200)
 
-        new_features = feature_cache.update_on_new_candle("1h", new_candle, buffer)
+        new_features = indicator_cache.update_on_new_candle("1h", new_candle, buffer)
 
         assert "order_blocks" in new_features
         assert "fvgs" in new_features
 
-    def test_order_block_status_update_on_touch(self, feature_cache):
+    def test_order_block_status_update_on_touch(self, indicator_cache):
         """Test OB status updates when price touches zone."""
         # Setup: Add an OB
-        feature_cache._order_blocks["1h"] = deque(maxlen=20)
+        indicator_cache._order_blocks["1h"] = deque(maxlen=20)
 
         ob = OrderBlock(
             id="ob_test",
@@ -424,7 +424,7 @@ class TestFeatureStateCacheUpdates:
             displacement_size=500.0,
             strength=2.0,
         )
-        feature_cache._order_blocks["1h"].append(ob)
+        indicator_cache._order_blocks["1h"].append(ob)
 
         # Candle that touches the OB zone
         touching_candle = Candle(
@@ -440,18 +440,18 @@ class TestFeatureStateCacheUpdates:
             is_closed=True,
         )
 
-        feature_cache._update_order_block_statuses("1h", touching_candle)
+        indicator_cache._update_order_block_statuses("1h", touching_candle)
 
-        updated_obs = list(feature_cache._order_blocks["1h"])
+        updated_obs = list(indicator_cache._order_blocks["1h"])
         assert len(updated_obs) == 1
         # Status should be updated (TOUCHED or MITIGATED depending on depth)
-        assert updated_obs[0].status != FeatureStatus.ACTIVE or updated_obs[0].touch_count > 0
+        assert updated_obs[0].status != IndicatorStatus.ACTIVE or updated_obs[0].touch_count > 0
 
-    def test_cache_stats(self, feature_cache, sample_candles):
+    def test_cache_stats(self, indicator_cache, sample_candles):
         """Test cache statistics method."""
-        feature_cache.initialize_from_history("1h", sample_candles)
+        indicator_cache.initialize_from_history("1h", sample_candles)
 
-        stats = feature_cache.get_cache_stats()
+        stats = indicator_cache.get_cache_stats()
 
         assert "1h" in stats
         assert "order_blocks_total" in stats["1h"]
@@ -462,28 +462,28 @@ class TestFeatureStateCacheUpdates:
         assert "trend" in stats["1h"]
 
 
-class TestFeatureStateCacheEdgeCases:
+class TestIndicatorStateCacheEdgeCases:
     """Tests for edge cases and error handling."""
 
-    def test_query_uninitialized_interval(self, feature_cache):
+    def test_query_uninitialized_interval(self, indicator_cache):
         """Test querying an interval that wasn't initialized."""
-        obs = feature_cache.get_active_order_blocks("4h")
+        obs = indicator_cache.get_active_order_blocks("4h")
         assert obs == []
 
-        fvgs = feature_cache.get_active_fvgs("4h")
+        fvgs = indicator_cache.get_active_fvgs("4h")
         assert fvgs == []
 
-        structure = feature_cache.get_market_structure("4h")
+        structure = indicator_cache.get_market_structure("4h")
         assert structure is None
 
-    def test_find_nearest_with_no_features(self, feature_cache):
+    def test_find_nearest_with_no_features(self, indicator_cache):
         """Test finding nearest feature when none exist."""
-        feature_cache._order_blocks["1h"] = deque(maxlen=20)
+        indicator_cache._order_blocks["1h"] = deque(maxlen=20)
 
-        nearest = feature_cache.find_nearest_order_block("1h", 50000.0, "bullish")
+        nearest = indicator_cache.find_nearest_order_block("1h", 50000.0, "bullish")
         assert nearest is None
 
-    def test_multiple_intervals(self, feature_cache, sample_candles):
+    def test_multiple_intervals(self, indicator_cache, sample_candles):
         """Test cache handles multiple intervals independently."""
         # Create candles for different intervals
         candles_1h = sample_candles[:30]
@@ -502,22 +502,22 @@ class TestFeatureStateCacheEdgeCases:
                 is_closed=c.is_closed,
             )
 
-        feature_cache.initialize_from_history("1h", candles_1h)
-        feature_cache.initialize_from_history("4h", candles_4h)
+        indicator_cache.initialize_from_history("1h", candles_1h)
+        indicator_cache.initialize_from_history("4h", candles_4h)
 
-        stats = feature_cache.get_cache_stats()
+        stats = indicator_cache.get_cache_stats()
 
         assert "1h" in stats
         assert "4h" in stats
 
 
 # -----------------------------------------------------------------------------
-# Test ICTStrategy Integration with FeatureStateCache (Issue #19)
+# Test ICTStrategy Integration with IndicatorStateCache (Issue #19)
 # -----------------------------------------------------------------------------
 
 
 class TestICTStrategyFeatureCacheIntegration:
-    """Tests for ICTStrategy integration with FeatureStateCache."""
+    """Tests for ICTStrategy integration with IndicatorStateCache."""
 
     @pytest.fixture
     def ict_strategy(self):
@@ -529,7 +529,7 @@ class TestICTStrategyFeatureCacheIntegration:
             "ltf_interval": "5m",
             "mtf_interval": "1h",
             "htf_interval": "4h",
-            "use_feature_cache": True,
+            "use_indicator_cache": True,
             "max_order_blocks": 20,
             "max_fvgs": 15,
             "displacement_ratio": 1.5,
@@ -548,22 +548,22 @@ class TestICTStrategyFeatureCacheIntegration:
             "ltf_interval": "5m",
             "mtf_interval": "1h",
             "htf_interval": "4h",
-            "use_feature_cache": False,
+            "use_indicator_cache": False,
             "use_killzones": False,
         }
         return ICTStrategy("BTCUSDT", config)
 
-    def test_feature_cache_enabled_by_default(self, ict_strategy):
+    def test_indicator_cache_enabled_by_default(self, ict_strategy):
         """Test that feature cache is enabled by default."""
-        assert ict_strategy.is_feature_cache_enabled() is True
-        assert ict_strategy.feature_cache is not None
+        assert ict_strategy.is_indicator_cache_enabled() is True
+        assert ict_strategy.indicator_cache is not None
 
-    def test_feature_cache_can_be_disabled(self, ict_strategy_no_cache):
+    def test_indicator_cache_can_be_disabled(self, ict_strategy_no_cache):
         """Test that feature cache can be disabled via config."""
-        assert ict_strategy_no_cache.is_feature_cache_enabled() is False
-        assert ict_strategy_no_cache.feature_cache is None
+        assert ict_strategy_no_cache.is_indicator_cache_enabled() is False
+        assert ict_strategy_no_cache.indicator_cache is None
 
-    def test_feature_cache_initialized_on_historical_data(
+    def test_indicator_cache_initialized_on_historical_data(
         self, ict_strategy, sample_candles
     ):
         """Test that feature cache is initialized when historical data is loaded."""
@@ -573,17 +573,17 @@ class TestICTStrategyFeatureCacheIntegration:
         ict_strategy.initialize_with_historical_data(sample_candles[:30], interval="1h")
 
         # Check feature cache was initialized
-        stats = ict_strategy.get_feature_cache_stats()
+        stats = ict_strategy.get_indicator_cache_stats()
 
         assert "5m" in stats
         assert "1h" in stats
         assert stats["5m"]["has_structure"] is True
 
-    def test_feature_cache_stats_method(self, ict_strategy, sample_candles):
-        """Test get_feature_cache_stats returns correct data."""
+    def test_indicator_cache_stats_method(self, ict_strategy, sample_candles):
+        """Test get_indicator_cache_stats returns correct data."""
         ict_strategy.initialize_with_historical_data(sample_candles, interval="5m")
 
-        stats = ict_strategy.get_feature_cache_stats()
+        stats = ict_strategy.get_indicator_cache_stats()
 
         assert "5m" in stats
         assert "order_blocks_total" in stats["5m"]
@@ -593,9 +593,9 @@ class TestICTStrategyFeatureCacheIntegration:
         assert "has_structure" in stats["5m"]
         assert "trend" in stats["5m"]
 
-    def test_feature_cache_stats_empty_when_disabled(self, ict_strategy_no_cache):
-        """Test get_feature_cache_stats returns empty dict when cache disabled."""
-        stats = ict_strategy_no_cache.get_feature_cache_stats()
+    def test_indicator_cache_stats_empty_when_disabled(self, ict_strategy_no_cache):
+        """Test get_indicator_cache_stats returns empty dict when cache disabled."""
+        stats = ict_strategy_no_cache.get_indicator_cache_stats()
         assert stats == {}
 
 
@@ -606,7 +606,7 @@ class TestMultiTimeframeFeatureCacheIntegration:
     def mtf_strategy(self, sample_candles):
         """Create a multi-timeframe strategy with feature cache."""
         from src.strategies.multi_timeframe import MultiTimeframeStrategy
-        from src.strategies.feature_cache import FeatureStateCache
+        from src.strategies.indicator_cache import IndicatorStateCache
 
         # Create a concrete implementation for testing
         class TestMTFStrategy(MultiTimeframeStrategy):
@@ -620,27 +620,27 @@ class TestMultiTimeframeFeatureCacheIntegration:
         )
 
         # Set up feature cache
-        cache = FeatureStateCache(config={"max_order_blocks": 20})
-        strategy.set_feature_cache(cache)
+        cache = IndicatorStateCache(config={"max_order_blocks": 20})
+        strategy.set_indicator_cache(cache)
 
         return strategy
 
-    def test_set_feature_cache(self, mtf_strategy):
+    def test_set_indicator_cache(self, mtf_strategy):
         """Test setting feature cache on strategy."""
-        assert mtf_strategy.feature_cache is not None
+        assert mtf_strategy.indicator_cache is not None
 
-    def test_feature_cache_initializes_on_history(self, mtf_strategy, sample_candles):
+    def test_indicator_cache_initializes_on_history(self, mtf_strategy, sample_candles):
         """Test that feature cache initializes when history is loaded."""
         mtf_strategy.initialize_with_historical_data(sample_candles, interval="1h")
 
-        cache = mtf_strategy.feature_cache
+        cache = mtf_strategy.indicator_cache
         stats = cache.get_cache_stats()
 
         assert "1h" in stats
         assert stats["1h"]["has_structure"] is True
 
     @pytest.mark.asyncio
-    async def test_feature_cache_updates_on_new_candle(
+    async def test_indicator_cache_updates_on_new_candle(
         self, mtf_strategy, sample_candles
     ):
         """Test that feature cache updates when new candle is analyzed."""

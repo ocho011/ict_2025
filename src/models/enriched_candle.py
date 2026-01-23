@@ -1,5 +1,5 @@
 """
-EnrichedCandle model - Candle with integrated ICT indicators
+EnrichedCandle model - Candle with integrated ICT detectors
 
 Performance-optimized in-memory model for real-time trading.
 Uses slots=True for 40% memory reduction following CLAUDE.md guidelines.
@@ -11,24 +11,22 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.models.candle import Candle
-from src.models.ict_signals import (
+from src.models.indicators import (
     Displacement,
-    StructureBreak,
-)
-from src.models.features import (
     FairValueGap,
     OrderBlock,
+    StructureBreak,
 )
 
 
 @dataclass
 class EnrichedCandle:
     """
-    Candle with ICT indicators integrated for performance-optimized analysis.
+    Candle with ICT detectors integrated for performance-optimized analysis.
 
     Design Philosophy:
     - Hot Path optimization: slots=True disabled for Python 3.9 compatibility
-    - Immutable indicators: tuple instead of list to prevent accidental mutation
+    - Immutable detectors: tuple instead of list to prevent accidental mutation
     - Business logic encapsulation: Methods for common pattern detection
     - Zero DB overhead: In-memory only for real-time performance
 
@@ -155,14 +153,14 @@ class EnrichedCandle:
         )
 
     @property
-    def indicator_count(self) -> int:
+    def detector_count(self) -> int:
         """
-        Total number of ICT indicators present on this candle.
+        Total number of ICT detectors present on this candle.
 
         Useful for filtering high-conviction setups.
 
         Returns:
-            Count of non-empty indicators (0-4 range)
+            Count of non-empty detectors (0-4 range)
         """
         count = 0
         if self.fvgs:
@@ -178,12 +176,12 @@ class EnrichedCandle:
     @property
     def is_high_conviction(self) -> bool:
         """
-        Check if this is a high-conviction setup (3+ indicators).
+        Check if this is a high-conviction setup (3+ detectors).
 
         Returns:
-            True if 3 or more indicators are present
+            True if 3 or more detectors are present
         """
-        return self.indicator_count >= 3
+        return self.detector_count >= 3
 
     def __repr__(self) -> str:
         """String representation for debugging."""

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src.indicators.ict_liquidity import (
+from src.detectors.ict_liquidity import (
     calculate_premium_discount,
     detect_liquidity_sweep,
     find_equal_highs,
@@ -18,7 +18,7 @@ from src.indicators.ict_liquidity import (
     is_in_premium,
 )
 from src.models.candle import Candle
-from src.models.features import LiquidityLevel
+from src.models.indicators import LiquidityLevel
 
 
 def create_test_candle(

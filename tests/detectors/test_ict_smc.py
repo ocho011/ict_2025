@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src.indicators.ict_smc import (
+from src.detectors.ict_smc import (
     calculate_average_range,
     detect_all_smc,
     detect_displacement,
@@ -15,7 +15,7 @@ from src.indicators.ict_smc import (
     find_mitigation_zone,
 )
 from src.models.candle import Candle
-from src.models.features import (
+from src.models.indicators import (
     FairValueGap,
     OrderBlock,
 )

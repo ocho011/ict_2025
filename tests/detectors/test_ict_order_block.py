@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from src.indicators.ict_order_block import (
+from src.detectors.ict_order_block import (
     calculate_average_range,
     detect_all_ob,
     filter_obs_by_strength,
@@ -18,7 +18,7 @@ from src.indicators.ict_order_block import (
     validate_ob_strength,
 )
 from src.models.candle import Candle
-from src.models.features import OrderBlock
+from src.models.indicators import OrderBlock
 
 
 def create_test_candle(

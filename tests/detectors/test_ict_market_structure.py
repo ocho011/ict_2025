@@ -5,7 +5,7 @@ Unit tests for ICT Market Structure Analysis
 from collections import deque
 from datetime import datetime, timedelta
 
-from src.indicators.ict_market_structure import (
+from src.detectors.ict_market_structure import (
     detect_bos,
     detect_choch,
     get_current_trend,

@@ -1,14 +1,14 @@
 """
-Feature state models for pre-computed technical analysis features.
+Indicator state models for pre-computed technical analysis indicators.
 
 This module defines immutable dataclasses for tracking Order Blocks, Fair Value Gaps,
 and Market Structure state across multiple timeframes. These models support the
-feature pre-computation system (Issue #19) that calculates features during backfill
+indicator pre-computation system (Issue #19) that calculates indicators during backfill
 and tracks their lifecycle in real-time.
 
 Key Design Principles:
-- Immutability: Features are created once, status updates create new instances
-- Validation: All features validated on creation (fail-fast)
+- Immutability: Indicators are created once, status updates create new instances
+- Validation: All indicators validated on creation (fail-fast)
 - Performance: Minimal memory footprint with __slots__ optimization
 - Lifecycle: Track creation, touch, mitigation, and invalidation states
 """
@@ -19,9 +19,9 @@ from enum import Enum
 from typing import Optional
 
 
-class FeatureStatus(Enum):
+class IndicatorStatus(Enum):
     """
-    Lifecycle status for tracked features.
+    Lifecycle status for tracked indicators.
 
     State Transitions:
     - ACTIVE → TOUCHED: Price reached zone boundary
@@ -30,20 +30,25 @@ class FeatureStatus(Enum):
     - Any → INVALIDATED: Market structure change or expiry
     """
 
-    ACTIVE = "active"  # Feature is valid and tradeable
+    ACTIVE = "active"  # Indicator is valid and tradeable
     TOUCHED = "touched"  # Price reached zone but didn't enter
     MITIGATED = "mitigated"  # Price entered zone partially
     FILLED = "filled"  # Zone completely consumed
     INVALIDATED = "invalidated"  # Market structure change or expiry
 
 
-class FeatureType(Enum):
-    """Types of features tracked by the system."""
+class IndicatorType(Enum):
+    """Types of indicators tracked by the system."""
 
     ORDER_BLOCK = "order_block"
     FAIR_VALUE_GAP = "fvg"
     MARKET_STRUCTURE = "market_structure"
     LIQUIDITY = "liquidity"
+    SWING_POINT = "swing_point"
+    STRUCTURE_BREAK = "structure_break"
+    INDUCEMENT = "inducement"
+    DISPLACEMENT = "displacement"
+    LIQUIDITY_SWEEP = "liquidity_sweep"
 
 
 @dataclass(frozen=True)
@@ -75,7 +80,7 @@ class OrderBlock:
         status: Current lifecycle status
         touch_count: Number of times price reached zone
         mitigation_percent: Percentage of zone consumed (0.0 - 1.0)
-        created_at: When this feature was detected
+        created_at: When this indicator was detected
         last_updated: Last status update time
     """
 
@@ -88,7 +93,7 @@ class OrderBlock:
     candle_index: int
     displacement_size: float
     strength: float
-    status: FeatureStatus = FeatureStatus.ACTIVE
+    status: IndicatorStatus = IndicatorStatus.ACTIVE
     touch_count: int = 0
     mitigation_percent: float = 0.0
     created_at: datetime = field(default_factory=datetime.utcnow)
@@ -130,9 +135,9 @@ class OrderBlock:
     @property
     def is_active(self) -> bool:
         """Check if OB is still tradeable."""
-        return self.status in (FeatureStatus.ACTIVE, FeatureStatus.TOUCHED)
+        return self.status in (IndicatorStatus.ACTIVE, IndicatorStatus.TOUCHED)
 
-    def with_status(self, new_status: FeatureStatus, **updates) -> "OrderBlock":
+    def with_status(self, new_status: IndicatorStatus, **updates) -> "OrderBlock":
         """Create new OB with updated status (immutability pattern)."""
         return OrderBlock(
             id=self.id,
@@ -183,7 +188,7 @@ class FairValueGap:
         gap_size: Size of the imbalance
         status: Current lifecycle status
         fill_percent: Percentage of gap filled (0.0 - 1.0)
-        created_at: When this feature was detected
+        created_at: When this indicator was detected
         last_updated: Last status update time
     """
 
@@ -195,7 +200,7 @@ class FairValueGap:
     timestamp: datetime
     candle_index: int
     gap_size: float
-    status: FeatureStatus = FeatureStatus.ACTIVE
+    status: IndicatorStatus = IndicatorStatus.ACTIVE
     fill_percent: float = 0.0
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_updated: datetime = field(default_factory=datetime.utcnow)
@@ -231,7 +236,7 @@ class FairValueGap:
     @property
     def is_active(self) -> bool:
         """Check if FVG is still tradeable."""
-        return self.status in (FeatureStatus.ACTIVE, FeatureStatus.TOUCHED)
+        return self.status in (IndicatorStatus.ACTIVE, IndicatorStatus.TOUCHED)
 
     @property
     def filled(self) -> bool:
@@ -241,9 +246,9 @@ class FairValueGap:
         Returns True if FVG is no longer tradeable (mitigated, filled, or invalidated).
         """
         return self.status in (
-            FeatureStatus.MITIGATED,
-            FeatureStatus.FILLED,
-            FeatureStatus.INVALIDATED,
+            IndicatorStatus.MITIGATED,
+            IndicatorStatus.FILLED,
+            IndicatorStatus.INVALIDATED,
         )
 
     @property
@@ -251,7 +256,7 @@ class FairValueGap:
         """Backward compatibility property - alias for candle_index."""
         return self.candle_index
 
-    def with_status(self, new_status: FeatureStatus, **updates) -> "FairValueGap":
+    def with_status(self, new_status: IndicatorStatus, **updates) -> "FairValueGap":
         """Create new FVG with updated status (immutability pattern)."""
         return FairValueGap(
             id=self.id,
@@ -418,3 +423,83 @@ class LiquidityLevel:
             swept=True,
             sweep_timestamp=datetime.utcnow(),
         )
+
+@dataclass(frozen=True)
+class SwingPoint:
+    id: str
+    interval: str
+    index: int
+    price: float
+    type: str  # "high" or "low"
+    timestamp: datetime
+    strength: int = 5
+
+
+@dataclass(frozen=True)
+class StructureBreak:
+    id: str
+    interval: str
+    index: int
+    type: str  # "BOS" or "CHoCH"
+    direction: str  # "bullish" or "bearish"
+    broken_level: float
+    timestamp: datetime
+
+
+@dataclass(frozen=True)
+class Inducement:
+    id: str
+    interval: str
+    index: int
+    type: str  # "liquidity_grab", "minor_break", etc.
+    direction: str  # "bullish" or "bearish"
+    price: float
+    timestamp: datetime
+
+    @property
+    def price_level(self) -> float:
+        """Backward compatibility property for legacy code."""
+        return self.price
+
+
+@dataclass(frozen=True)
+class Displacement:
+    id: str
+    interval: str
+    index: int
+    direction: str  # "bullish" or "bearish"
+    start_price: float
+    end_price: float
+    displacement_ratio: float
+    timestamp: datetime
+
+    @property
+    def size(self) -> float:
+        """
+        Size of the displacement move.
+        Backward compatibility property for legacy code.
+        """
+        return abs(self.end_price - self.start_price)
+
+
+@dataclass(frozen=True)
+class LiquiditySweep:
+    id: str
+    interval: str
+    index: int
+    direction: str  # "bullish" or "bearish"
+    swept_level: float
+    reversal_started: bool
+    timestamp: datetime
+
+
+@dataclass(frozen=True)
+class Mitigation:
+    id: str
+    interval: str
+    index: int
+    type: str  # "FVG", "OB", etc.
+    high: float
+    low: float
+    timestamp: datetime
+    mitigated: bool = False

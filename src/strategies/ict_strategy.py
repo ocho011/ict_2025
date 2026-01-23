@@ -10,14 +10,15 @@ Comprehensive strategy implementing ICT concepts:
 - Kill Zones (time-based filters)
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-# Feature cache for pre-computed features (Issue #19)
-from src.strategies.feature_cache import FeatureStateCache
+# Detection indicator cache (Issue #19)
+from src.strategies.indicator_cache import IndicatorStateCache
 
 # ICT Fair Value Gap
-from src.indicators.ict_fvg import (
+from src.detectors.ict_fvg import (
     detect_bearish_fvg,
     detect_bullish_fvg,
     find_nearest_fvg,
@@ -25,10 +26,10 @@ from src.indicators.ict_fvg import (
 )
 
 # ICT Kill Zones
-from src.indicators.ict_killzones import get_active_killzone, is_killzone_active
+from src.detectors.ict_killzones import get_active_killzone, is_killzone_active
 
 # ICT Liquidity
-from src.indicators.ict_liquidity import (
+from src.detectors.ict_liquidity import (
     calculate_premium_discount,
     detect_liquidity_sweep,
     find_equal_highs,
@@ -38,12 +39,12 @@ from src.indicators.ict_liquidity import (
 )
 
 # ICT Market Structure
-from src.indicators.ict_market_structure import (
+from src.detectors.ict_market_structure import (
     get_current_trend,
 )
 
 # ICT Order Block
-from src.indicators.ict_order_block import (
+from src.detectors.ict_order_block import (
     find_nearest_ob,
     get_ob_zone,
     identify_bearish_ob,
@@ -51,7 +52,7 @@ from src.indicators.ict_order_block import (
 )
 
 # ICT Smart Money Concepts
-from src.indicators.ict_smc import (
+from src.detectors.ict_smc import (
     detect_displacement,
     detect_inducement,
     find_mitigation_zone,
@@ -190,21 +191,21 @@ class ICTStrategy(MultiTimeframeStrategy):
             "signals_generated": 0,
         }
 
-        # Initialize feature cache for pre-computed features (Issue #19)
+        # Initialize indicator cache for pre-computed indicators (Issue #19)
         # This enables O(f+k) incremental updates vs O(n) full recalculation
-        use_feature_cache = config.get("use_feature_cache", True)
-        if use_feature_cache:
-            feature_cache_config = {
+        use_indicator_cache = config.get("use_indicator_cache", True)
+        if use_indicator_cache:
+            indicator_cache_config = {
                 "max_order_blocks": config.get("max_order_blocks", 20),
                 "max_fvgs": config.get("max_fvgs", 15),
                 "displacement_ratio": self.displacement_ratio,
                 "fvg_min_gap_percent": self.fvg_min_gap_percent,
-                "feature_expiry_candles": config.get("feature_expiry_candles", 100),
+                "indicator_expiry_candles": config.get("indicator_expiry_candles", 100),
             }
-            cache = FeatureStateCache(config=feature_cache_config)
-            self.set_feature_cache(cache)
+            cache = IndicatorStateCache(config=indicator_cache_config)
+            self.set_indicator_cache(cache)
             self.logger.info(
-                f"[{self.__class__.__name__}] Feature cache enabled for {self.symbol}"
+                f"[{self.__class__.__name__}] Indicator cache enabled for {self.symbol}"
             )
 
     async def analyze_mtf(self, candle: Candle, buffers: dict) -> Optional[Signal]:
@@ -231,8 +232,8 @@ class ICTStrategy(MultiTimeframeStrategy):
             Signal if ICT conditions met, None otherwise
 
         Note:
-            Currently uses LTF buffer for most analysis. Full MTF separation to be implemented
-            in future iterations (HTF for trend, MTF for structure, LTF for entry).
+            Uses pre-computed detectors from LTF/MTF buffers. High-conviction
+            setups require agreement across multiple detectors.
         """
         # Validate candle is closed
         if not candle.is_closed:
@@ -256,11 +257,11 @@ class ICTStrategy(MultiTimeframeStrategy):
                 return None  # Outside optimal trading times
 
         # Step 2: Trend Analysis (Market Structure)
-        # Use feature cache for trend if available (Issue #19)
+        # Use indicator cache for trend if available (Issue #19)
         trend = None
-        if self._feature_cache is not None:
-            htf_structure = self._feature_cache.get_market_structure(self.htf_interval)
-            mtf_structure = self._feature_cache.get_market_structure(self.mtf_interval)
+        if self._indicator_cache is not None:
+            htf_structure = self._indicator_cache.get_market_structure(self.htf_interval)
+            mtf_structure = self._indicator_cache.get_market_structure(self.mtf_interval)
             # Prefer HTF trend, fall back to MTF
             if htf_structure:
                 trend = htf_structure.trend
@@ -284,24 +285,24 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         current_price = candle.close
 
-        # Step 4: FVG/OB Detection - Use feature cache if available (Issue #19)
+        # Step 4: FVG/OB Detection - Use indicator cache if available (Issue #19)
         mtf_interval = self.mtf_interval
-        if self._feature_cache is not None:
-            # Use pre-computed features from cache (O(f) lookup)
-            bullish_fvgs_cached = self._feature_cache.get_active_fvgs(
+        if self._indicator_cache is not None:
+            # Use pre-computed indicators from cache (O(f) lookup)
+            bullish_fvgs_cached = self._indicator_cache.get_active_fvgs(
                 mtf_interval, "bullish"
             )
-            bearish_fvgs_cached = self._feature_cache.get_active_fvgs(
+            bearish_fvgs_cached = self._indicator_cache.get_active_fvgs(
                 mtf_interval, "bearish"
             )
-            bullish_obs_cached = self._feature_cache.get_active_order_blocks(
+            bullish_obs_cached = self._indicator_cache.get_active_order_blocks(
                 mtf_interval, "bullish"
             )
-            bearish_obs_cached = self._feature_cache.get_active_order_blocks(
+            bearish_obs_cached = self._indicator_cache.get_active_order_blocks(
                 mtf_interval, "bearish"
             )
 
-            # Convert cached features to legacy format for compatibility
+            # Convert cached indicators to legacy format for compatibility
             # Note: Cached OBs already have strength filtering applied at detection
             bullish_fvgs = bullish_fvgs_cached
             bearish_fvgs = bearish_fvgs_cached
@@ -364,9 +365,9 @@ class ICTStrategy(MultiTimeframeStrategy):
         )
 
         # Step 8: Entry Timing - Look for mitigation of FVG/OB
-        # Skip when using feature cache (cache handles status updates internally,
+        # Skip when using indicator cache (cache handles status updates internally,
         # and cached FVGs are immutable so find_mitigation_zone would fail)
-        if self._feature_cache is None:
+        if self._indicator_cache is None:
             _mitigations = find_mitigation_zone(
                 candle_buffer,
                 fvgs=bullish_fvgs + bearish_fvgs,
@@ -710,18 +711,18 @@ class ICTStrategy(MultiTimeframeStrategy):
         for key in self.condition_stats:
             self.condition_stats[key] = 0
 
-    def get_feature_cache_stats(self) -> dict:
+    def get_indicator_cache_stats(self) -> dict:
         """
-        Get statistics about pre-computed features (Issue #19).
+        Get statistics about pre-computed indicators (Issue #19).
 
         Returns:
-            Dictionary with feature counts per interval,
-            or empty dict if feature cache not enabled.
+            Dictionary with indicator counts per interval,
+            or empty dict if indicator cache not enabled.
         """
-        if self._feature_cache is None:
+        if self._indicator_cache is None:
             return {}
-        return self._feature_cache.get_cache_stats()
+        return self._indicator_cache.get_cache_stats()
 
-    def is_feature_cache_enabled(self) -> bool:
-        """Check if feature cache is enabled."""
-        return self._feature_cache is not None
+    def is_indicator_cache_enabled(self) -> bool:
+        """Check if indicator cache is enabled."""
+        return self._indicator_cache is not None
