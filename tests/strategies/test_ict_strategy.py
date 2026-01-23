@@ -405,7 +405,9 @@ class TestKillZoneFilter:
     """Test kill zone filtering behavior."""
 
     @pytest.mark.asyncio
-    async def test_outside_killzone_no_signal(self, default_config, bullish_trend_candles):
+    async def test_outside_killzone_no_signal(
+        self, default_config, bullish_trend_candles
+    ):
         """Test that strategy returns None outside kill zones when filtering enabled."""
         strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
@@ -418,7 +420,9 @@ class TestKillZoneFilter:
         outside_kz_candle = Candle(
             symbol=last_candle.symbol,
             interval=last_candle.interval,
-            open_time=datetime(2025, 1, 15, 12, 0, 0, tzinfo=pytz.UTC),  # Outside kill zones
+            open_time=datetime(
+                2025, 1, 15, 12, 0, 0, tzinfo=pytz.UTC
+            ),  # Outside kill zones
             close_time=datetime(2025, 1, 15, 12, 1, 0, tzinfo=pytz.UTC),
             open=last_candle.open,
             high=last_candle.high,
@@ -432,7 +436,9 @@ class TestKillZoneFilter:
         assert signal is None  # Filtered by kill zone
 
     @pytest.mark.asyncio
-    async def test_killzone_disabled_allows_signal(self, custom_config, bullish_trend_candles):
+    async def test_killzone_disabled_allows_signal(
+        self, custom_config, bullish_trend_candles
+    ):
         """Test that signals can occur outside kill zones when filtering disabled."""
         # custom_config has use_killzones=False
         strategy = ICTStrategy(symbol="BTCUSDT", config=custom_config)
@@ -446,7 +452,9 @@ class TestKillZoneFilter:
         outside_kz_candle = Candle(
             symbol=last_candle.symbol,
             interval=last_candle.interval,
-            open_time=datetime(2025, 1, 15, 12, 0, 0, tzinfo=pytz.UTC),  # Outside kill zones
+            open_time=datetime(
+                2025, 1, 15, 12, 0, 0, tzinfo=pytz.UTC
+            ),  # Outside kill zones
             close_time=datetime(2025, 1, 15, 12, 1, 0, tzinfo=pytz.UTC),
             open=last_candle.open,
             high=last_candle.high,
@@ -470,7 +478,9 @@ class TestLongEntryConditions:
     """Test LONG entry signal generation."""
 
     @pytest.mark.asyncio
-    async def test_long_signal_on_bullish_setup(self, default_config, bullish_trend_candles):
+    async def test_long_signal_on_bullish_setup(
+        self, default_config, bullish_trend_candles
+    ):
         """Test LONG signal generated on complete bullish ICT setup."""
         strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
@@ -513,7 +523,9 @@ class TestShortEntryConditions:
     """Test SHORT entry signal generation."""
 
     @pytest.mark.asyncio
-    async def test_short_signal_on_bearish_setup(self, default_config, bearish_trend_candles):
+    async def test_short_signal_on_bearish_setup(
+        self, default_config, bearish_trend_candles
+    ):
         """Test SHORT signal generated on complete bearish ICT setup."""
         strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
@@ -580,7 +592,7 @@ class TestStopLossCalculation:
         strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         entry_price = 50000.0
-        sl = strategy.calculate_stop_loss(entry_price, "LONG", nearest_fvg=None, nearest_ob=None)
+        sl = strategy.calculate_stop_loss(entry_price, "LONG")
 
         # SL should be below entry for LONG
         assert sl < entry_price
@@ -592,7 +604,7 @@ class TestStopLossCalculation:
         strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
 
         entry_price = 50000.0
-        sl = strategy.calculate_stop_loss(entry_price, "SHORT", nearest_fvg=None, nearest_ob=None)
+        sl = strategy.calculate_stop_loss(entry_price, "SHORT")
 
         # SL should be above entry for SHORT
         assert sl > entry_price

@@ -81,11 +81,11 @@ class TestTradingEngineInit:
         assert engine.config_manager is None
         assert engine._running is False
 
-    @patch('src.core.binance_service.BinanceServiceClient')
-    @patch('src.execution.order_manager.OrderExecutionManager')
-    @patch('src.risk.manager.RiskManager')
-    @patch('src.strategies.StrategyFactory.create')
-    @patch('src.core.data_collector.BinanceDataCollector')
+    @patch("src.core.binance_service.BinanceServiceClient")
+    @patch("src.execution.order_manager.OrderExecutionManager")
+    @patch("src.risk.manager.RiskManager")
+    @patch("src.strategies.StrategyFactory.create")
+    @patch("src.core.data_collector.BinanceDataCollector")
     def test_initialize_components_success(
         self,
         mock_collector_cls,
@@ -110,27 +110,27 @@ class TestTradingEngineInit:
         mock_config_manager.trading_config.stop_loss_percent = 0.01
         mock_config_manager.trading_config.ict_config = {"use_killzones": True}
         mock_config_manager.trading_config.max_risk_per_trade = 0.02
-        
+
         mock_event_bus = Mock()
         mock_event_bus.subscribe = Mock()
 
         # Mock component instances
         mock_service = Mock()
         mock_service_cls.return_value = mock_service
-        
+
         mock_order_manager = Mock()
         mock_order_manager.set_leverage = Mock(return_value=True)
         mock_order_manager.set_margin_type = Mock(return_value=True)
         mock_order_cls.return_value = mock_order_manager
-        
+
         mock_risk = Mock()
         mock_risk_cls.return_value = mock_risk
-        
+
         mock_strategy = Mock()
         # Ensure strategy intervals match config so validation passes
-        mock_strategy.intervals = ["1h"] 
+        mock_strategy.intervals = ["1h"]
         mock_strategy_factory.return_value = mock_strategy
-        
+
         mock_collector = Mock()
         mock_collector.intervals = ["1h"]
         mock_collector_cls.return_value = mock_collector
@@ -154,7 +154,7 @@ class TestTradingEngineInit:
 
         # Verify handlers registered
         assert mock_event_bus.subscribe.call_count == 3
-        
+
         # Verify API configuration calls
         mock_order_manager.set_leverage.assert_called_with("BTCUSDT", 10)
         mock_order_manager.set_margin_type.assert_called_with("BTCUSDT", "ISOLATED")
@@ -500,21 +500,21 @@ class TestStrategyCompatibilityValidation:
     """Test strategy-DataCollector compatibility validation (Issue #7 Phase 2)."""
 
     def test_validate_mtf_strategy_all_intervals_available(self):
-        """Test MTF strategy passes when all required intervals are available."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        """Test strategy passes when all required intervals are available."""
+        from src.strategies.base import BaseStrategy
         from src.core.exceptions import ConfigurationError
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
-        # Mock MTF strategy with intervals ['5m', '1h', '4h']
-        engine.strategy = Mock(spec=MultiTimeframeStrategy)
-        engine.strategy.intervals = ['5m', '1h', '4h']
+        # Mock strategy with intervals ['5m', '1h', '4h']
+        engine.strategy = Mock(spec=BaseStrategy)
+        engine.strategy.intervals = ["5m", "1h", "4h"]
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with matching intervals
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '1h', '4h']
+        engine.data_collector.intervals = ["5m", "1h", "4h"]
 
         engine.logger = Mock()
 
@@ -529,19 +529,19 @@ class TestStrategyCompatibilityValidation:
 
     def test_validate_mtf_strategy_extra_intervals_ok(self):
         """Test MTF strategy passes when DataCollector has extra intervals."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock MTF strategy with intervals ['5m', '1h', '4h']
-        engine.strategy = Mock(spec=MultiTimeframeStrategy)
-        engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategy = Mock(spec=BaseStrategy)
+        engine.strategy.intervals = ["5m", "1h", "4h"]
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with extra '15m' interval
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '15m', '1h', '4h']
+        engine.data_collector.intervals = ["5m", "15m", "1h", "4h"]
 
         engine.logger = Mock()
 
@@ -553,20 +553,20 @@ class TestStrategyCompatibilityValidation:
 
     def test_validate_mtf_strategy_missing_intervals_fails(self):
         """Test MTF strategy fails when required intervals are missing."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
         from src.core.exceptions import ConfigurationError
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock MTF strategy with intervals ['5m', '1h', '4h']
-        engine.strategy = Mock(spec=MultiTimeframeStrategy)
-        engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategy = Mock(spec=BaseStrategy)
+        engine.strategy.intervals = ["5m", "1h", "4h"]
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector missing '4h' interval
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '1h']
+        engine.data_collector.intervals = ["5m", "1h"]
 
         engine.logger = Mock()
 
@@ -594,12 +594,12 @@ class TestStrategyCompatibilityValidation:
         # Mock single-interval strategy (BaseStrategy)
         # Issue #27: Strategy must have intervals attribute
         engine.strategy = Mock(spec=BaseStrategy)
-        engine.strategy.intervals = ['5m']
+        engine.strategy.intervals = ["5m"]
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with single interval
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m']
+        engine.data_collector.intervals = ["5m"]
 
         engine.logger = Mock()
 
@@ -626,13 +626,13 @@ class TestStrategyCompatibilityValidation:
         # Mock single-interval strategy (BaseStrategy)
         # Issue #27: Strategy must have intervals attribute
         engine.strategy = Mock(spec=BaseStrategy)
-        engine.strategy.intervals = ['5m']
+        engine.strategy.intervals = ["5m"]
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with multiple intervals
         # Strategy only needs '5m', but DataCollector provides more
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '1h', '4h']
+        engine.data_collector.intervals = ["5m", "1h", "4h"]
 
         engine.logger = Mock()
 
@@ -651,7 +651,7 @@ class TestInitializationOrder:
 
     def test_validation_runs_before_event_handler_setup(self):
         """Test validation fails before event handlers are registered."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
         from src.core.exceptions import ConfigurationError
         from unittest.mock import patch, MagicMock
 
@@ -675,20 +675,27 @@ class TestInitializationOrder:
         mock_event_bus.subscribe = MagicMock()
 
         # Patch components that would be created (patch at import location)
-        with patch('src.core.binance_service.BinanceServiceClient') as mock_service_cls, \
-             patch('src.execution.order_manager.OrderExecutionManager') as mock_order_cls, \
-             patch('src.risk.manager.RiskManager') as mock_risk_cls, \
-             patch('src.strategies.StrategyFactory.create') as mock_strategy_factory, \
-             patch('src.core.data_collector.BinanceDataCollector') as mock_collector_cls:
-
+        with (
+            patch("src.core.binance_service.BinanceServiceClient") as mock_service_cls,
+            patch(
+                "src.execution.order_manager.OrderExecutionManager"
+            ) as mock_order_cls,
+            patch("src.risk.manager.RiskManager") as mock_risk_cls,
+            patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
+            patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
+        ):
             # Setup mocks
             mock_service_cls.return_value = MagicMock()
             mock_order_cls.return_value = MagicMock()
             mock_risk_cls.return_value = MagicMock()
 
             # Create MTF strategy that requires ['5m', '1h', '4h']
-            mock_strategy = MagicMock(spec=MultiTimeframeStrategy)
-            mock_strategy.intervals = ['5m', '1h', '4h']  # Requires 4h but config only has 5m, 1h
+            mock_strategy = MagicMock(spec=BaseStrategy)
+            mock_strategy.intervals = [
+                "5m",
+                "1h",
+                "4h",
+            ]  # Requires 4h but config only has 5m, 1h
             mock_strategy_factory.return_value = mock_strategy
 
             # Create DataCollector with intervals from config
@@ -716,7 +723,7 @@ class TestInitializationOrder:
 
     def test_validation_runs_before_api_calls(self):
         """Test validation fails before leverage/margin API calls."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
         from src.core.exceptions import ConfigurationError
         from unittest.mock import patch, MagicMock
 
@@ -739,12 +746,15 @@ class TestInitializationOrder:
         mock_event_bus = MagicMock()
 
         # Patch components (patch at import location)
-        with patch('src.core.binance_service.BinanceServiceClient') as mock_service_cls, \
-             patch('src.execution.order_manager.OrderExecutionManager') as mock_order_cls, \
-             patch('src.risk.manager.RiskManager') as mock_risk_cls, \
-             patch('src.strategies.StrategyFactory.create') as mock_strategy_factory, \
-             patch('src.core.data_collector.BinanceDataCollector') as mock_collector_cls:
-
+        with (
+            patch("src.core.binance_service.BinanceServiceClient") as mock_service_cls,
+            patch(
+                "src.execution.order_manager.OrderExecutionManager"
+            ) as mock_order_cls,
+            patch("src.risk.manager.RiskManager") as mock_risk_cls,
+            patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
+            patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
+        ):
             # Setup mocks
             mock_service_cls.return_value = MagicMock()
 
@@ -756,8 +766,8 @@ class TestInitializationOrder:
             mock_risk_cls.return_value = MagicMock()
 
             # Create MTF strategy that requires ['5m', '1h', '4h']
-            mock_strategy = MagicMock(spec=MultiTimeframeStrategy)
-            mock_strategy.intervals = ['5m', '1h', '4h']
+            mock_strategy = MagicMock(spec=BaseStrategy)
+            mock_strategy.intervals = ["5m", "1h", "4h"]
             mock_strategy_factory.return_value = mock_strategy
 
             # Create DataCollector with intervals from config
@@ -787,20 +797,20 @@ class TestIntervalFiltering:
     @pytest.mark.asyncio
     async def test_mtf_strategy_processes_required_interval(self):
         """Test MTF strategy processes candles from required intervals."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock MTF strategy with intervals ['5m', '1h', '4h']
-        engine.strategy = AsyncMock(spec=MultiTimeframeStrategy)
-        engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategy = AsyncMock(spec=BaseStrategy)
+        engine.strategy.intervals = ["5m", "1h", "4h"]
         engine.strategy.analyze = AsyncMock(return_value=None)
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '1h', '4h']
+        engine.data_collector.intervals = ["5m", "1h", "4h"]
 
         # Mock other components
         engine.event_bus = AsyncMock()
@@ -833,20 +843,20 @@ class TestIntervalFiltering:
     @pytest.mark.asyncio
     async def test_mtf_strategy_filters_unrequired_interval(self):
         """Test MTF strategy filters out candles from unrequired intervals."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         mock_audit_logger = MagicMock()
         engine = TradingEngine(audit_logger=mock_audit_logger)
 
         # Mock MTF strategy with intervals ['5m', '1h', '4h']
-        engine.strategy = AsyncMock(spec=MultiTimeframeStrategy)
-        engine.strategy.intervals = ['5m', '1h', '4h']
+        engine.strategy = AsyncMock(spec=BaseStrategy)
+        engine.strategy.intervals = ["5m", "1h", "4h"]
         engine.strategy.analyze = AsyncMock(return_value=None)
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with extra '15m' interval
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '15m', '1h', '4h']
+        engine.data_collector.intervals = ["5m", "15m", "1h", "4h"]
 
         # Mock other components
         engine.event_bus = AsyncMock()
@@ -894,13 +904,13 @@ class TestIntervalFiltering:
         # Mock single-interval strategy (BaseStrategy)
         # Issue #27: Strategy must have intervals attribute
         engine.strategy = AsyncMock(spec=BaseStrategy)
-        engine.strategy.intervals = ['5m']
+        engine.strategy.intervals = ["5m"]
         engine.strategy.analyze = AsyncMock(return_value=None)
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with '5m' as first interval
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '1h']
+        engine.data_collector.intervals = ["5m", "1h"]
 
         # Mock other components
         engine.event_bus = AsyncMock()
@@ -944,13 +954,13 @@ class TestIntervalFiltering:
         # Mock single-interval strategy (BaseStrategy)
         # Issue #27: Strategy must have intervals attribute
         engine.strategy = AsyncMock(spec=BaseStrategy)
-        engine.strategy.intervals = ['5m']  # Only '5m' registered
+        engine.strategy.intervals = ["5m"]  # Only '5m' registered
         engine.strategy.analyze = AsyncMock(return_value=None)
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock DataCollector with multiple intervals
         engine.data_collector = Mock()
-        engine.data_collector.intervals = ['5m', '1h']
+        engine.data_collector.intervals = ["5m", "1h"]
 
         # Mock other components
         engine.event_bus = AsyncMock()
@@ -991,7 +1001,7 @@ class TestBackfillIntervalFix:
     @pytest.mark.asyncio
     async def test_mtf_strategy_uses_own_intervals_not_datacollector(self):
         """Test MTF strategy only fetches intervals it actually needs (Issue #26)."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         # Setup engine
         mock_audit_logger = MagicMock()
@@ -999,12 +1009,18 @@ class TestBackfillIntervalFix:
 
         # Setup data_collector with MORE intervals than strategy needs
         mock_data_collector = Mock()
-        mock_data_collector.intervals = ["1m", "5m", "15m", "1h", "4h"]  # System-wide intervals
+        mock_data_collector.intervals = [
+            "1m",
+            "5m",
+            "15m",
+            "1h",
+            "4h",
+        ]  # System-wide intervals
         mock_data_collector.get_historical_candles = Mock(return_value=[])
         engine.data_collector = mock_data_collector
 
         # Create MTF strategy that only uses SUBSET of intervals
-        mock_strategy = Mock(spec=MultiTimeframeStrategy)
+        mock_strategy = Mock(spec=BaseStrategy)
         mock_strategy.intervals = ["5m", "1h", "4h"]  # Strategy only needs these 3
         mock_strategy.initialize_with_historical_data = Mock()
 
@@ -1018,7 +1034,8 @@ class TestBackfillIntervalFix:
 
         # Verify it was NOT called for "1m" and "15m" (not in strategy.intervals)
         called_intervals = [
-            call[1]["interval"] for call in mock_data_collector.get_historical_candles.call_args_list
+            call[1]["interval"]
+            for call in mock_data_collector.get_historical_candles.call_args_list
         ]
         assert called_intervals == ["5m", "1h", "4h"]
         assert "1m" not in called_intervals
@@ -1027,7 +1044,7 @@ class TestBackfillIntervalFix:
     @pytest.mark.asyncio
     async def test_backfill_prevents_unnecessary_api_calls(self):
         """Test backfill reduces API calls when strategy needs fewer intervals (Issue #26)."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         # Setup engine
         mock_audit_logger = MagicMock()
@@ -1040,7 +1057,7 @@ class TestBackfillIntervalFix:
         engine.data_collector = mock_data_collector
 
         # Strategy only needs 2 intervals
-        mock_strategy = Mock(spec=MultiTimeframeStrategy)
+        mock_strategy = Mock(spec=BaseStrategy)
         mock_strategy.intervals = ["5m", "1h"]  # Only 2 out of 5
         mock_strategy.initialize_with_historical_data = Mock()
 
@@ -1058,7 +1075,7 @@ class TestBackfillIntervalFix:
     @pytest.mark.asyncio
     async def test_backfill_respects_strategy_compatibility_validation(self):
         """Test backfill assumes strategy intervals are subset of data_collector (Issue #26)."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         # Setup engine
         mock_audit_logger = MagicMock()
@@ -1071,7 +1088,7 @@ class TestBackfillIntervalFix:
         engine.data_collector = mock_data_collector
 
         # Strategy intervals are SUBSET (validated by _validate_strategy_compatibility earlier)
-        mock_strategy = Mock(spec=MultiTimeframeStrategy)
+        mock_strategy = Mock(spec=BaseStrategy)
         mock_strategy.intervals = ["5m", "1h"]  # Subset of data_collector.intervals
         mock_strategy.initialize_with_historical_data = Mock()
 
@@ -1082,7 +1099,8 @@ class TestBackfillIntervalFix:
 
         # Verify calls were made for strategy intervals
         called_intervals = [
-            call[1]["interval"] for call in mock_data_collector.get_historical_candles.call_args_list
+            call[1]["interval"]
+            for call in mock_data_collector.get_historical_candles.call_args_list
         ]
         assert set(called_intervals) == {"5m", "1h"}
         assert set(called_intervals).issubset(set(mock_data_collector.intervals))
@@ -1099,12 +1117,14 @@ class TestIssue41PositionUncertainty:
 
         # Mock strategy
         engine.strategy = AsyncMock()
-        engine.strategy.intervals = ['1h']
+        engine.strategy.intervals = ["1h"]
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock OrderManager to RAISE an exception on get_position
         engine.order_manager = Mock()
-        engine.order_manager.get_position.side_effect = Exception("API Connection Error")
+        engine.order_manager.get_position.side_effect = Exception(
+            "API Connection Error"
+        )
 
         # Mock other components
         engine.event_bus = AsyncMock()
@@ -1135,8 +1155,11 @@ class TestIssue41PositionUncertainty:
 
         # Verify warning log was called for uncertain state
         engine.logger.warning.assert_called()
-        assert any("uncertain" in str(arg).lower() or "unknown" in str(arg).lower()
-                  for call in engine.logger.warning.call_args_list for arg in call[0])
+        assert any(
+            "uncertain" in str(arg).lower() or "unknown" in str(arg).lower()
+            for call in engine.logger.warning.call_args_list
+            for arg in call[0]
+        )
 
     @pytest.mark.asyncio
     async def test_on_candle_closed_proceeds_on_confirmed_no_position(self):
@@ -1146,7 +1169,7 @@ class TestIssue41PositionUncertainty:
 
         # Mock strategy
         engine.strategy = AsyncMock()
-        engine.strategy.intervals = ['1h']
+        engine.strategy.intervals = ["1h"]
         engine.strategy.analyze = AsyncMock(return_value=None)
         engine.strategies = {"BTCUSDT": engine.strategy}
 

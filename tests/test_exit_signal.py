@@ -285,7 +285,10 @@ class TestRiskManagerExitValidation:
             result = risk_manager.validate_risk(signal, position)
 
         assert result is False
-        assert "position_side_mismatch" in caplog.text or "requires LONG position" in caplog.text
+        assert (
+            "position_side_mismatch" in caplog.text
+            or "requires LONG position" in caplog.text
+        )
 
     def test_close_short_with_long_position_rejected(self, risk_manager, caplog):
         """CLOSE_SHORT signal with LONG position is rejected (side mismatch)"""
@@ -308,7 +311,10 @@ class TestRiskManagerExitValidation:
             result = risk_manager.validate_risk(signal, position)
 
         assert result is False
-        assert "position_side_mismatch" in caplog.text or "requires SHORT position" in caplog.text
+        assert (
+            "position_side_mismatch" in caplog.text
+            or "requires SHORT position" in caplog.text
+        )
 
 
 class TestBaseStrategyCheckExit:
@@ -343,7 +349,9 @@ class TestBaseStrategyCheckExit:
         )
 
     @pytest.mark.asyncio
-    async def test_base_strategy_check_exit_returns_none(self, mock_candle, mock_position):
+    async def test_base_strategy_check_exit_returns_none(
+        self, mock_candle, mock_position
+    ):
         """BaseStrategy.check_exit() default returns None"""
         from src.strategies.base import BaseStrategy
 
@@ -395,44 +403,57 @@ class TestMultiTimeframeStrategyCheckExit:
         )
 
     @pytest.mark.asyncio
-    async def test_mtf_strategy_check_exit_returns_none(self, mock_candle, mock_position):
-        """MultiTimeframeStrategy.check_exit_mtf() default returns None"""
+    async def test_base_strategy_check_exit_returns_none(
+        self, mock_candle, mock_position
+    ):
+        """BaseStrategy.check_exit() default returns None"""
         from collections import deque
 
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         # Create a concrete implementation for testing
-        class TestMTFStrategy(MultiTimeframeStrategy):
-            async def analyze_mtf(self, candle, buffers):
+        class TestMTFStrategy(BaseStrategy):
+            async def analyze(self, candle):
                 return None
+
+            def calculate_take_profit(self, entry_price, side):
+                return entry_price * 1.02
+
+            def calculate_stop_loss(self, entry_price, side):
+                return entry_price * 0.99
 
         strategy = TestMTFStrategy(
             symbol="BTCUSDT",
-            intervals=["5m", "1h", "4h"],
             config={"buffer_size": 100},
+            intervals=["5m", "1h", "4h"],
         )
 
         # Initialize buffers
         for interval in strategy.intervals:
             strategy._initialized[interval] = True
 
-        buffers = {"5m": deque(), "1h": deque(), "4h": deque()}
-        result = await strategy.check_exit_mtf(mock_candle, buffers, mock_position)
+        result = await strategy.check_exit(mock_candle, mock_position)
         assert result is None
 
     @pytest.mark.asyncio
-    async def test_mtf_strategy_check_exit_wrapper(self, mock_candle, mock_position):
-        """MultiTimeframeStrategy.check_exit() wraps check_exit_mtf()"""
+    async def test_base_strategy_check_exit_override(self, mock_candle, mock_position):
+        """BaseStrategy.check_exit() can be overridden for custom exit logic"""
         from collections import deque
 
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
 
         # Create a strategy that returns an exit signal
-        class ExitingMTFStrategy(MultiTimeframeStrategy):
-            async def analyze_mtf(self, candle, buffers):
+        class ExitingMTFStrategy(BaseStrategy):
+            async def analyze(self, candle):
                 return None
 
-            async def check_exit_mtf(self, candle, buffers, position):
+            def calculate_take_profit(self, entry_price, side):
+                return entry_price * 1.02
+
+            def calculate_stop_loss(self, entry_price, side):
+                return entry_price * 0.99
+
+            async def check_exit(self, candle, position):
                 # Return exit signal when position exists
                 return Signal(
                     signal_type=SignalType.CLOSE_LONG,
@@ -445,8 +466,8 @@ class TestMultiTimeframeStrategyCheckExit:
 
         strategy = ExitingMTFStrategy(
             symbol="BTCUSDT",
-            intervals=["5m", "1h", "4h"],
             config={"buffer_size": 100},
+            intervals=["5m", "1h", "4h"],
         )
 
         # Initialize buffers

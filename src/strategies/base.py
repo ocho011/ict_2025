@@ -12,11 +12,14 @@ and multi-timeframe strategies. Supports pre-computed detectors (Issue #19).
 import logging
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from src.models.candle import Candle
 from src.models.position import Position
 from src.models.signal import Signal
+
+if TYPE_CHECKING:
+    from src.strategies.indicator_cache import IndicatorStateCache
 
 
 class BaseStrategy(ABC):
@@ -168,6 +171,10 @@ class BaseStrategy(ABC):
             interval: False for interval in self.intervals
         }
 
+        # Indicator cache for pre-computed indicators (Issue #19)
+        # Subclasses can initialize this for indicator-aware analysis
+        self._indicator_cache: Optional["IndicatorStateCache"] = None
+
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def initialize_with_historical_data(
@@ -274,6 +281,21 @@ class BaseStrategy(ABC):
             f"[{self.__class__.__name__}] {self.symbol} {target_interval} initialization complete: "
             f"{len(self.buffers[target_interval])} candles in buffer"
         )
+
+        # Initialize indicator cache for this interval if available (Issue #19)
+        if (
+            self._indicator_cache is not None
+            and target_interval in self.buffers
+            and self.buffers[target_interval]
+        ):
+            indicator_counts = self._indicator_cache.initialize_from_history(
+                target_interval, list(self.buffers[target_interval])
+            )
+            self.logger.info(
+                f"[{self.__class__.__name__}] {self.symbol} {target_interval} indicators initialized: "
+                f"OBs={indicator_counts.get('order_blocks', 0)}, "
+                f"FVGs={indicator_counts.get('fvgs', 0)}"
+            )
 
     def update_buffer(self, candle: Candle) -> None:
         """
@@ -495,6 +517,50 @@ class BaseStrategy(ABC):
         """
         return all(self._initialized.values())
 
+    @property
+    def indicator_cache(self) -> Optional["IndicatorStateCache"]:
+        """
+        Get the indicator cache instance.
+
+        Returns:
+            IndicatorStateCache if initialized, None otherwise
+        """
+        return self._indicator_cache
+
+    def set_indicator_cache(self, cache: "IndicatorStateCache") -> None:
+        """
+        Set the indicator cache for pre-computed indicator management.
+
+        Args:
+            cache: IndicatorStateCache instance
+
+        Example:
+            ```python
+            from src.strategies.indicator_cache import IndicatorStateCache
+
+            cache = IndicatorStateCache(config={'max_order_blocks': 20})
+            strategy.set_indicator_cache(cache)
+            ```
+        """
+        self._indicator_cache = cache
+        self.logger.info(
+            f"[{self.__class__.__name__}] Indicator cache configured for {self.symbol}"
+        )
+
+    def _update_feature_cache(self, candle: Candle) -> None:
+        """
+        Update indicator cache with new candle data.
+
+        Internal helper method for updating pre-computed indicators.
+
+        Args:
+            candle: New candle to update cache with
+        """
+        if self._indicator_cache is not None and candle.interval in self.intervals:
+            self._indicator_cache.update_on_new_candle(
+                candle.interval, candle, self.buffers[candle.interval]
+            )
+
     @abstractmethod
     async def analyze(self, candle: Candle) -> Optional[Signal]:
         """
@@ -502,6 +568,37 @@ class BaseStrategy(ABC):
 
         This is the main strategy method called by TradingEngine for each new
         candle. It must be implemented by all subclasses.
+
+        Template Method Pattern (Issue #47):
+            Subclasses should implement their strategy logic here.
+            Common operations (buffer update, cache update, ready check)
+            should be handled by calling helper methods.
+
+        Implementation Pattern:
+            ```python
+            async def analyze(self, candle: Candle) -> Optional[Signal]:
+                # 1. Validate candle is closed
+                if not candle.is_closed:
+                    return None
+
+                # 2. Update buffer with new candle
+                self.update_buffer(candle)
+
+                # 3. Update indicator cache if available
+                self._update_feature_cache(candle)
+
+                # 4. Check if ready
+                if not self.is_ready():
+                    return None
+
+                # 5. Implement strategy logic
+                buffer = self.buffers.get(candle.interval)
+                if not buffer or len(buffer) < self.min_periods:
+                    return None
+
+                # ... strategy logic ...
+                return signal if conditions_met else None
+            ```
 
         Contract:
             - Called by TradingEngine._on_candle_closed() for each candle
