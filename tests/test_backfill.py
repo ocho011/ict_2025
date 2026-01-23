@@ -4,12 +4,13 @@
 import sys
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent))
+# Add project root to path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import asyncio
 from src.main import TradingBot
 
-def main():
+async def main():
     """Test backfilling during bot initialization."""
     print("=" * 80)
     print("🧪 Backfilling Functionality Test")
@@ -30,16 +31,15 @@ def main():
 
         # Initialize (this should trigger backfilling)
         print("\n🔄 Calling bot.initialize()...\n")
-        bot.initialize()
+        await bot.initialize()
 
         # Check buffer contents
         print("\n" + "=" * 80)
         print("📊 Verifying Buffer Contents")
         print("=" * 80)
 
-        for symbol in ["BTCUSDT"]:
-            for interval in ["1m", "5m"]:
-                buffer = bot.data_collector.get_candle_buffer(symbol, interval)
+        for symbol, strategy in bot.trading_engine.strategies.items():
+            for interval, buffer in strategy.buffers.items():
                 print(f"\n{symbol} {interval}:")
                 print(f"  Buffer size: {len(buffer)} candles")
 
@@ -64,5 +64,5 @@ def main():
         return False
 
 if __name__ == "__main__":
-    success = main()
+    success = asyncio.run(main())
     sys.exit(0 if success else 1)

@@ -6,7 +6,7 @@ from datetime import datetime
 
 import pytz
 
-from src.indicators.ict_killzones import (
+from src.detectors.ict_killzones import (
     LONDON_KILLZONE_START,
     NY_AM_KILLZONE_START,
     NY_PM_KILLZONE_START,

@@ -183,8 +183,8 @@ def log_execution_time(operation: str) -> Generator[None, None, None]:
         operation: Human-readable operation description
 
     Usage:
-        with log_execution_time('indicator_calculation'):
-            result = calculate_indicators()
+        with log_execution_time('detector_calculation'):
+            result = calculate_detectors()
 
     Logs at DEBUG level: "{operation} completed in {elapsed:.3f}s"
     """

@@ -8,10 +8,10 @@ import pytest
 
 from src.models.candle import Candle
 from src.models.enriched_candle import EnrichedCandle
-from src.models.features import (
+from src.models.indicators import (
     Displacement,
     FairValueGap,
-    FeatureStatus,
+    IndicatorStatus,
     OrderBlock,
     StructureBreak,
 )
@@ -270,7 +270,7 @@ class TestFVGMethods:
             timestamp=datetime.now(timezone.utc),
             candle_index=0,
             gap_size=100.0,
-            status=FeatureStatus.FILLED,
+            status=IndicatorStatus.FILLED,
         )
         enriched = EnrichedCandle(candle=sample_candle, fvgs=(filled_fvg,))
 

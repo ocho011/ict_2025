@@ -6,7 +6,7 @@ must implement. It provides common functionality for candle buffer management
 and defines abstract methods for signal generation and risk calculations.
 
 Issue #27: Unified buffer structure using Dict[str, deque] for both single
-and multi-timeframe strategies.
+and multi-timeframe strategies. Supports pre-computed detectors (Issue #19).
 """
 
 import logging

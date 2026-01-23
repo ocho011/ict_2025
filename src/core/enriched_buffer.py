@@ -2,7 +2,7 @@
 EnrichedBuffer - High-performance in-memory buffer for EnrichedCandle
 
 Lock-free deque-based buffer following CLAUDE.md Hot Path guidelines.
-Implements incremental ICT indicator calculation for O(1) append complexity.
+Implements incremental ICT detector calculation for O(1) append complexity.
 """
 
 from collections import deque
@@ -10,7 +10,7 @@ from typing import Optional
 
 from src.models.candle import Candle
 from src.models.enriched_candle import EnrichedCandle
-from src.models.features import (
+from src.models.indicators import (
     Displacement,
     FairValueGap,
     OrderBlock,
@@ -25,7 +25,7 @@ class EnrichedBuffer:
     Design Philosophy:
     - Lock-free: Uses deque for concurrent access safety
     - Fixed size: Auto-evicts oldest candles (LRU behavior)
-    - Incremental: Only recalculates last 3-5 candles for new indicators
+    - Incremental: Only recalculates last 3-5 candles for new detectors
     - Memory bounded: O(maxlen) space complexity
 
     Performance Characteristics:
@@ -65,20 +65,20 @@ class EnrichedBuffer:
 
     def append(self, candle: Candle) -> EnrichedCandle:
         """
-        Append new candle with incremental ICT indicator calculation.
+        Append new candle with incremental ICT detector calculation.
 
         This is the Hot Path method - optimized for < 1ms execution.
 
         Algorithm:
         1. Get last 3-5 candles from buffer (O(1) - deque slicing)
-        2. Calculate ICT indicators using incremental logic (O(1))
+        2. Calculate ICT detectors using incremental logic (O(1))
         3. Append EnrichedCandle to buffer (O(1) - deque auto-eviction)
 
         Args:
             candle: New candlestick to enrich and append
 
         Returns:
-            Newly created EnrichedCandle with calculated indicators
+            Newly created EnrichedCandle with calculated detectors
 
         Performance:
         - Execution time: < 0.5ms (incremental calculation)
@@ -91,7 +91,7 @@ class EnrichedBuffer:
 
     def _enrich_incremental(self, candle: Candle) -> EnrichedCandle:
         """
-        Calculate ICT indicators incrementally using last N candles.
+        Calculate ICT detectors incrementally using last N candles.
 
         Incremental Strategy:
         - FVG: Requires last 3 candles (3-candle pattern)
@@ -100,18 +100,18 @@ class EnrichedBuffer:
         - Structure Break: Requires last 20 candles (swing point tracking)
 
         This method extracts the minimal required context and delegates
-        to specialized indicator calculation methods.
+        to specialized detector calculation methods.
 
         Args:
             candle: New candle to enrich
 
         Returns:
-            EnrichedCandle with calculated indicators
+            EnrichedCandle with calculated detectors
         """
         # Extract last N candles for context (O(1) - deque indexing)
         recent_candles = self._get_recent_candles(count=20)
 
-        # Calculate indicators incrementally (Phase 3 integration)
+        # Calculate detectors incrementally (Phase 3 integration)
         fvgs = self._detect_fvgs(candle, recent_candles)
         order_blocks = self._detect_order_blocks(candle, recent_candles)
         displacement = self._detect_displacement(candle, recent_candles)
@@ -159,7 +159,7 @@ class EnrichedBuffer:
         Returns:
             Tuple of detected FVGs (empty if none found)
 
-        TODO: Implement in Phase 3 - ICT indicator integration
+        TODO: Implement in Phase 3 - ICT detector integration
         """
         # Placeholder - Phase 3 implementation
         if len(context) < 2:
@@ -190,7 +190,7 @@ class EnrichedBuffer:
         Returns:
             Tuple of detected Order Blocks (empty if none found)
 
-        TODO: Implement in Phase 3 - ICT indicator integration
+        TODO: Implement in Phase 3 - ICT detector integration
         """
         # Placeholder - Phase 3 implementation
         return ()
@@ -213,7 +213,7 @@ class EnrichedBuffer:
         Returns:
             Displacement if detected, None otherwise
 
-        TODO: Implement in Phase 3 - ICT indicator integration
+        TODO: Implement in Phase 3 - ICT detector integration
         """
         # Placeholder - Phase 3 implementation
         return None
@@ -236,7 +236,7 @@ class EnrichedBuffer:
         Returns:
             StructureBreak if detected, None otherwise
 
-        TODO: Implement in Phase 3 - ICT indicator integration
+        TODO: Implement in Phase 3 - ICT detector integration
         """
         # Placeholder - Phase 3 implementation
         return None

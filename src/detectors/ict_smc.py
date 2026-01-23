@@ -218,7 +218,7 @@ def find_mitigation_zone(
                         )
                     )
                     # Note: FVG is immutable, so we don't mark it as filled here
-                    # The caller should use feature_cache or update_fvg_status
+                    # The caller should use indicator_cache or update_fvg_status
                     break
 
     # Check OB mitigation
@@ -251,6 +251,7 @@ def detect_all_smc(
     candles: Union[List[Candle], deque[Candle]],
     displacement_ratio: float = 1.5,
     inducement_lookback: int = 10,
+    fvgs: Optional[List[FairValueGap]] = None,
     obs: Optional[List[OrderBlock]] = None,
 ) -> tuple[List[Inducement], List[Displacement], List[Mitigation]]:
     """

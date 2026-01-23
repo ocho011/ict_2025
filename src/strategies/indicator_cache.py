@@ -1,20 +1,20 @@
 """
-Feature State Cache for pre-computed technical analysis features.
+Indicator State Cache for pre-computed technical analysis indicators.
 
 This module implements a fixed-size cache for managing the lifecycle of
-Order Blocks, Fair Value Gaps, and Market Structure features across
-multiple timeframes. Supports the feature pre-computation system (Issue #19).
+Order Blocks, Fair Value Gaps, and Market Structure indicators across
+multiple timeframes. Supports the indicator pre-computation system (Issue #19).
 
-Key Features:
+Key Indicators:
 - Fixed-size deque management with FIFO eviction
 - Price-based invalidation for OBs and FVGs
-- Efficient queries for active features
+- Efficient queries for active indicators
 - Thread-safe operations (single-threaded asyncio context)
 
 Performance Characteristics:
-- Feature lookup: O(n) where n = active features (typically < 50)
-- Feature update: O(1) for status updates
-- Feature detection: O(k) where k = lookback window
+- Indicator lookup: O(n) where n = active indicators (typically < 50)
+- Indicator update: O(1) for status updates
+- Indicator detection: O(k) where k = lookback window
 """
 
 import logging
@@ -23,50 +23,50 @@ from datetime import datetime
 from typing import Deque, Dict, List, Optional, Union
 
 from src.models.candle import Candle
-from src.models.features import (
+from src.models.indicators import (
     FairValueGap,
-    FeatureStatus,
-    FeatureType,
+    IndicatorStatus,
+    IndicatorType,
     LiquidityLevel,
     MarketStructure,
     OrderBlock,
 )
 
-# Type alias for tracked features
-TrackedFeature = Union[OrderBlock, FairValueGap, LiquidityLevel]
+# Type alias for tracked indicators
+TrackedIndicator = Union[OrderBlock, FairValueGap, LiquidityLevel]
 
 
-class FeatureStateCache:
+class IndicatorStateCache:
     """
-    Manages lifecycle of pre-computed features across intervals.
+    Manages lifecycle of pre-computed indicators across intervals.
 
     Design Principles:
     - Fixed-size buffers prevent unbounded memory growth
-    - FIFO eviction for old features
-    - Immutable features (status updates create new instances)
+    - FIFO eviction for old indicators
+    - Immutable indicators (status updates create new instances)
     - Price-based invalidation for consumed zones
 
     Usage:
-        cache = FeatureStateCache(config={'max_order_blocks': 20})
+        cache = IndicatorStateCache(config={'max_order_blocks': 20})
 
         # During backfill
         cache.initialize_from_history('1h', candles)
 
         # During real-time
-        new_features = cache.update_on_new_candle('1h', candle, buffers['1h'])
+        new_indicators = cache.update_on_new_candle('1h', candle, buffers['1h'])
         active_obs = cache.get_active_order_blocks('1h', 'bullish')
     """
 
     def __init__(self, config: Optional[Dict] = None):
         """
-        Initialize feature cache with configuration.
+        Initialize indicator cache with configuration.
 
         Args:
             config: Optional configuration dict with:
                 - max_order_blocks: Max OBs per interval (default: 20)
                 - max_fvgs: Max FVGs per interval (default: 15)
                 - max_liquidity: Max liquidity levels per interval (default: 10)
-                - feature_expiry_candles: Candles before feature expires (default: 100)
+                - indicator_expiry_candles: Candles before indicator expires (default: 100)
                 - displacement_ratio: Min ratio for OB detection (default: 1.5)
                 - fvg_min_gap_percent: Min FVG size as % of price (default: 0.001)
         """
@@ -77,11 +77,11 @@ class FeatureStateCache:
         self.max_order_blocks = self.config.get("max_order_blocks", 20)
         self.max_fvgs = self.config.get("max_fvgs", 15)
         self.max_liquidity = self.config.get("max_liquidity", 10)
-        self.feature_expiry_candles = self.config.get("feature_expiry_candles", 100)
+        self.indicator_expiry_candles = self.config.get("indicator_expiry_candles", 100)
         self.displacement_ratio = self.config.get("displacement_ratio", 1.5)
         self.fvg_min_gap_percent = self.config.get("fvg_min_gap_percent", 0.001)
 
-        # Feature storage: {interval: deque[Feature]}
+        # Indicator storage: {interval: deque[Indicator]}
         self._order_blocks: Dict[str, Deque[OrderBlock]] = {}
         self._fvgs: Dict[str, Deque[FairValueGap]] = {}
         self._liquidity: Dict[str, Deque[LiquidityLevel]] = {}
@@ -101,7 +101,7 @@ class FeatureStateCache:
         detect_structure: bool = True,
     ) -> Dict[str, int]:
         """
-        Pre-compute all features from historical candles during backfill.
+        Pre-compute all indicators from historical candles during backfill.
 
         Called once per interval during strategy initialization.
         Time complexity: O(n) where n = len(candles)
@@ -114,10 +114,10 @@ class FeatureStateCache:
             detect_structure: Whether to analyze Market Structure
 
         Returns:
-            Dict with counts of detected features
+            Dict with counts of detected indicators
         """
         if not candles:
-            self.logger.warning(f"[FeatureStateCache] No candles for {interval} initialization")
+            self.logger.warning(f"[IndicatorStateCache] No candles for {interval} initialization")
             return {"order_blocks": 0, "fvgs": 0, "structure": False}
 
         # Initialize storage for this interval
@@ -152,7 +152,7 @@ class FeatureStateCache:
         self._last_processed_index[interval] = len(candles) - 1
 
         self.logger.info(
-            f"[FeatureStateCache] {interval} initialized: "
+            f"[IndicatorStateCache] {interval} initialized: "
             f"OBs={counts['order_blocks']}, FVGs={counts['fvgs']}, "
             f"Structure={'Yes' if counts['structure'] else 'No'}"
         )
@@ -164,16 +164,16 @@ class FeatureStateCache:
         interval: str,
         candle: Candle,
         all_candles: Union[List[Candle], deque],
-    ) -> Dict[str, List[TrackedFeature]]:
+    ) -> Dict[str, List[TrackedIndicator]]:
         """
         Incremental update on new real-time candle.
 
         Operations:
-        1. Update status of existing features (mitigation, fill, expiry)
-        2. Detect new features from recent candles only
+        1. Update status of existing indicators (mitigation, fill, expiry)
+        2. Detect new indicators from recent candles only
         3. Update market structure if applicable
 
-        Time complexity: O(f + k) where f=active_features, k=lookback_window
+        Time complexity: O(f + k) where f=active_indicators, k=lookback_window
 
         Args:
             interval: Timeframe of the candle
@@ -181,22 +181,22 @@ class FeatureStateCache:
             all_candles: Full candle buffer for context
 
         Returns:
-            Dict of newly created features by type
+            Dict of newly created indicators by type
         """
-        new_features: Dict[str, List[TrackedFeature]] = {
+        new_indicators: Dict[str, List[TrackedIndicator]] = {
             "order_blocks": [],
             "fvgs": [],
         }
 
         if interval not in self._order_blocks:
             # Interval not initialized, skip
-            return new_features
+            return new_indicators
 
-        # 1. Update existing feature statuses based on price action
+        # 1. Update existing indicator statuses based on price action
         self._update_order_block_statuses(interval, candle)
         self._update_fvg_statuses(interval, candle)
 
-        # 2. Detect new features from recent candles (incremental)
+        # 2. Detect new indicators from recent candles (incremental)
         candles_list = list(all_candles)
         lookback = min(10, len(candles_list))  # Only check last 10 candles
         recent_candles = candles_list[-lookback:]
@@ -205,22 +205,22 @@ class FeatureStateCache:
         new_ob = self._check_order_block_formation(interval, recent_candles)
         if new_ob:
             self._order_blocks[interval].append(new_ob)
-            new_features["order_blocks"].append(new_ob)
+            new_indicators["order_blocks"].append(new_ob)
 
         # Check for new FVG formation
         new_fvg = self._check_fvg_formation(interval, recent_candles)
         if new_fvg:
             self._fvgs[interval].append(new_fvg)
-            new_features["fvgs"].append(new_fvg)
+            new_indicators["fvgs"].append(new_fvg)
 
         # 3. Update market structure
         if len(candles_list) >= 20:  # Need enough data for structure analysis
             self._update_market_structure(interval, candles_list)
 
-        # 4. Cleanup expired features
-        self._cleanup_expired_features(interval, len(candles_list))
+        # 4. Cleanup expired indicators
+        self._cleanup_expired_indicators(interval, len(candles_list))
 
-        return new_features
+        return new_indicators
 
     def get_active_order_blocks(
         self,
@@ -355,7 +355,7 @@ class FeatureStateCache:
         return fvg.zone_low <= price <= fvg.zone_high
 
     # -------------------------------------------------------------------------
-    # Private: Feature Detection Methods
+    # Private: Indicator Detection Methods
     # -------------------------------------------------------------------------
 
     def _detect_order_blocks_historical(
@@ -694,11 +694,11 @@ class FeatureStateCache:
                 mitigation = max(0.0, min(1.0, mitigation))
 
                 if mitigation >= 0.9:
-                    new_status = FeatureStatus.FILLED
+                    new_status = IndicatorStatus.FILLED
                 elif mitigation > 0.3:
-                    new_status = FeatureStatus.MITIGATED
+                    new_status = IndicatorStatus.MITIGATED
                 else:
-                    new_status = FeatureStatus.TOUCHED
+                    new_status = IndicatorStatus.TOUCHED
 
                 updated_ob = ob.with_status(
                     new_status,
@@ -744,11 +744,11 @@ class FeatureStateCache:
                 fill_percent = max(0.0, min(1.0, fill_percent))
 
                 if fill_percent >= 0.9:
-                    new_status = FeatureStatus.FILLED
+                    new_status = IndicatorStatus.FILLED
                 elif fill_percent > 0.3:
-                    new_status = FeatureStatus.MITIGATED
+                    new_status = IndicatorStatus.MITIGATED
                 else:
-                    new_status = FeatureStatus.TOUCHED
+                    new_status = IndicatorStatus.TOUCHED
 
                 updated_fvg = fvg.with_status(
                     new_status,
@@ -770,9 +770,9 @@ class FeatureStateCache:
         if new_structure:
             self._market_structure[interval] = new_structure
 
-    def _cleanup_expired_features(self, interval: str, current_index: int) -> None:
-        """Remove features that are too old."""
-        expiry_threshold = current_index - self.feature_expiry_candles
+    def _cleanup_expired_indicators(self, interval: str, current_index: int) -> None:
+        """Remove indicators that are too old."""
+        expiry_threshold = current_index - self.indicator_expiry_candles
 
         # Cleanup old OBs
         obs = self._order_blocks.get(interval, deque())
@@ -801,7 +801,7 @@ class FeatureStateCache:
     # -------------------------------------------------------------------------
 
     def get_cache_stats(self) -> Dict[str, Dict[str, int]]:
-        """Get statistics about cached features."""
+        """Get statistics about cached indicators."""
         stats = {}
 
         for interval in self._order_blocks.keys():

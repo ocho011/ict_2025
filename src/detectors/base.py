@@ -1,5 +1,5 @@
 """
-Base indicator interface
+Base detector interface
 """
 
 from abc import ABC, abstractmethod
@@ -8,9 +8,9 @@ from typing import Any
 import pandas as pd
 
 
-class BaseIndicator(ABC):
+class BaseDetector(ABC):
     """
-    Abstract base class for technical indicators
+    Abstract base class for ICT concept detectors
     """
 
     def __init__(self, name: str):
@@ -19,11 +19,11 @@ class BaseIndicator(ABC):
     @abstractmethod
     def calculate(self, data: pd.DataFrame) -> Any:
         """
-        Calculate indicator value from market data
+        Detect ICT concepts from market data
 
         Args:
             data: OHLCV dataframe
 
         Returns:
-            Calculated indicator value(s)
+            Detected concept indicators
         """

@@ -5,7 +5,7 @@ Unit tests for ICT Fair Value Gap (FVG) Detection
 from collections import deque
 from datetime import datetime, timedelta
 
-from src.indicators.ict_fvg import (
+from src.detectors.ict_fvg import (
     detect_all_fvg,
     detect_bearish_fvg,
     detect_bullish_fvg,
@@ -16,7 +16,7 @@ from src.indicators.ict_fvg import (
     update_fvg_status,
 )
 from src.models.candle import Candle
-from src.models.features import FairValueGap, FeatureStatus
+from src.models.indicators import FairValueGap, IndicatorStatus
 
 
 def create_test_candle(
@@ -301,7 +301,7 @@ class TestFindNearestFVG:
     def test_find_nearest_only_unfilled(self):
         """Test finding only unfilled FVGs."""
         fvgs = [
-            FairValueGap("id1", "1m", "bullish", 110, 100, datetime(2025, 1, 1), 0, 10.0, FeatureStatus.FILLED),  # Filled
+            FairValueGap("id1", "1m", "bullish", 110, 100, datetime(2025, 1, 1), 0, 10.0, IndicatorStatus.FILLED),  # Filled
             FairValueGap("id2", "1m", "bullish", 130, 120, datetime(2025, 1, 1), 1, 10.0),  # Unfilled
         ]
 

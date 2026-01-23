@@ -5,11 +5,11 @@ Data models package
 from .candle import Candle
 from .enriched_candle import EnrichedCandle
 from .event import Event, EventType
-from .features import (
+from .indicators import (
     Displacement,
     FairValueGap,
-    FeatureStatus,
-    FeatureType,
+    IndicatorStatus,
+    IndicatorType,
     Inducement,
     LiquidityLevel,
     LiquiditySweep,
@@ -40,8 +40,8 @@ __all__ = [
     "FairValueGap",
     "MarketStructure",
     "LiquidityLevel",
-    "FeatureStatus",
-    "FeatureType",
+    "IndicatorStatus",
+    "IndicatorType",
     "Displacement",
     "Inducement",
     "LiquiditySweep",
