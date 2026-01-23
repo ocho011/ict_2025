@@ -59,13 +59,13 @@ from src.detectors.ict_smc import (
 )
 from src.models.candle import Candle
 from src.models.signal import Signal, SignalType
-from src.strategies.multi_timeframe import MultiTimeframeStrategy
+from src.strategies.base import BaseStrategy
 
 # ICT Profile System
 from src.config.ict_profiles import get_profile_parameters, load_profile_from_name
 
 
-class ICTStrategy(MultiTimeframeStrategy):
+class ICTStrategy(BaseStrategy):
     """
     ICT trading strategy using Smart Money Concepts.
 
@@ -117,8 +117,8 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         intervals = [ltf_interval, mtf_interval, htf_interval]
 
-        # Initialize MultiTimeframeStrategy with intervals
-        super().__init__(symbol, intervals, config)
+        # Initialize BaseStrategy with intervals
+        super().__init__(symbol, config, intervals=intervals)
 
         # Store interval assignments for analysis
         self.ltf_interval = ltf_interval
@@ -208,9 +208,9 @@ class ICTStrategy(MultiTimeframeStrategy):
                 f"[{self.__class__.__name__}] Indicator cache enabled for {self.symbol}"
             )
 
-    async def analyze_mtf(self, candle: Candle, buffers: dict) -> Optional[Signal]:
+    async def analyze(self, candle: Candle) -> Optional[Signal]:
         """
-        Analyze candle using ICT methodology with Multi-Timeframe structure (Issue #7).
+        Analyze candle using ICT methodology with Multi-Timeframe structure (Issue #47).
 
         10-Step ICT Analysis:
         1. Kill Zone Filter
@@ -226,7 +226,6 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         Args:
             candle: Latest candle to analyze (typically LTF)
-            buffers: Dict of interval -> deque buffers (e.g., {'5m': deque, '1h': deque, '4h': deque})
 
         Returns:
             Signal if ICT conditions met, None otherwise
@@ -235,12 +234,22 @@ class ICTStrategy(MultiTimeframeStrategy):
             Uses pre-computed detectors from LTF/MTF buffers. High-conviction
             setups require agreement across multiple detectors.
         """
-        # Validate candle is closed
+        # 1. Validate candle is closed
         if not candle.is_closed:
             return None
 
-        # Get LTF buffer (primary analysis buffer for now)
-        ltf_buffer = buffers.get(self.ltf_interval)
+        # 2. Update buffer with new candle
+        self.update_buffer(candle)
+
+        # 3. Update indicator cache if available
+        self._update_feature_cache(candle)
+
+        # 4. Check if all intervals ready
+        if not self.is_ready():
+            return None
+
+        # 5. Get LTF buffer (primary analysis buffer for now)
+        ltf_buffer = self.buffers.get(self.ltf_interval)
         if not ltf_buffer or len(ltf_buffer) < self.min_periods:
             self.logger.debug(
                 f"LTF buffer not ready: {len(ltf_buffer) if ltf_buffer else 0}/{self.min_periods}"
@@ -248,7 +257,7 @@ class ICTStrategy(MultiTimeframeStrategy):
             return None
 
         # Use MTF buffer for structure detection when available
-        mtf_buffer = buffers.get(self.mtf_interval)
+        mtf_buffer = self.buffers.get(self.mtf_interval)
         candle_buffer = ltf_buffer
 
         if self.use_killzones:
@@ -260,8 +269,12 @@ class ICTStrategy(MultiTimeframeStrategy):
         # Use indicator cache for trend if available (Issue #19)
         trend = None
         if self._indicator_cache is not None:
-            htf_structure = self._indicator_cache.get_market_structure(self.htf_interval)
-            mtf_structure = self._indicator_cache.get_market_structure(self.mtf_interval)
+            htf_structure = self._indicator_cache.get_market_structure(
+                self.htf_interval
+            )
+            mtf_structure = self._indicator_cache.get_market_structure(
+                self.mtf_interval
+            )
             # Prefer HTF trend, fall back to MTF
             if htf_structure:
                 trend = htf_structure.trend
@@ -453,12 +466,12 @@ class ICTStrategy(MultiTimeframeStrategy):
                 side = "LONG"
 
                 # Calculate TP (next BSL or displacement extension)
-                take_profit = self.calculate_take_profit(
-                    entry_price, side, candle_buffer
+                take_profit = self._calculate_take_profit_with_buffer(
+                    entry_price, side, list(candle_buffer)
                 )
 
                 # Calculate SL (below FVG/OB zone)
-                stop_loss = self.calculate_stop_loss(
+                stop_loss = self._calculate_stop_loss_with_indicators(
                     entry_price, side, nearest_fvg, nearest_ob
                 )
 
@@ -551,12 +564,12 @@ class ICTStrategy(MultiTimeframeStrategy):
                 side = "SHORT"
 
                 # Calculate TP (next SSL or displacement extension)
-                take_profit = self.calculate_take_profit(
-                    entry_price, side, candle_buffer
+                take_profit = self._calculate_take_profit_with_buffer(
+                    entry_price, side, list(candle_buffer)
                 )
 
                 # Calculate SL (above FVG/OB zone)
-                stop_loss = self.calculate_stop_loss(
+                stop_loss = self._calculate_stop_loss_with_indicators(
                     entry_price, side, nearest_fvg, nearest_ob
                 )
 
@@ -597,17 +610,18 @@ class ICTStrategy(MultiTimeframeStrategy):
 
         return None
 
-    def calculate_take_profit(
+    def _calculate_take_profit_with_buffer(
         self, entry_price: float, side: str, candle_buffer: list
     ) -> float:
         """
-        Calculate take profit using risk-reward ratio.
+        Calculate take profit using risk-reward ratio with candle buffer.
 
         TP is calculated as entry +/- (risk * rr_ratio).
 
         Args:
             entry_price: Position entry price
             side: 'LONG' or 'SHORT'
+            candle_buffer: Candle buffer for displacement calculation
 
         Returns:
             Take profit price
@@ -636,7 +650,37 @@ class ICTStrategy(MultiTimeframeStrategy):
             # Safety: TP must be < entry_price
             return tp if tp < entry_price else entry_price * 0.98
 
-    def calculate_stop_loss(
+    def calculate_take_profit(self, entry_price: float, side: str) -> float:
+        """
+        Calculate take profit using risk-reward ratio.
+
+        Uses LTF buffer from self.buffers for displacement calculation.
+
+        Args:
+            entry_price: Position entry price
+            side: 'LONG' or 'SHORT'
+
+        Returns:
+            Take profit price
+        """
+        ltf_buffer = self.buffers.get(self.ltf_interval)
+        if ltf_buffer:
+            return self._calculate_take_profit_with_buffer(
+                entry_price, side, list(ltf_buffer)
+            )
+        else:
+            # Fallback: Use 2% of entry price as risk
+            risk_amount = entry_price * 0.02
+            reward_amount = risk_amount * self.rr_ratio
+
+            if side == "LONG":
+                tp = entry_price + reward_amount
+                return tp if tp > entry_price else entry_price * 1.02
+            else:  # SHORT
+                tp = entry_price - reward_amount
+                return tp if tp < entry_price else entry_price * 0.98
+
+    def _calculate_stop_loss_with_indicators(
         self, entry_price: float, side: str, nearest_fvg=None, nearest_ob=None
     ) -> float:
         """
@@ -680,6 +724,25 @@ class ICTStrategy(MultiTimeframeStrategy):
             # Safety: SL must be > entry_price
             return sl if sl > entry_price else entry_price * 1.01
 
+    def calculate_stop_loss(self, entry_price: float, side: str) -> float:
+        """
+        Calculate stop loss using 1% of entry price.
+
+        This is a simplified version for compatibility with BaseStrategy.
+        For FVG/OB-based SL, use _calculate_stop_loss_with_indicators.
+
+        Args:
+            entry_price: Position entry price
+            side: 'LONG' or 'SHORT'
+
+        Returns:
+            Stop loss price
+        """
+        if side == "LONG":
+            return entry_price * 0.99
+        else:  # SHORT
+            return entry_price * 1.01
+
     def get_condition_stats(self) -> dict:
         """
         Get condition statistics for tuning analysis.
@@ -691,19 +754,31 @@ class ICTStrategy(MultiTimeframeStrategy):
         if total == 0:
             return self.condition_stats.copy()
 
-        stats = self.condition_stats.copy()
-        stats["success_rates"] = {
-            "killzone_rate": stats["killzone_ok"] / total if total > 0 else 0,
-            "trend_rate": stats["trend_ok"] / total if total > 0 else 0,
-            "zone_rate": stats["zone_ok"] / total if total > 0 else 0,
-            "fvg_ob_rate": stats["fvg_ob_ok"] / total if total > 0 else 0,
-            "inducement_rate": stats["inducement_ok"] / total if total > 0 else 0,
-            "displacement_rate": stats["displacement_ok"] / total if total > 0 else 0,
-            "all_conditions_rate": stats["all_conditions_ok"] / total
+        success_rates = {
+            "killzone_rate": self.condition_stats["killzone_ok"] / total
             if total > 0
             else 0,
-            "signal_rate": stats["signals_generated"] / total if total > 0 else 0,
+            "trend_rate": self.condition_stats["trend_ok"] / total if total > 0 else 0,
+            "zone_rate": self.condition_stats["zone_ok"] / total if total > 0 else 0,
+            "fvg_ob_rate": self.condition_stats["fvg_ob_ok"] / total
+            if total > 0
+            else 0,
+            "inducement_rate": self.condition_stats["inducement_ok"] / total
+            if total > 0
+            else 0,
+            "displacement_rate": self.condition_stats["displacement_ok"] / total
+            if total > 0
+            else 0,
+            "all_conditions_rate": self.condition_stats["all_conditions_ok"] / total
+            if total > 0
+            else 0,
+            "signal_rate": self.condition_stats["signals_generated"] / total
+            if total > 0
+            else 0,
         }
+
+        stats = self.condition_stats.copy()
+        stats["success_rates"] = success_rates  # type: ignore
         return stats
 
     def reset_condition_stats(self) -> None:

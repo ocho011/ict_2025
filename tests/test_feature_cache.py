@@ -445,7 +445,10 @@ class TestIndicatorStateCacheUpdates:
         updated_obs = list(indicator_cache._order_blocks["1h"])
         assert len(updated_obs) == 1
         # Status should be updated (TOUCHED or MITIGATED depending on depth)
-        assert updated_obs[0].status != IndicatorStatus.ACTIVE or updated_obs[0].touch_count > 0
+        assert (
+            updated_obs[0].status != IndicatorStatus.ACTIVE
+            or updated_obs[0].touch_count > 0
+        )
 
     def test_cache_stats(self, indicator_cache, sample_candles):
         """Test cache statistics method."""
@@ -605,18 +608,27 @@ class TestMultiTimeframeFeatureCacheIntegration:
     @pytest.fixture
     def mtf_strategy(self, sample_candles):
         """Create a multi-timeframe strategy with feature cache."""
-        from src.strategies.multi_timeframe import MultiTimeframeStrategy
+        from src.strategies.base import BaseStrategy
         from src.strategies.indicator_cache import IndicatorStateCache
 
         # Create a concrete implementation for testing
-        class TestMTFStrategy(MultiTimeframeStrategy):
-            async def analyze_mtf(self, candle, buffers):
+        class TestMTFStrategy(BaseStrategy):
+            async def analyze(self, candle):
+                # Update buffer and feature cache (template method pattern)
+                self.update_buffer(candle)
+                self._update_feature_cache(candle)
                 return None  # Simple test implementation
+
+            def calculate_take_profit(self, entry_price, side):
+                return entry_price * 1.02
+
+            def calculate_stop_loss(self, entry_price, side):
+                return entry_price * 0.99
 
         strategy = TestMTFStrategy(
             "BTCUSDT",
-            ["5m", "1h", "4h"],
             {"buffer_size": 100},
+            intervals=["5m", "1h", "4h"],
         )
 
         # Set up feature cache
