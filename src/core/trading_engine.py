@@ -37,10 +37,10 @@ from enum import Enum
 class EngineState(Enum):
     """
     State machine for TradingEngine lifecycle.
-    
+
     State Transitions:
         CREATED → INITIALIZED → RUNNING → STOPPING → STOPPED
-        
+
     States:
         CREATED: Initial state after __init__()
         INITIALIZED: After initialize_components() called
@@ -48,6 +48,7 @@ class EngineState(Enum):
         STOPPING: Shutdown initiated
         STOPPED: Shutdown complete
     """
+
     CREATED = "created"
     INITIALIZED = "initialized"
     RUNNING = "running"
@@ -125,7 +126,7 @@ class TradingEngine:
         Example:
             ```python
             from src.core.audit_logger import AuditLogger
-            
+
             audit_logger = AuditLogger(log_dir="logs/audit")
             engine = TradingEngine(audit_logger=audit_logger)
             engine.initialize_components(
@@ -153,12 +154,12 @@ class TradingEngine:
 
         # Runtime state
         self._running: bool = False
-        
+
         # Event loop management (Phase 2.1)
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
         self._engine_state = EngineState.CREATED
         self._ready_event = asyncio.Event()
-        
+
         # Event handling (Phase 2.2)
         self._event_drop_count = 0
         self._heartbeat_gap_logged = False
@@ -220,12 +221,13 @@ class TradingEngine:
 
         # Store logging config for conditional live data logging
         self._log_live_data = getattr(
-            config_manager.logging_config, 'log_live_data', True
+            config_manager.logging_config, "log_live_data", True
         )
 
         # Step 1.5: Initialize BinanceServiceClient
         self.logger.info("Creating BinanceServiceClient...")
         from src.core.binance_service import BinanceServiceClient
+
         self.binance_service = BinanceServiceClient(
             api_key=api_key,
             api_secret=api_secret,
@@ -235,6 +237,7 @@ class TradingEngine:
         # Step 2: Initialize OrderExecutionManager
         self.logger.info("Creating OrderExecutionManager...")
         from src.execution.order_manager import OrderExecutionManager
+
         self.order_manager = OrderExecutionManager(
             audit_logger=self.audit_logger,
             binance_service=self.binance_service,
@@ -243,6 +246,7 @@ class TradingEngine:
         # Step 3: Initialize RiskManager
         self.logger.info("Creating RiskManager...")
         from src.risk.manager import RiskManager
+
         self.risk_manager = RiskManager(
             config={
                 "max_risk_per_trade": trading_config.max_risk_per_trade,
@@ -271,27 +275,38 @@ class TradingEngine:
                 f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
             )
 
+        # Add exit configuration if available (Issue #43)
+        if trading_config.exit_config is not None:
+            strategy_config["exit_config"] = trading_config.exit_config
+            self.logger.info(
+                f"Dynamic exit configuration loaded: "
+                f"enabled={trading_config.exit_config.dynamic_exit_enabled}, "
+                f"strategy={trading_config.exit_config.exit_strategy}"
+            )
+
         # Step 4.5: Create strategy instances per symbol (Issue #8 Phase 2)
         MAX_SYMBOLS = 10
         if len(trading_config.symbols) > MAX_SYMBOLS:
             from src.core.exceptions import ConfigurationError
+
             raise ConfigurationError(
                 f"Maximum {MAX_SYMBOLS} symbols allowed, got {len(trading_config.symbols)}"
             )
 
-        self.logger.info(f"Creating {len(trading_config.symbols)} strategy instances...")
+        self.logger.info(
+            f"Creating {len(trading_config.symbols)} strategy instances..."
+        )
         self.strategies = {}
         for symbol in trading_config.symbols:
             self.strategies[symbol] = StrategyFactory.create(
-                name=trading_config.strategy,
-                symbol=symbol,
-                config=strategy_config
+                name=trading_config.strategy, symbol=symbol, config=strategy_config
             )
             self.logger.info(f"  ✅ Strategy created for {symbol}")
 
         # Step 5: Initialize BinanceDataCollector
         self.logger.info("Creating BinanceDataCollector...")
         from src.core.data_collector import BinanceDataCollector
+
         self.data_collector = BinanceDataCollector(
             binance_service=self.binance_service,
             symbols=trading_config.symbols,  # Issue #8: Multi-coin support
@@ -316,7 +331,9 @@ class TradingEngine:
                     "Using current account leverage."
                 )
 
-            success = self.order_manager.set_margin_type(symbol, trading_config.margin_type)
+            success = self.order_manager.set_margin_type(
+                symbol, trading_config.margin_type
+            )
             if not success:
                 self.logger.warning(
                     f"Failed to set margin type to {trading_config.margin_type} for {symbol}. "
@@ -375,7 +392,6 @@ class TradingEngine:
                     f"✅ Strategy-DataCollector compatibility validated for {symbol}: "
                     f"Single-interval strategy with {list(required_intervals)[0]}"
                 )
-
 
     async def initialize_strategy_with_backfill(self, limit: int = 100) -> None:
         """
@@ -475,7 +491,9 @@ class TradingEngine:
                             )
 
                             # Issue #27: Unified call signature (candles, interval=interval)
-                            strategy.initialize_with_historical_data(candles, interval=interval)
+                            strategy.initialize_with_historical_data(
+                                candles, interval=interval
+                            )
                             initialized_count += 1
                         else:
                             self.logger.warning(
@@ -648,7 +666,9 @@ class TradingEngine:
         if current_position is None:
             # Check if cache was actually updated successfully (confirmed None state)
             if candle.symbol not in self._position_cache:
-                self.logger.warning(f"Position state unknown for {candle.symbol}, skipping analysis")
+                self.logger.warning(
+                    f"Position state unknown for {candle.symbol}, skipping analysis"
+                )
                 return
 
             _, cache_time = self._position_cache[candle.symbol]
@@ -683,10 +703,10 @@ class TradingEngine:
         )
 
         try:
-            exit_signal = await strategy.check_exit(candle, position)
+            exit_signal = await strategy.should_exit(position, candle)
         except Exception as e:
             self.logger.error(
-                f"Strategy check_exit failed for {candle.symbol}: {e}", exc_info=True
+                f"Strategy should_exit failed for {candle.symbol}: {e}", exc_info=True
             )
             exit_signal = None
 
@@ -707,7 +727,9 @@ class TradingEngine:
         )
         return False
 
-    async def _process_entry_strategy(self, candle: Candle, strategy: BaseStrategy) -> None:
+    async def _process_entry_strategy(
+        self, candle: Candle, strategy: BaseStrategy
+    ) -> None:
         """
         신규 진입 조건 확인 (Issue #42).
         """
@@ -715,7 +737,9 @@ class TradingEngine:
             signal = await strategy.analyze(candle)
         except Exception as e:
             # Don't crash on strategy errors
-            self.logger.error(f"Strategy analysis failed for {candle.symbol}: {e}", exc_info=True)
+            self.logger.error(
+                f"Strategy analysis failed for {candle.symbol}: {e}", exc_info=True
+            )
             return
 
         # If signal exists, publish SIGNAL_GENERATED event
@@ -812,7 +836,9 @@ class TradingEngine:
         # Step 1: Extract signal from event data
         signal: Signal = event.data
 
-        self.logger.info(f"Processing signal: {signal.signal_type.value} for {signal.symbol}")
+        self.logger.info(
+            f"Processing signal: {signal.signal_type.value} for {signal.symbol}"
+        )
 
         try:
             # Step 2: Get current position from OrderManager (fresh query for execution)
@@ -915,7 +941,9 @@ class TradingEngine:
 
         except Exception as e:
             # Step 9: Catch and log execution errors without crashing
-            self.logger.error(f"Failed to execute signal for {signal.symbol}: {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to execute signal for {signal.symbol}: {e}", exc_info=True
+            )
 
             # Audit log: trade execution failed
             try:
@@ -973,7 +1001,9 @@ class TradingEngine:
 
             # Step 2: Execute close order using position quantity
             # Determine side based on signal type (SELL to close LONG, BUY to close SHORT)
-            close_side = "SELL" if signal.signal_type == SignalType.CLOSE_LONG else "BUY"
+            close_side = (
+                "SELL" if signal.signal_type == SignalType.CLOSE_LONG else "BUY"
+            )
 
             # Execute close order with reduce_only via async method
             result = await self.order_manager.execute_market_close(
@@ -1044,8 +1074,7 @@ class TradingEngine:
 
         except Exception as e:
             self.logger.error(
-                f"Failed to execute exit signal for {signal.symbol}: {e}",
-                exc_info=True
+                f"Failed to execute exit signal for {signal.symbol}: {e}", exc_info=True
             )
 
             # Audit log: exit execution failed
@@ -1144,35 +1173,35 @@ class TradingEngine:
     async def wait_until_ready(self, timeout: float = 5.0) -> bool:
         """
         Wait until TradingEngine has captured its event loop.
-        
+
         Prevents race condition where DataCollector starts sending candles
         before run() has executed and captured the event loop reference.
-        
+
         This method blocks until:
         - run() has executed and set _ready_event, OR
         - timeout is exceeded (raises TimeoutError)
-        
+
         Args:
             timeout: Maximum seconds to wait (default: 5.0)
-            
+
         Returns:
             True if engine became ready within timeout
-            
+
         Raises:
             TimeoutError: If timeout exceeded before engine became ready
-            
+
         Example:
             ```python
             # In TradingBot.run()
             engine_task = asyncio.create_task(self.engine.run())
-            
+
             # Wait for engine to be ready before starting DataCollector
             await self.engine.wait_until_ready(timeout=5.0)
-            
+
             # Now safe to start DataCollector
             await self.data_collector.start_streaming()
             ```
-            
+
         Notes:
             - Called by TradingBot before starting DataCollector
             - Ensures event loop is captured before candles arrive
@@ -1251,7 +1280,9 @@ class TradingEngine:
             return
 
         # Step 3: Determine event type
-        event_type = EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
+        event_type = (
+            EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
+        )
 
         # Step 4: Create Event wrapper
         event = Event(event_type, candle)
@@ -1259,7 +1290,8 @@ class TradingEngine:
         # Step 5: Publish to EventBus (thread-safe)
         try:
             asyncio.run_coroutine_threadsafe(
-                self.event_bus.publish(event, queue_type=QueueType.DATA), self._event_loop
+                self.event_bus.publish(event, queue_type=QueueType.DATA),
+                self._event_loop,
             )
 
         except Exception as e:
@@ -1328,9 +1360,9 @@ class TradingEngine:
         self._event_loop = asyncio.get_running_loop()
         self._engine_state = EngineState.RUNNING
         self._ready_event.set()  # Signal ready to DataCollector
-        
+
         self.logger.info(f"TradingEngine event loop captured: {self._event_loop}")
-        
+
         self._running = True
         self.logger.info("Starting TradingEngine")
 
@@ -1344,7 +1376,9 @@ class TradingEngine:
             # Add DataCollector (should always be configured)
             if self.data_collector:
                 tasks.append(
-                    asyncio.create_task(self.data_collector.start_streaming(), name="datacollector")
+                    asyncio.create_task(
+                        self.data_collector.start_streaming(), name="datacollector"
+                    )
                 )
                 self.logger.info("DataCollector streaming enabled")
 
@@ -1419,7 +1453,7 @@ class TradingEngine:
 
         # State transition: RUNNING → STOPPING
         self._engine_state = EngineState.STOPPING
-        
+
         self._running = False
         self.logger.info("Shutting down TradingEngine")
 

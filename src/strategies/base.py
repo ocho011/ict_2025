@@ -688,6 +688,199 @@ class BaseStrategy(ABC):
             - Signal model validates TP/SL logic in __post_init__()
         """
 
+    @abstractmethod
+    async def should_exit(self, position: Position, candle: Candle) -> Optional[Signal]:
+        """
+        Evaluate whether an open position should be exited based on current market conditions.
+
+        This is the main exit evaluation method called by TradingEngine when a position
+        exists for the strategy's symbol. It provides dynamic exit logic that complements
+        static TP/SL orders, enabling sophisticated exit strategies like trailing stops,
+        time-based exits, momentum reversals, etc.
+
+        Parallel Entry/Exit Design:
+            - analyze() handles entry signal generation
+            - should_exit() handles exit signal generation
+            - Both methods are called by TradingEngine but with different triggers
+            - Entry signals require TP/SL, exit signals have optional TP/SL
+
+        Method Call Sequence:
+            1. TradingEngine detects new candle for symbol
+            2. If position exists: calls should_exit(position, candle)
+            3. If should_exit() returns signal: executes exit and skips analyze()
+            4. If no position or should_exit() returns None: calls analyze(candle)
+
+        Implementation Pattern:
+            ```python
+            async def should_exit(self, position: Position, candle: Candle) -> Optional[Signal]:
+                # 1. Validate inputs
+                if not candle.is_closed:
+                    return None
+
+                # 2. Update buffer with new candle
+                self.update_buffer(candle)
+
+                # 3. Check if ready for analysis
+                if not self.is_ready():
+                    return None
+
+                # 4. Apply exit logic
+                buffer = self.buffers.get(candle.interval)
+                if not buffer or len(buffer) < self.exit_periods:
+                    return None
+
+                # ... exit condition evaluation ...
+                if exit_condition_met:
+                    signal_type = SignalType.CLOSE_LONG if position.side == 'LONG' else SignalType.CLOSE_SHORT
+                    return Signal(
+                        signal_type=signal_type,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="dynamic_exit_description"
+                    )
+
+                return None
+            ```
+
+        Contract:
+            - Called by TradingEngine when position exists for self.symbol
+            - Must be async (supports I/O operations if needed)
+            - Returns Signal with CLOSE_LONG/CLOSE_SHORT if exit conditions met
+            - Returns None if position should remain open
+
+        Args:
+            position: Current open position for this symbol
+            candle: Latest candle to analyze for exit conditions
+
+        Returns:
+            Signal with CLOSE_LONG or CLOSE_SHORT if exit triggered, None otherwise
+
+        Exit Signal Requirements:
+            - signal_type must be CLOSE_LONG (for LONG positions) or CLOSE_SHORT (for SHORT positions)
+            - take_profit and stop_loss are optional for exit signals
+            - exit_reason should describe why exit was triggered
+            - Entry price typically set to current candle close price
+
+        Implementation Guidelines:
+            1. Verify position side matches signal type (CLOSE_LONG for LONG, CLOSE_SHORT for SHORT)
+            2. Use candle.is_closed to ensure analyzing complete candles
+            3. Call self.update_buffer(candle) to maintain buffer consistency
+            4. Check buffer readiness before performing calculations
+            5. Apply specific exit strategy logic
+            6. Include descriptive exit_reason for tracking and analysis
+
+        Common Exit Strategies:
+            ```python
+            # Trailing Stop Exit
+            async def should_exit(self, position: Position, candle: Candle) -> Optional[Signal]:
+                self.update_buffer(candle)
+
+                # Calculate trailing stop level
+                highest_close = max([c.close for c in self.buffers[candle.interval][-20:]])
+                trailing_stop = highest_close * 0.95  # 5% below recent high
+
+                if position.side == 'LONG' and candle.close <= trailing_stop:
+                    return Signal(
+                        signal_type=SignalType.CLOSE_LONG,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="trailing_stop_5pct"
+                    )
+                return None
+
+            # Time-Based Exit
+            async def should_exit(self, position: Position, candle: Candle) -> Optional[Signal]:
+                from datetime import timedelta
+
+                if position.entry_time and (candle.close_time - position.entry_time) > timedelta(hours=4):
+                    signal_type = SignalType.CLOSE_LONG if position.side == 'LONG' else SignalType.CLOSE_SHORT
+                    return Signal(
+                        signal_type=signal_type,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="time_exit_4h"
+                    )
+                return None
+
+            # Momentum Reversal Exit
+            async def should_exit(self, position: Position, candle: Candle) -> Optional[Signal]:
+                self.update_buffer(candle)
+
+                buffer = self.buffers.get(candle.interval)
+                if not buffer or len(buffer) < 14:
+                    return None
+
+                # RSI calculation for momentum reversal
+                closes = [c.close for c in buffer[-14:]]
+                rsi = calculate_rsi(closes)  # Your RSI implementation
+
+                # Exit LONG if RSI becomes overbought
+                if position.side == 'LONG' and rsi > 70:
+                    return Signal(
+                        signal_type=SignalType.CLOSE_LONG,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="rsi_overbought_70"
+                    )
+
+                # Exit SHORT if RSI becomes oversold
+                if position.side == 'SHORT' and rsi < 30:
+                    return Signal(
+                        signal_type=SignalType.CLOSE_SHORT,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="rsi_oversold_30"
+                    )
+                return None
+            ```
+
+        Error Handling:
+            - Return None for invalid inputs or insufficient data
+            - Don't raise exceptions - TradingEngine handles error logging
+            - Strategy errors should not affect position management
+
+        Performance:
+            - Should be fast (<5ms typical) - called on every candle when position exists
+            - Avoid heavy calculations in hot path
+            - Cache expensive calculations if possible
+
+        Integration with TradingEngine:
+            ```python
+            # In TradingEngine event handler
+            async def _on_candle_closed(self, candle: Candle):
+                position = self.position_manager.get_position(candle.symbol)
+
+                if position:
+                    # Check for dynamic exit first
+                    exit_signal = await self.strategy.should_exit(position, candle)
+                    if exit_signal:
+                        await self._execute_exit_signal(exit_signal)
+                        return
+
+                # No exit signal or no position - check for entry
+                entry_signal = await self.strategy.analyze(candle)
+                if entry_signal:
+                    await self._execute_entry_signal(entry_signal)
+            ```
+
+        Notes:
+            - Abstract method - must be implemented by subclass
+            - Complements static TP/SL orders with dynamic exit logic
+            - Called before analyze() when position exists (exit priority)
+            - Exit signals bypass entry analysis for immediate execution
+            - Should use same buffer management as analyze() for consistency
+        """
+
     async def check_exit(self, candle: Candle, position: Position) -> Optional[Signal]:
         """
         Check if position should be exited based on strategy conditions.

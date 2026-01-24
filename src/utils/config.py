@@ -34,6 +34,102 @@ class APIConfig:
 
 
 @dataclass
+class ExitConfig:
+    """
+    Dynamic exit strategy configuration for Issue #43 Phase 1.
+
+    Supports multiple exit strategies beyond basic TP/SL for improved risk management
+    and profit protection in ICT trading strategies.
+
+    Validation Rules:
+        - exit_strategy: must be one of supported strategies
+        - trailing_distance: 0.001 - 0.1 (0.1% - 10%)
+        - trailing_activation: 0.001 - 0.05 (0.1% - 5%)
+        - breakeven_offset: 0.0001 - 0.01 (0.01% - 1%)
+        - timeout_minutes: 1 - 1440 (1 minute - 24 hours)
+        - atr_period: 5 - 100 (ATR calculation period)
+        - atr_multiplier: 0.5 - 5.0 (ATR multiplier for stops)
+    """
+
+    # Dynamic exit enablement
+    dynamic_exit_enabled: bool = True
+
+    # Exit strategy selection
+    exit_strategy: str = (
+        "trailing_stop"  # trailing_stop, breakeven, timed, indicator_based
+    )
+
+    # Trailing stop parameters
+    trailing_distance: float = 0.02  # 2% default
+    trailing_activation: float = 0.01  # 1% profit to activate
+
+    # BreakEven parameters
+    breakeven_enabled: bool = True
+    breakeven_offset: float = 0.001  # 0.1% offset
+
+    # Time-based exit
+    timeout_enabled: bool = False
+    timeout_minutes: int = 240  # 4 hours default
+
+    # Volatility-based
+    volatility_enabled: bool = False
+    atr_period: int = 14
+    atr_multiplier: float = 2.0
+
+    def __post_init__(self):
+        """Validate exit configuration parameters."""
+        # Validate exit strategy
+        valid_strategies = {"trailing_stop", "breakeven", "timed", "indicator_based"}
+        if self.exit_strategy not in valid_strategies:
+            raise ConfigurationError(
+                f"Invalid exit strategy: {self.exit_strategy}. "
+                f"Must be one of {sorted(valid_strategies)}"
+            )
+
+        # Validate trailing stop parameters
+        if self.trailing_distance < 0.001 or self.trailing_distance > 0.1:
+            raise ConfigurationError(
+                f"trailing_distance must be 0.001-0.1 (0.1%-10%), got {self.trailing_distance}"
+            )
+
+        if self.trailing_activation < 0.001 or self.trailing_activation > 0.05:
+            raise ConfigurationError(
+                f"trailing_activation must be 0.001-0.05 (0.1%-5%), got {self.trailing_activation}"
+            )
+
+        # Validate breakeven parameters
+        if self.breakeven_offset < 0.0001 or self.breakeven_offset > 0.01:
+            raise ConfigurationError(
+                f"breakeven_offset must be 0.0001-0.01 (0.01%-1%), got {self.breakeven_offset}"
+            )
+
+        # Validate timeout parameters
+        if self.timeout_minutes < 1 or self.timeout_minutes > 1440:
+            raise ConfigurationError(
+                f"timeout_minutes must be 1-1440 (1min-24h), got {self.timeout_minutes}"
+            )
+
+        # Validate ATR parameters
+        if self.atr_period < 5 or self.atr_period > 100:
+            raise ConfigurationError(f"atr_period must be 5-100, got {self.atr_period}")
+
+        if self.atr_multiplier < 0.5 or self.atr_multiplier > 5.0:
+            raise ConfigurationError(
+                f"atr_multiplier must be 0.5-5.0, got {self.atr_multiplier}"
+            )
+
+        # Validate strategy consistency
+        if self.exit_strategy == "trailing_stop" and self.trailing_distance <= 0:
+            raise ConfigurationError(
+                "trailing_stop strategy requires trailing_distance > 0"
+            )
+
+        if self.exit_strategy == "timed" and not self.timeout_enabled:
+            raise ConfigurationError("timed strategy requires timeout_enabled=True")
+
+
+
+@dataclass
 class TradingConfig:
     """
     Trading strategy configuration
@@ -59,11 +155,14 @@ class TradingConfig:
     backfill_limit: int = 100  # Default 100 candles
     margin_type: str = "ISOLATED"  # Default to ISOLATED margin (safer than CROSSED)
     ict_config: Optional[Dict[str, Any]] = None  # ICT strategy specific configuration
+    exit_config: Optional[ExitConfig] = None  # Dynamic exit configuration (Issue #43)
 
     def __post_init__(self):
         # Validation
         if self.leverage < 1 or self.leverage > 125:
-            raise ConfigurationError(f"Leverage must be between 1-125, got {self.leverage}")
+            raise ConfigurationError(
+                f"Leverage must be between 1-125, got {self.leverage}"
+            )
 
         if self.max_risk_per_trade <= 0 or self.max_risk_per_trade > 0.1:
             raise ConfigurationError(
@@ -84,7 +183,9 @@ class TradingConfig:
 
         # Validate backfill_limit
         if self.backfill_limit < 0 or self.backfill_limit > 1000:
-            raise ConfigurationError(f"Backfill limit must be 0-1000, got {self.backfill_limit}")
+            raise ConfigurationError(
+                f"Backfill limit must be 0-1000, got {self.backfill_limit}"
+            )
 
         # Validate margin_type
         if self.margin_type not in ("ISOLATED", "CROSSED"):
@@ -104,7 +205,9 @@ class TradingConfig:
         # Validate each symbol format
         for symbol in self.symbols:
             if not symbol or not symbol.endswith("USDT"):
-                raise ConfigurationError(f"Invalid symbol format: {symbol}. Must end with 'USDT'")
+                raise ConfigurationError(
+                    f"Invalid symbol format: {symbol}. Must end with 'USDT'"
+                )
 
         # Validate intervals
         valid_intervals = {
@@ -126,7 +229,8 @@ class TradingConfig:
         for interval in self.intervals:
             if interval not in valid_intervals:
                 raise ConfigurationError(
-                    f"Invalid interval: {interval}. " f"Must be one of {sorted(valid_intervals)}"
+                    f"Invalid interval: {interval}. "
+                    f"Must be one of {sorted(valid_intervals)}"
                 )
 
 
@@ -142,7 +246,7 @@ class LoggingConfig:
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
         if self.log_level.upper() not in valid_levels:
             raise ConfigurationError(
-                f"Invalid log level: {self.log_level}. " f"Must be one of {valid_levels}"
+                f"Invalid log level: {self.log_level}. Must be one of {valid_levels}"
             )
 
 
@@ -180,13 +284,13 @@ class LiquidationConfig:
 
     # Security-first defaults: Protect capital by default
     emergency_liquidation: bool = True  # DEFAULT: True (capital protection)
-    close_positions: bool = True        # DEFAULT: True (close all positions)
-    cancel_orders: bool = True          # DEFAULT: True (cancel all orders)
+    close_positions: bool = True  # DEFAULT: True (close all positions)
+    cancel_orders: bool = True  # DEFAULT: True (cancel all orders)
 
     # Performance and reliability defaults
-    timeout_seconds: float = 5.0        # DEFAULT: 5 seconds (balance speed vs reliability)
-    max_retries: int = 3                # DEFAULT: 3 retries (balance reliability vs time)
-    retry_delay_seconds: float = 0.5   # DEFAULT: 0.5 seconds (exponential backoff base)
+    timeout_seconds: float = 5.0  # DEFAULT: 5 seconds (balance speed vs reliability)
+    max_retries: int = 3  # DEFAULT: 3 retries (balance reliability vs time)
+    retry_delay_seconds: float = 0.5  # DEFAULT: 0.5 seconds (exponential backoff base)
 
     def __post_init__(self) -> None:
         """
@@ -278,7 +382,11 @@ class LiquidationConfig:
                 )
 
         # If emergency_liquidation is enabled but close_positions is False, warn (unusual)
-        if self.emergency_liquidation and not self.close_positions and self.cancel_orders:
+        if (
+            self.emergency_liquidation
+            and not self.close_positions
+            and self.cancel_orders
+        ):
             logger = logging.getLogger(__name__)
             logger.warning(
                 "Unusual configuration: emergency_liquidation=True but close_positions=False. "
@@ -440,7 +548,9 @@ class ConfigManager:
         # If environment variables provide complete configuration, use them
         if api_key_env and api_secret_env:
             is_testnet = is_testnet_env.lower() == "true" if is_testnet_env else True
-            return APIConfig(api_key=api_key_env, api_secret=api_secret_env, is_testnet=is_testnet)
+            return APIConfig(
+                api_key=api_key_env, api_secret=api_secret_env, is_testnet=is_testnet
+            )
 
         # Load from INI file with environment-specific sections
         config_file = self.config_dir / "api_keys.ini"
@@ -455,7 +565,9 @@ class ConfigManager:
         config.read(config_file)
 
         if "binance" not in config:
-            raise ConfigurationError("Invalid api_keys.ini: [binance] section not found")
+            raise ConfigurationError(
+                "Invalid api_keys.ini: [binance] section not found"
+            )
 
         # Determine which environment to use
         is_testnet = config["binance"].getboolean("use_testnet", True)
@@ -500,7 +612,9 @@ class ConfigManager:
         config.read(config_file)
 
         if "trading" not in config:
-            raise ConfigurationError("Invalid trading_config.ini: [trading] section not found")
+            raise ConfigurationError(
+                "Invalid trading_config.ini: [trading] section not found"
+            )
 
         trading = config["trading"]
 
@@ -533,6 +647,26 @@ class ConfigManager:
                     getter = getattr(ict_section, getter_method)
                     ict_config[param_name] = getter(param_name)
 
+        # Load dynamic exit configuration if available (Issue #43)
+        exit_config = None
+        if "exit_config" in config:
+            exit_section = config["exit_config"]
+            exit_config = ExitConfig(
+                dynamic_exit_enabled=exit_section.getboolean(
+                    "dynamic_exit_enabled", True
+                ),
+                exit_strategy=exit_section.get("exit_strategy", "trailing_stop"),
+                trailing_distance=exit_section.getfloat("trailing_distance", 0.02),
+                trailing_activation=exit_section.getfloat("trailing_activation", 0.01),
+                breakeven_enabled=exit_section.getboolean("breakeven_enabled", True),
+                breakeven_offset=exit_section.getfloat("breakeven_offset", 0.001),
+                timeout_enabled=exit_section.getboolean("timeout_enabled", False),
+                timeout_minutes=exit_section.getint("timeout_minutes", 240),
+                volatility_enabled=exit_section.getboolean("volatility_enabled", False),
+                atr_period=exit_section.getint("atr_period", 14),
+                atr_multiplier=exit_section.getfloat("atr_multiplier", 2.0),
+            )
+
         # Parse symbols with backward compatibility (Issue #8)
         # Priority: symbols (new) > symbol (legacy)
         symbols_str = trading.get("symbols", trading.get("symbol", "BTCUSDT"))
@@ -540,7 +674,9 @@ class ConfigManager:
 
         return TradingConfig(
             symbols=symbols,
-            intervals=[i.strip() for i in trading.get("intervals", "1m,5m,15m").split(",")],
+            intervals=[
+                i.strip() for i in trading.get("intervals", "1m,5m,15m").split(",")
+            ],
             strategy=trading.get("strategy", "MockStrategy"),
             leverage=trading.getint("leverage", 1),
             max_risk_per_trade=trading.getfloat("max_risk_per_trade", 0.01),
@@ -549,6 +685,7 @@ class ConfigManager:
             backfill_limit=trading.getint("backfill_limit", 100),
             margin_type=trading.get("margin_type", "ISOLATED"),
             ict_config=ict_config,
+            exit_config=exit_config,
         )
 
     def validate(self) -> bool:
@@ -573,7 +710,9 @@ class ConfigManager:
 
         # Cross-config validation: leverage warning in testnet
         if self._trading_config.leverage > 1 and self._api_config.is_testnet:
-            logger.warning(f"Using {self._trading_config.leverage}x leverage in testnet mode")
+            logger.warning(
+                f"Using {self._trading_config.leverage}x leverage in testnet mode"
+            )
 
         # Log environment mode
         if self._api_config.is_testnet:
@@ -654,12 +793,16 @@ class ConfigManager:
         liquidation_section = config["liquidation"]
 
         return LiquidationConfig(
-            emergency_liquidation=liquidation_section.getboolean("emergency_liquidation", True),
+            emergency_liquidation=liquidation_section.getboolean(
+                "emergency_liquidation", True
+            ),
             close_positions=liquidation_section.getboolean("close_positions", True),
             cancel_orders=liquidation_section.getboolean("cancel_orders", True),
             timeout_seconds=liquidation_section.getfloat("timeout_seconds", 5.0),
             max_retries=liquidation_section.getint("max_retries", 3),
-            retry_delay_seconds=liquidation_section.getfloat("retry_delay_seconds", 0.5),
+            retry_delay_seconds=liquidation_section.getfloat(
+                "retry_delay_seconds", 0.5
+            ),
         )
 
     @property
@@ -702,7 +845,9 @@ class ConfigManager:
             logging.getLogger(__name__).error(f"Failed to parse YAML config: {e}")
             return None
         except Exception as e:
-            logging.getLogger(__name__).error(f"Failed to load hierarchical config: {e}")
+            logging.getLogger(__name__).error(
+                f"Failed to load hierarchical config: {e}"
+            )
             return None
 
     @property

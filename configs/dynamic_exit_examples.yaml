@@ -1,0 +1,60 @@
+# Issue #43: ICT 동적 청산 설정 예제
+# 생성일: 2026-01-25
+
+# 전체 설정 예제 - Issue #43 동적 청산 기능
+trading:
+  defaults:
+    leverage: 1
+    max_risk_per_trade: 0.01
+    margin_type: ISOLATED
+    backfill_limit: 200
+    strategy: ict_strategy
+    
+    # 새로운 동적 청산 기본 설정
+    exit_config:
+      dynamic_exit_enabled: true
+      exit_strategy: "trailing_stop"
+      trailing_distance: 0.02
+      trailing_activation: 0.01
+      breakeven_enabled: true
+      breakeven_offset: 0.001
+      timeout_enabled: false
+      timeout_minutes: 240
+      volatility_enabled: false
+      atr_period: 14
+      atr_multiplier: 2.0
+
+# 보수적 프로필 예제
+symbols:
+  # 프로필 1: 보수적 - BreakEven 중심
+  BTCUSDT:
+    ict_config:
+      active_profile: conservative
+      exit_config:
+        dynamic_exit_enabled: true
+        exit_strategy: "breakeven"
+        trailing_distance: 0.015  # 1.5%
+        trailing_activation: 0.01   # 1%
+        breakeven_enabled: true
+        breakeven_offset: 0.001  # 0.1%
+        timeout_enabled: true
+        timeout_minutes: 180   # 3시간
+        
+  # 프로필 2: 공격적 - Trailing Stop 중심
+  ETHUSDT:
+    ict_config:
+      active_profile: aggressive
+      exit_config:
+        dynamic_exit_enabled: true
+        exit_strategy: "trailing_stop"
+        trailing_distance: 0.025  # 2.5%
+        trailing_activation: 0.01   # 1%
+        breakeven_enabled: false
+        volatility_enabled: true
+        atr_period: 14
+        atr_multiplier: 2.5
+
+# 일반적인 거래 심볼 예제  
+  XRPUSDT:
+    strategy: momentum_strategy
+    enabled: false  # 거래하지 않음

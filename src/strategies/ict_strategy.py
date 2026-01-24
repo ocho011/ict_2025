@@ -58,6 +58,7 @@ from src.detectors.ict_smc import (
     find_mitigation_zone,
 )
 from src.models.candle import Candle
+from src.models.position import Position
 from src.models.signal import Signal, SignalType
 from src.strategies.base import BaseStrategy
 
@@ -801,3 +802,464 @@ class ICTStrategy(BaseStrategy):
     def is_indicator_cache_enabled(self) -> bool:
         """Check if indicator cache is enabled."""
         return self._indicator_cache is not None
+
+    async def should_exit(self, position: Position, candle: Candle) -> Optional[Signal]:
+        """
+        Evaluate whether an open position should be exited using ICT dynamic exit logic.
+        Implements 4 exit strategies based on ExitConfig:
+        1. trailing_stop: Trailing stop with activation threshold
+        2. breakeven: Move SL to entry when profitable
+        3. timed: Exit after specified time period
+        4. indicator_based: Exit based on ICT indicators reversal
+        Args:
+            position: Current open position for this symbol
+            candle: Latest candle to analyze for exit conditions
+        Returns:
+            Signal with CLOSE_LONG/CLOSE_SHORT if exit triggered, None otherwise
+        Integration with ICT Analysis:
+            - Uses existing ICT 10-step analysis context
+            - Leverages FVG, OB, liquidity, displacement detection
+            - Maintains compatibility with existing ICT logic
+            - Follows ICT Smart Money Concepts for exit timing
+        """
+        if not candle.is_closed:
+            return None
+
+        self.update_buffer(candle)
+        self._update_feature_cache(candle)
+        if not self.is_ready():
+            return None
+
+        # Get exit configuration from strategy
+        exit_config = getattr(self.config, "exit_config", None)
+        if not exit_config or not exit_config.dynamic_exit_enabled:
+            return None  # Dynamic exit disabled
+
+        buffer = self.buffers.get(candle.interval)
+        if not buffer or len(buffer) < self.min_periods:
+            return None
+
+        # Route to appropriate exit strategy
+        if exit_config.exit_strategy == "trailing_stop":
+            return self._check_trailing_stop_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "breakeven":
+            return self._check_breakeven_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "timed":
+            return self._check_timed_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "indicator_based":
+            return self._check_indicator_based_exit(position, candle, exit_config)
+        else:
+            self.logger.warning(
+                f"[{self.symbol}] Unknown exit strategy: {exit_config.exit_strategy}"
+            )
+            return None
+
+        self.update_buffer(candle)
+        self._update_feature_cache(candle)
+
+        if not self.is_ready():
+            return None
+
+        exit_config = getattr(self.config, "exit_config", None)
+        if not exit_config or not exit_config.dynamic_exit_enabled:
+            return None
+
+        buffer = self.buffers.get(candle.interval)
+        if not buffer or len(buffer) < self.min_periods:
+            return None
+
+        if exit_config.exit_strategy == "trailing_stop":
+            return self._check_trailing_stop_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "breakeven":
+            return self._check_breakeven_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "timed":
+            return self._check_timed_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "indicator_based":
+            return self._check_indicator_based_exit(position, candle, exit_config)
+        else:
+            self.logger.warning(
+                f"[{self.symbol}] Unknown exit strategy: {exit_config.exit_strategy}"
+            )
+            return None
+
+        # Get exit configuration from strategy
+        exit_config = getattr(self.config, "exit_config", None)
+        if not exit_config or not exit_config.dynamic_exit_enabled:
+            return None  # Dynamic exit disabled
+
+        buffer = self.buffers.get(candle.interval)
+        if not buffer or len(buffer) < self.min_periods:
+            return None
+
+        # Route to appropriate exit strategy
+        if exit_config.exit_strategy == "trailing_stop":
+            return self._check_trailing_stop_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "breakeven":
+            return self._check_breakeven_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "timed":
+            return self._check_timed_exit(position, candle, exit_config)
+        elif exit_config.exit_strategy == "indicator_based":
+            return self._check_indicator_based_exit(position, candle, exit_config)
+        else:
+            self.logger.warning(
+                f"[{self.symbol}] Unknown exit strategy: {exit_config.exit_strategy}"
+            )
+            return None
+
+    def _check_trailing_stop_exit(
+        self, position: "Position", candle: "Candle", exit_config
+    ) -> Optional["Signal"]:
+        """
+        Check trailing stop exit conditions.
+
+        Uses trailing_distance from entry price and trailing_activation threshold
+        to protect profits while allowing room for normal fluctuations.
+
+        Args:
+            position: Current open position
+            candle: Current candle
+            exit_config: ExitConfig with trailing parameters
+
+        Returns:
+            CLOSE signal if trailing stop triggered, None otherwise
+        """
+        try:
+            # Calculate trailing stop level
+            if position.side == "LONG":
+                # For long: stop below entry, moves up as price rises
+                trailing_stop = position.entry_price * (
+                    1 - exit_config.trailing_distance
+                )
+
+                # Move stop up if price is higher than activation threshold
+                activation_price = position.entry_price * (
+                    1 + exit_config.trailing_activation
+                )
+                if candle.close > activation_price:
+                    # Update trailing stop to lock in profits
+                    new_stop = candle.close * (1 - exit_config.trailing_distance)
+                    if new_stop > trailing_stop:
+                        trailing_stop = new_stop
+
+                # Check if current price hit trailing stop
+                if candle.close <= trailing_stop:
+                    self.logger.info(
+                        f"[{self.symbol}] Trailing stop exit triggered: "
+                        f"entry={position.entry_price:.2f}, current={candle.close:.2f}, "
+                        f"stop={trailing_stop:.2f}"
+                    )
+                    return Signal(
+                        signal_type=SignalType.CLOSE_LONG,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="trailing_stop",
+                    )
+
+            else:  # SHORT position
+                # For short: stop above entry, moves down as price falls
+                trailing_stop = position.entry_price * (
+                    1 + exit_config.trailing_distance
+                )
+
+                # Move stop down if price is lower than activation threshold
+                activation_price = position.entry_price * (
+                    1 - exit_config.trailing_activation
+                )
+                if candle.close < activation_price:
+                    # Update trailing stop to lock in profits
+                    new_stop = candle.close * (1 + exit_config.trailing_distance)
+                    if new_stop < trailing_stop:
+                        trailing_stop = new_stop
+
+                # Check if current price hit trailing stop
+                if candle.close >= trailing_stop:
+                    self.logger.info(
+                        f"[{self.symbol}] Trailing stop exit triggered: "
+                        f"entry={position.entry_price:.2f}, current={candle.close:.2f}, "
+                        f"stop={trailing_stop:.2f}"
+                    )
+                    return Signal(
+                        signal_type=SignalType.CLOSE_SHORT,
+                        symbol=self.symbol,
+                        entry_price=candle.close,
+                        strategy_name=self.__class__.__name__,
+                        timestamp=datetime.now(timezone.utc),
+                        exit_reason="trailing_stop",
+                    )
+
+        except Exception as e:
+            self.logger.error(f"[{self.symbol}] Error in trailing stop check: {e}")
+            return None
+
+        return None
+
+    def _check_breakeven_exit(
+        self, position: "Position", candle: "Candle", exit_config
+    ) -> Optional["Signal"]:
+        """
+        Check breakeven exit conditions.
+
+        Moves stop loss to entry price (breakeven) when position becomes profitable
+        by the configured offset, protecting against reversals.
+
+        Args:
+            position: Current open position
+            candle: Current candle
+            exit_config: ExitConfig with breakeven parameters
+
+        Returns:
+            CLOSE signal if price reverses after hitting breakeven, None otherwise
+        """
+        try:
+            if not exit_config.breakeven_enabled:
+                return None
+
+            # Calculate breakeven level (entry price)
+            breakeven_level = position.entry_price
+
+            # Calculate activation threshold (when to move SL to breakeven)
+            profit_threshold = position.entry_price * exit_config.breakeven_offset
+
+            if position.side == "LONG":
+                # Check if position is profitable enough to activate breakeven
+                if candle.close > position.entry_price + profit_threshold:
+                    # Move SL to breakeven level (entry price)
+                    current_stop = position.entry_price * (
+                        1 - exit_config.breakeven_offset
+                    )
+
+                    # Check if price reversed and hit breakeven stop
+                    if candle.close <= breakeven_level:
+                        self.logger.info(
+                            f"[{self.symbol}] Breakeven exit triggered: "
+                            f"entry={position.entry_price:.2f}, current={candle.close:.2f}, "
+                            f"breakeven={breakeven_level:.2f}"
+                        )
+                        return Signal(
+                            signal_type=SignalType.CLOSE_LONG,
+                            symbol=self.symbol,
+                            entry_price=candle.close,
+                            strategy_name=self.__class__.__name__,
+                            timestamp=datetime.now(timezone.utc),
+                            exit_reason="breakeven",
+                        )
+
+            else:  # SHORT position
+                # Check if position is profitable enough to activate breakeven
+                if candle.close < position.entry_price - profit_threshold:
+                    # Move SL to breakeven level (entry price)
+                    current_stop = position.entry_price * (
+                        1 + exit_config.breakeven_offset
+                    )
+
+                    # Check if price reversed and hit breakeven stop
+                    if candle.close >= breakeven_level:
+                        self.logger.info(
+                            f"[{self.symbol}] Breakeven exit triggered: "
+                            f"entry={position.entry_price:.2f}, current={candle.close:.2f}, "
+                            f"breakeven={breakeven_level:.2f}"
+                        )
+                        return Signal(
+                            signal_type=SignalType.CLOSE_SHORT,
+                            symbol=self.symbol,
+                            entry_price=candle.close,
+                            strategy_name=self.__class__.__name__,
+                            timestamp=datetime.now(timezone.utc),
+                            exit_reason="breakeven",
+                        )
+
+        except Exception as e:
+            self.logger.error(f"[{self.symbol}] Error in breakeven check: {e}")
+            return None
+
+        return None
+
+    def _check_timed_exit(
+        self, position: "Position", candle: "Candle", exit_config
+    ) -> Optional["Signal"]:
+        """
+        Check time-based exit conditions.
+
+        Exits position after configured time period regardless of P&L,
+        used for risk management and avoiding overexposure.
+
+        Args:
+            position: Current open position
+            candle: Current candle
+            exit_config: ExitConfig with timeout parameters
+
+        Returns:
+            CLOSE signal if timeout reached, None otherwise
+        """
+        try:
+            if not exit_config.timeout_enabled or not position.entry_time:
+                return None
+
+            # Calculate time elapsed since entry
+            elapsed_time = candle.open_time - position.entry_time
+            timeout_duration = exit_config.timeout_minutes * 60  # Convert to seconds
+
+            if elapsed_time.total_seconds() >= timeout_duration:
+                self.logger.info(
+                    f"[{self.symbol}] Time-based exit triggered: "
+                    f"elapsed={elapsed_time}, timeout={exit_config.timeout_minutes}min"
+                )
+                signal_type = (
+                    SignalType.CLOSE_LONG
+                    if position.side == "LONG"
+                    else SignalType.CLOSE_SHORT
+                )
+                return Signal(
+                    signal_type=signal_type,
+                    symbol=self.symbol,
+                    entry_price=candle.close,
+                    strategy_name=self.__class__.__name__,
+                    timestamp=datetime.now(timezone.utc),
+                    exit_reason="timed",
+                )
+
+        except Exception as e:
+            self.logger.error(f"[{self.symbol}] Error in timed exit check: {e}")
+            return None
+
+        return None
+
+    def _check_indicator_based_exit(
+        self, position: "Position", candle: "Candle", exit_config
+    ) -> Optional["Signal"]:
+        """
+        Check indicator-based exit conditions using ICT analysis.
+
+        Uses ICT Smart Money Concepts to detect trend reversals and liquidity
+        that warrant exiting positions before TP/SL are hit.
+
+        Args:
+            position: Current open position
+            candle: Current candle
+            exit_config: ExitConfig with indicator parameters
+
+        Returns:
+            CLOSE signal if ICT indicators show reversal, None otherwise
+        """
+        try:
+            # Get ICT analysis context
+            mtf_buffer = self.buffers.get(self.mtf_interval)
+            if not mtf_buffer or len(mtf_buffer) < 50:
+                return None
+
+            # Get current trend from ICT analysis
+            trend = None
+            if self._indicator_cache is not None:
+                htf_structure = self._indicator_cache.get_market_structure(
+                    self.htf_interval
+                )
+                mtf_structure = self._indicator_cache.get_market_structure(
+                    self.mtf_interval
+                )
+                trend = (
+                    htf_structure.trend
+                    if htf_structure and hasattr(htf_structure, "trend")
+                    else (
+                        mtf_structure.trend
+                        if mtf_structure and hasattr(mtf_structure, "trend")
+                        else None
+                    )
+                )
+            else:
+                trend = get_current_trend(
+                    mtf_buffer, swing_lookback=self.swing_lookback
+                )
+
+            if trend is None:
+                return None
+
+            # Detect displacement reversal (smart money activity)
+            displacements = detect_displacement(
+                mtf_buffer, displacement_ratio=self.displacement_ratio
+            )
+
+            # Detect new inducement patterns
+            inducements = detect_inducement(mtf_buffer, lookback=10)
+
+            # Check for exit conditions based on ICT concepts
+            should_exit_position = False
+            exit_reason = None
+
+            if position.side == "LONG":
+                # Exit long if:
+                # 1. Trend changes to bearish (CHoCH)
+                if trend == "bearish":
+                    should_exit_position = True
+                    exit_reason = "htf_trend_reversal"
+
+                # 2. Strong bearish displacement detected
+                bearish_displacements = [
+                    d for d in displacements if d.direction == "bearish"
+                ]
+                if bearish_displacements and len(bearish_displacements) >= 2:
+                    should_exit_position = True
+                    exit_reason = "bearish_displacement"
+
+                # 3. Bullish inducement detected (trapped retail)
+                recent_inducement = any(
+                    ind.direction == "bullish"
+                    for ind in inducements[-3:]
+                    if inducements
+                )
+                if recent_inducement:
+                    should_exit_position = True
+                    exit_reason = "bullish_inducement"
+
+            else:  # SHORT position
+                # Exit short if:
+                # 1. Trend changes to bullish (CHoCH)
+                if trend == "bullish":
+                    should_exit_position = True
+                    exit_reason = "htf_trend_reversal"
+
+                # 2. Strong bullish displacement detected
+                bullish_displacements = [
+                    d for d in displacements if d.direction == "bullish"
+                ]
+                if bullish_displacements and len(bullish_displacements) >= 2:
+                    should_exit_position = True
+                    exit_reason = "bullish_displacement"
+
+                # 3. Bearish inducement detected (trapped retail)
+                recent_inducement = any(
+                    ind.direction == "bearish"
+                    for ind in inducements[-3:]
+                    if inducements
+                )
+                if recent_inducement:
+                    should_exit_position = True
+                    exit_reason = "bearish_inducement"
+
+            if should_exit_position:
+                self.logger.info(
+                    f"[{self.symbol}] ICT indicator-based exit triggered: "
+                    f"position_side={position.side}, trend={trend}, reason={exit_reason}"
+                )
+                signal_type = (
+                    SignalType.CLOSE_LONG
+                    if position.side == "LONG"
+                    else SignalType.CLOSE_SHORT
+                )
+                return Signal(
+                    signal_type=signal_type,
+                    symbol=self.symbol,
+                    entry_price=candle.close,
+                    strategy_name=self.__class__.__name__,
+                    timestamp=datetime.now(timezone.utc),
+                    exit_reason=exit_reason,
+                )
+
+        except Exception as e:
+            self.logger.error(
+                f"[{self.symbol}] Error in indicator-based exit check: {e}"
+            )
+            return None
+
+        return None

@@ -360,6 +360,9 @@ class TestBaseStrategyCheckExit:
             async def analyze(self, candle):
                 return None
 
+            async def should_exit(self, position, candle):
+                return None
+
             def calculate_take_profit(self, entry_price, side):
                 return entry_price * 1.02
 
@@ -416,6 +419,9 @@ class TestMultiTimeframeStrategyCheckExit:
             async def analyze(self, candle):
                 return None
 
+            async def should_exit(self, position, candle):
+                return None
+
             def calculate_take_profit(self, entry_price, side):
                 return entry_price * 1.02
 
@@ -447,12 +453,6 @@ class TestMultiTimeframeStrategyCheckExit:
             async def analyze(self, candle):
                 return None
 
-            def calculate_take_profit(self, entry_price, side):
-                return entry_price * 1.02
-
-            def calculate_stop_loss(self, entry_price, side):
-                return entry_price * 0.99
-
             async def check_exit(self, candle, position):
                 # Return exit signal when position exists
                 return Signal(
@@ -463,6 +463,15 @@ class TestMultiTimeframeStrategyCheckExit:
                     timestamp=datetime.now(timezone.utc),
                     exit_reason="test_exit",
                 )
+
+            async def should_exit(self, position, candle):
+                return None  # Implementation to satisfy new abstract method
+
+            def calculate_take_profit(self, entry_price, side):
+                return entry_price * 1.02
+
+            def calculate_stop_loss(self, entry_price, side):
+                return entry_price * 0.99
 
         strategy = ExitingMTFStrategy(
             symbol="BTCUSDT",
