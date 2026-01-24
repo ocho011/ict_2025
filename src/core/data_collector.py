@@ -9,6 +9,7 @@ historical data retrieval.
 import asyncio
 import json
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Callable, List, Optional
 
@@ -66,7 +67,7 @@ class BinanceDataCollector:
         self,
         binance_service: BinanceServiceClient,
         symbols: List[str],
-        intervals: List[str], # From .ini config (e.g., trading_config.ini)
+        intervals: List[str],  # From .ini config (e.g., trading_config.ini)
         on_candle_callback: Optional[Callable[[Candle], None]] = None,
     ) -> None:
         """
@@ -100,6 +101,11 @@ class BinanceDataCollector:
         self._running = False
         self._is_connected = False
 
+        # Connection monitoring
+        self._last_heartbeat_time = 0.0
+        self._heartbeat_interval = 30.0  # seconds
+        self._heartbeat_task: Optional[asyncio.Task] = None
+
         # Logging
         self.logger = logging.getLogger(__name__)
         self.logger.info(
@@ -129,7 +135,7 @@ class BinanceDataCollector:
         """
         if not self._is_connected or not self.ws_clients:
             return False
-            
+
         # Consider connected if we have clients for all symbols
         return len(self.ws_clients) == len(self.symbols)
 
@@ -188,12 +194,12 @@ class BinanceDataCollector:
             candle = Candle(
                 symbol=kline["s"],
                 interval=kline["i"],
-                open_time=datetime.fromtimestamp(kline["t"] / 1000, tz=timezone.utc).replace(
-                    tzinfo=None
-                ),
-                close_time=datetime.fromtimestamp(kline["T"] / 1000, tz=timezone.utc).replace(
-                    tzinfo=None
-                ),
+                open_time=datetime.fromtimestamp(
+                    kline["t"] / 1000, tz=timezone.utc
+                ).replace(tzinfo=None),
+                close_time=datetime.fromtimestamp(
+                    kline["T"] / 1000, tz=timezone.utc
+                ).replace(tzinfo=None),
                 open=float(kline["o"]),
                 high=float(kline["h"]),
                 low=float(kline["l"]),
@@ -212,17 +218,20 @@ class BinanceDataCollector:
         except KeyError as e:
             # Missing required field in kline data
             self.logger.error(
-                f"Missing required field in kline message: {e} | Message: {message}", exc_info=True
+                f"Missing required field in kline message: {e} | Message: {message}",
+                exc_info=True,
             )
         except (ValueError, TypeError) as e:
             # Invalid data type (e.g., non-numeric string, wrong type)
             self.logger.error(
-                f"Invalid data type in kline message: {e} | Message: {message}", exc_info=True
+                f"Invalid data type in kline message: {e} | Message: {message}",
+                exc_info=True,
             )
         except Exception as e:
             # Unexpected error (including Candle validation errors)
             self.logger.error(
-                f"Unexpected error parsing kline message: {e} | Message: {message}", exc_info=True
+                f"Unexpected error parsing kline message: {e} | Message: {message}",
+                exc_info=True,
             )
 
     async def start_streaming(self) -> None:
@@ -248,39 +257,39 @@ class BinanceDataCollector:
         try:
             # Select WebSocket URL based on environment
             stream_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL
-            
+
             self.logger.info(
                 f"Initializing {len(self.symbols)} WebSocket connections to {stream_url}"
             )
 
             total_stream_count = 0
-            
+
             # Create a separate client for each symbol
             for symbol in self.symbols:
                 self.logger.info(f"Establishing connection for {symbol}...")
-                
+
                 # Initialize WebSocket client with message handler
-                # The _handle_kline_message method is not called manually; 
-                # the WebSocket engine (internal library loop) automatically invokes this registered 
+                # The _handle_kline_message method is not called manually;
+                # the WebSocket engine (internal library loop) automatically invokes this registered
                 # handler whenever a new message is received from the server.
                 client = UMFuturesWebsocketClient(
                     stream_url=stream_url, on_message=self._handle_kline_message
                 )
-                
+
                 # Subscribe to all intervals for this symbol
                 symbol_stream_count = 0
                 for interval in self.intervals:
                     stream_name = f"{symbol.lower()}@kline_{interval}"
                     self.logger.debug(f"[{symbol}] Subscribing to: {stream_name}")
-                    
+
                     # Subscribe
                     client.kline(symbol=symbol.lower(), interval=interval)
                     symbol_stream_count += 1
-                
+
                 # Store the client
                 self.ws_clients[symbol] = client
                 total_stream_count += symbol_stream_count
-                
+
                 # Small delay to prevent connection rate limiting if many symbols
                 if len(self.symbols) > 1:
                     await asyncio.sleep(0.1)
@@ -289,13 +298,19 @@ class BinanceDataCollector:
             self._running = True
             self._is_connected = True
 
+            # Start heartbeat monitoring
+            self._last_heartbeat_time = time.time()
+            self._heartbeat_task = asyncio.create_task(self._heartbeat_monitor())
+
             self.logger.info(
                 f"Successfully started streaming {total_stream_count} streams "
                 f"across {len(self.ws_clients)} connections"
             )
 
         except Exception as e:
-            self.logger.error(f"Failed to start WebSocket streaming: {e}", exc_info=True)
+            self.logger.error(
+                f"Failed to start WebSocket streaming: {e}", exc_info=True
+            )
             # Cleanup any partially started connections
             await self.stop()
             raise ConnectionError(f"WebSocket initialization failed: {e}")
@@ -343,11 +358,14 @@ class BinanceDataCollector:
 
         except (IndexError, ValueError, TypeError) as e:
             self.logger.error(
-                f"Failed to parse REST kline data: {e} | Data: {kline_array}", exc_info=True
+                f"Failed to parse REST kline data: {e} | Data: {kline_array}",
+                exc_info=True,
             )
             raise ValueError(f"Invalid kline data format: {e}")
 
-    def get_historical_candles(self, symbol: str, interval: str, limit: int = 500) -> List[Candle]:
+    def get_historical_candles(
+        self, symbol: str, interval: str, limit: int = 500
+    ) -> List[Candle]:
         """
         Fetch historical kline data via Binance REST API.
 
@@ -382,7 +400,9 @@ class BinanceDataCollector:
 
         try:
             # Call Binance REST API
-            klines_data = self.binance_service.klines(symbol=symbol, interval=interval, limit=limit)
+            klines_data = self.binance_service.klines(
+                symbol=symbol, interval=interval, limit=limit
+            )
 
             # Parse each kline array into Candle object
             candles = []
@@ -409,11 +429,10 @@ class BinanceDataCollector:
 
         except Exception as e:
             self.logger.error(
-                f"Failed to fetch historical candles for {symbol} {interval}: {e}", exc_info=True
+                f"Failed to fetch historical candles for {symbol} {interval}: {e}",
+                exc_info=True,
             )
             raise ConnectionError(f"REST API request failed: {e}")
-
-
 
     async def stop(self, timeout: float = 5.0) -> None:
         """
@@ -444,32 +463,46 @@ class BinanceDataCollector:
 
         self.logger.info("Initiating graceful shutdown...")
 
-        # Step 2: Set flags to prevent new operations
+        # Step 2: Stop heartbeat monitor
+        if self._heartbeat_task and not self._heartbeat_task.done():
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+
+        # Step 3: Set flags to prevent new operations
         self._running = False
         self._is_connected = False
 
         try:
             # Step 3: Stop all WebSocket clients
             if self.ws_clients:
-                self.logger.debug(f"Stopping {len(self.ws_clients)} WebSocket clients...")
-                
+                self.logger.debug(
+                    f"Stopping {len(self.ws_clients)} WebSocket clients..."
+                )
+
                 # Create stop tasks for all clients
                 stop_tasks = []
                 for symbol, client in self.ws_clients.items():
                     stop_tasks.append(asyncio.to_thread(client.stop))
-                
+
                 if stop_tasks:
                     try:
                         # Wait for all clients to stop
-                        await asyncio.wait_for(asyncio.gather(*stop_tasks), timeout=timeout)
+                        await asyncio.wait_for(
+                            asyncio.gather(*stop_tasks), timeout=timeout
+                        )
                         self.logger.info("All WebSocket clients stopped successfully")
                     except asyncio.TimeoutError:
                         self.logger.warning(
                             f"WebSocket stop exceeded {timeout}s timeout, forcing cleanup"
                         )
                     except Exception as e:
-                        self.logger.error(f"Error stopping WebSocket clients: {e}", exc_info=True)
-                
+                        self.logger.error(
+                            f"Error stopping WebSocket clients: {e}", exc_info=True
+                        )
+
                 # Clear references
                 self.ws_clients.clear()
 
@@ -506,7 +539,10 @@ class BinanceDataCollector:
         return self
 
     async def __aexit__(
-        self, exc_type: Optional[type], exc_val: Optional[BaseException], exc_tb: Optional[object]
+        self,
+        exc_type: Optional[type],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[object],
     ) -> None:
         """
         Async context manager exit with automatic cleanup.
@@ -523,7 +559,9 @@ class BinanceDataCollector:
             - Logs context exceptions for debugging
         """
         if exc_type is not None:
-            self.logger.warning(f"Exiting context with exception: {exc_type.__name__}: {exc_val}")
+            self.logger.warning(
+                f"Exiting context with exception: {exc_type.__name__}: {exc_val}"
+            )
         else:
             self.logger.debug("Exiting async context manager normally")
 
@@ -531,8 +569,44 @@ class BinanceDataCollector:
         try:
             await self.stop()
         except Exception as e:
-            self.logger.error(f"Error during context manager cleanup: {e}", exc_info=True)
+            self.logger.error(
+                f"Error during context manager cleanup: {e}", exc_info=True
+            )
 
         # Don't suppress exceptions from the context
         return None
         # Don't re-raise - best effort cleanup
+
+    async def _heartbeat_monitor(self) -> None:
+        """
+        Monitor WebSocket connection status with periodic heartbeat logging.
+
+        Logs connection status every 30 seconds to detect silent failures.
+        """
+        while self._running:
+            try:
+                await asyncio.sleep(self._heartbeat_interval)
+
+                if not self._running:
+                    break
+
+                current_time = time.time()
+
+                # Check if any WebSocket clients exist
+                active_connections = len(self.ws_clients)
+
+                # Log heartbeat with connection status
+                self.logger.info(
+                    f"WebSocket heartbeat: {active_connections} active connections, "
+                    f"status={'CONNECTED' if self._is_connected else 'DISCONNECTED'}, "
+                    f"uptime={current_time - self._last_heartbeat_time:.1f}s"
+                )
+
+                self._last_heartbeat_time = current_time
+
+            except asyncio.CancelledError:
+                self.logger.info("Heartbeat monitor cancelled")
+                break
+            except Exception as e:
+                self.logger.error(f"Heartbeat monitor error: {e}", exc_info=True)
+                await asyncio.sleep(5.0)  # Brief pause before retry
