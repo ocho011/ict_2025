@@ -595,11 +595,28 @@ class BinanceDataCollector:
         """
         Monitor WebSocket connection status with periodic heartbeat logging.
 
-        Logs connection status every 30 seconds to detect silent failures.
+        Logs connection status at fixed times: :10 and :40 seconds of each minute.
+        This ensures consistent log timing regardless of when the system started.
         """
         while self._running:
             try:
-                await asyncio.sleep(self._heartbeat_interval)
+                # Calculate seconds until next :10 or :40 mark
+                now = datetime.now()
+                current_second = now.second
+
+                # Determine next target second (:10 or :40)
+                if current_second < 10:
+                    next_target = 10
+                elif current_second < 40:
+                    next_target = 40
+                else:
+                    next_target = 70  # :10 of next minute (60 + 10)
+
+                sleep_seconds = next_target - current_second
+                # Account for microseconds to align precisely
+                sleep_seconds -= now.microsecond / 1_000_000
+
+                await asyncio.sleep(sleep_seconds)
 
                 if not self._running:
                     break
