@@ -1081,37 +1081,27 @@ class OrderExecutionManager:
             # SHORT_ENTRY: entry is SELL → TP/SL are BUY
             tpsl_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
 
-    # Place TP order with adjusted price if needed
-    tp_order = self._place_tp_order(signal, tpsl_side, adjusted_take_profit if 'adjusted_take_profit' in locals() else signal.take_profit)
-    if tp_order:
-        tpsl_orders.append(tp_order)
+        # Place TP order with adjusted price if needed
+        tp_order = self._place_tp_order(signal, tpsl_side, adjusted_take_profit if 'adjusted_take_profit' in locals() else signal.take_profit)
+        if tp_order:
+            tpsl_orders.append(tp_order)
 
-    # Place SL order with adjusted price if needed
-    sl_order = self._place_sl_order(signal, tpsl_side, adjusted_stop_loss if 'adjusted_stop_loss' in locals() else signal.stop_loss)
-    if sl_order:
-        tpsl_orders.append(sl_order)
+        # Place SL order with adjusted price if needed
+        sl_order = self._place_sl_order(signal, tpsl_side, adjusted_stop_loss if 'adjusted_stop_loss' in locals() else signal.stop_loss)
+        if sl_order:
+            tpsl_orders.append(sl_order)
 
-            # Place SL order with adjusted price if needed
-            sl_order = self._place_sl_order(
-                signal,
-                tpsl_side,
-                adjusted_stop_loss
-                if "adjusted_stop_loss" in locals()
-                else signal.stop_loss,
+
+        # Log TP/SL placement summary
+        self.logger.info(
+            f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed"
+        )
+
+        if len(tpsl_orders) < 2:
+            self.logger.warning(
+                f"Partial TP/SL placement: entry filled but "
+                f"only {len(tpsl_orders)}/2 exit orders placed"
             )
-            if sl_order:
-                tpsl_orders.append(sl_order)
-
-            # Log TP/SL placement summary
-            self.logger.info(
-                f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed"
-            )
-
-            if len(tpsl_orders) < 2:
-                self.logger.warning(
-                    f"Partial TP/SL placement: entry filled but "
-                    f"only {len(tpsl_orders)}/2 exit orders placed"
-                )
 
         elif signal.signal_type in (SignalType.CLOSE_LONG, SignalType.CLOSE_SHORT):
             # Close signals: Cancel all remaining TP/SL orders (Issue #9)

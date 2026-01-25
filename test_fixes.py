@@ -5,7 +5,7 @@ Test script to validate implemented fixes.
 
 import asyncio
 import time
-import sys
+
 from unittest.mock import Mock
 
 # Add src to path
