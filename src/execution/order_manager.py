@@ -700,7 +700,10 @@ class OrderExecutionManager:
 
     @retry_with_backoff(max_retries=3)
     def _place_sl_order(
-        self, signal: Signal, side: OrderSide, adjusted_stop_loss: float = None
+        self,
+        signal: Signal,
+        side: OrderSide,
+        adjusted_stop_loss: Optional[float] = None,
     ) -> Optional[Order]:
         """
         Place STOP_MARKET order for position exit.
@@ -708,6 +711,7 @@ class OrderExecutionManager:
         Args:
             signal: Trading signal with stop_loss price
             side: Order side to close position (opposite of entry)
+            adjusted_stop_loss: Optional pre-adjusted stop loss price
 
         Returns:
             Order object if successful, None if placement fails
@@ -723,60 +727,64 @@ class OrderExecutionManager:
                 )
                 return None
 
+            # Use provided adjusted_stop_loss or original signal.stop_loss
+            if adjusted_stop_loss is None:
+                adjusted_stop_loss = signal.stop_loss
+
             # Add buffer to prevent immediate trigger (code -2021)
-            # Similar to SL order logic to ensure both TP/SL orders have proper buffer
-            if signal.take_profit:
+            if adjusted_stop_loss:
                 current_price = (
                     signal.entry_price if hasattr(signal, "entry_price") else 0.0
                 )
                 min_distance = current_price * 0.001  # 0.1% minimum distance from entry
-                original_take_profit = signal.take_profit
+                original_stop_loss = adjusted_stop_loss
 
-                # Adjust take profit to be at minimum distance from entry
-                if abs(original_take_profit - current_price) < min_distance:
-                    # Create mutable copy for price adjustment using object.__setattr__
-                    mutable_signal = object.__new__(type(signal))
-                    mutable_signal.take_profit = original_take_profit
-                    if original_take_profit > current_price:
-                        object.__setattr__(
-                            mutable_signal, "take_profit", current_price + min_distance
-                        )
+                # Adjust stop loss to be at minimum distance from current price
+                if abs(original_stop_loss - current_price) < min_distance:
+                    if original_stop_loss > current_price:
+                        adjusted_stop_loss = current_price + min_distance
                     else:
-                        object.__setattr__(
-                            mutable_signal, "take_profit", current_price - min_distance
-                        )
+                        adjusted_stop_loss = current_price - min_distance
                     self.logger.warning(
-                        f"TP price adjusted from original to prevent immediate trigger: "
-                        f"{current_price} → {mutable_signal.take_profit} (min distance: {min_distance})"
+                        f"SL price adjusted from original to prevent immediate trigger: "
+                        f"{original_stop_loss} → {adjusted_stop_loss} (min distance: {min_distance})"
                     )
-                else:
-                    adjusted_take_profit = original_take_profit
-                stop_price_str = self._format_price(adjusted_take_profit, signal.symbol)
-                self.logger.warning(
-                    f"TP price adjusted from original to prevent immediate trigger: "
-                    f"{current_price} → {adjusted_take_profit} (min distance: {min_distance})"
-                )
-            else:
-                adjusted_take_profit = original_take_profit
-                stop_price_str = self._format_price(adjusted_take_profit, signal.symbol)
-                self.logger.warning(
-                    f"TP price adjusted from original to prevent immediate trigger: "
-                    f"{current_price} → {adjusted_take_profit} (min distance: {min_distance})"
-                )
+
+            # Format stop price for API
+            stop_price_str = self._format_price(adjusted_stop_loss, signal.symbol)
+
+            # Place STOP_MARKET order via Binance API
+            response = self.client.new_order(
+                symbol=signal.symbol,
+                side=side.value,  # SELL for long, BUY for short
+                type=OrderType.STOP_MARKET.value,  # "STOP_MARKET"
+                stopPrice=stop_price_str,  # Trigger price (formatted)
+                closePosition="true",  # Close entire position
+                workingType="MARK_PRICE",  # Use mark price for trigger
+            )
+
+            # Parse API response into Order object
+            order = self._parse_order_response(
+                response=response, symbol=signal.symbol, side=side
+            )
+
+            # Override order_type and stop_price (response may not have correct values)
+            order.order_type = OrderType.STOP_MARKET
+            order.stop_price = adjusted_stop_loss
 
             # Log successful placement
             self.logger.info(
-                f"TP order placed: ID={order.order_id}, stopPrice={stop_price_str}"
+                f"SL order placed: ID={order.order_id}, stopPrice={stop_price_str}"
             )
 
-            # Audit log: TP order placed successfully
+            # Audit log: SL order placed successfully
             try:
                 self.audit_logger.log_order_placed(
                     symbol=signal.symbol,
                     order_data={
-                        "order_type": "TAKE_PROFIT_MARKET",
+                        "order_type": "STOP_MARKET",
                         "side": side.value,
-                        "stop_price": signal.take_profit,
+                        "stop_price": adjusted_stop_loss,
                         "close_position": True,
                     },
                     response={"order_id": order.order_id, "status": order.status.value},
@@ -876,7 +884,10 @@ class OrderExecutionManager:
 
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def _place_tp_order(
-        self, signal: Signal, side: OrderSide, adjusted_take_profit: float = None
+        self,
+        signal: Signal,
+        side: OrderSide,
+        adjusted_take_profit: Optional[float] = None,
     ) -> Optional[Order]:
         """
         Place TAKE_PROFIT_MARKET order for position exit.
@@ -898,33 +909,26 @@ class OrderExecutionManager:
 
             # Add buffer to prevent immediate trigger (code -2021)
             # Similar to SL order logic to ensure both TP/SL orders have proper buffer
-            if signal.take_profit:
-                current_price = (
-                    signal.entry_price if hasattr(signal, "entry_price") else 0.0
-                )
-                min_distance = current_price * 0.001  # 0.1% minimum distance from entry
-                original_take_profit = signal.take_profit
-                adjusted_take_profit = original_take_profit
+            current_price = (
+                signal.entry_price if hasattr(signal, "entry_price") else 0.0
+            )
+            min_distance = current_price * 0.001  # 0.1% minimum distance from entry
+            original_take_profit = signal.take_profit
+            adjusted_take_profit = original_take_profit
 
-                # Adjust take profit to be at minimum distance from entry
-                if abs(original_take_profit - current_price) < min_distance:
-                    if original_take_profit > current_price:
-                        adjusted_take_profit = current_price + min_distance
-                    else:
-                        adjusted_take_profit = current_price - min_distance
-                    self.logger.warning(
-                        f"TP price adjusted from original to prevent immediate trigger: "
-                        f"{current_price} → {adjusted_take_profit} (min distance: {min_distance})"
-                    )
+            # Adjust take profit to be at minimum distance from entry
+            if abs(original_take_profit - current_price) < min_distance:
+                if original_take_profit > current_price:
+                    adjusted_take_profit = current_price + min_distance
                 else:
-                    adjusted_take_profit = original_take_profit
-                stop_price_str = self._format_price(adjusted_take_profit, signal.symbol)
+                    adjusted_take_profit = current_price - min_distance
                 self.logger.warning(
                     f"TP price adjusted from original to prevent immediate trigger: "
                     f"{current_price} → {adjusted_take_profit} (min distance: {min_distance})"
                 )
-            else:
-                adjusted_take_profit = original_take_profit
+
+            # Format stop price for API
+            stop_price_str = self._format_price(adjusted_take_profit, signal.symbol)
 
             # Place TAKE_PROFIT_MARKET order via Binance API
             response = self.client.new_order(
@@ -1181,6 +1185,11 @@ class OrderExecutionManager:
         # Check if TP/SL orders are needed
         tpsl_orders: list[Order] = []
 
+        # Determine TP/SL side (opposite of entry side)
+        # LONG_ENTRY: entry is BUY → TP/SL are SELL
+        # SHORT_ENTRY: entry is SELL → TP/SL are BUY
+        tpsl_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
+
         # Handle different signal types
         if signal.signal_type in (SignalType.LONG_ENTRY, SignalType.SHORT_ENTRY):
             # Entry signals: Cancel existing orders before placing new TP/SL orders
@@ -1198,11 +1207,6 @@ class OrderExecutionManager:
                     f"Failed to cancel existing orders: {e}. "
                     f"Proceeding with TP/SL placement anyway."
                 )
-
-            # Determine TP/SL side (opposite of entry side)
-            # LONG_ENTRY: entry is BUY → TP/SL are SELL
-            # SHORT_ENTRY: entry is SELL → TP/SL are BUY
-            tpsl_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
 
         # Place TP order
         tp_order = self._place_tp_order(signal, tpsl_side)
@@ -1296,8 +1300,12 @@ class OrderExecutionManager:
 
         try:
             # 3. Call Binance API through circuit breaker
+            self.logger.debug(f"Calling get_position_risk for {symbol}")
             response = self._position_circuit_breaker.call(
                 self.client.get_position_risk, symbol=symbol
+            )
+            self.logger.debug(
+                f"get_position_risk response for {symbol}: {type(response)} - {response}"
             )
 
             # 4. Parse response
