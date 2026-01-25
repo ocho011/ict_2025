@@ -243,3 +243,6 @@ logs/*.log
 
 # Jupyter Notebooks
 *.ipynb 
+
+# Sisyphus tool files
+.sisyphus/
