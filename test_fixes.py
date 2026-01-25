@@ -57,7 +57,13 @@ def test_api_logging():
     return True
 
 
-def test_config_changes():
+    """Test configuration changes."""
+        print("Testing configuration changes...")
+        
+        with open("configs/trading_config.ini", "r") as f:
+            content = f.read()
+            
+        print(f"✅ Configuration test passed")
     """Test configuration changes."""
     print("Testing configuration changes...")
 
@@ -97,7 +103,7 @@ def test_websocket_monitoring():
     return True
 
 
-def main():
+    """Run all tests."""
     """Run all tests."""
     print("🚀 Starting validation tests...\n")
 
