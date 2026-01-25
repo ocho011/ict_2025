@@ -17,6 +17,7 @@ from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClie
 
 from src.models.candle import Candle
 from src.core.binance_service import BinanceServiceClient
+from src.core.user_data_stream import UserDataStreamManager
 
 
 class BinanceDataCollector:
@@ -63,6 +64,10 @@ class BinanceDataCollector:
     TESTNET_WS_URL = "wss://stream.binancefuture.com"
     MAINNET_WS_URL = "wss://fstream.binance.com"
 
+    # User Data Stream WebSocket URLs (same base, different path)
+    TESTNET_USER_WS_URL = "wss://stream.binancefuture.com/ws"
+    MAINNET_USER_WS_URL = "wss://fstream.binance.com/ws"
+
     def __init__(
         self,
         binance_service: BinanceServiceClient,
@@ -105,6 +110,12 @@ class BinanceDataCollector:
         self._last_heartbeat_time = 0.0
         self._heartbeat_interval = 30.0  # seconds
         self._heartbeat_task: Optional[asyncio.Task] = None
+
+        # User Data Stream components (Issue #54)
+        self.user_stream_manager: Optional[UserDataStreamManager] = None
+        self._user_ws_client: Optional[UMFuturesWebsocketClient] = None
+        self._event_bus = None  # Set when starting user data stream
+        self._event_loop = None  # Captured for thread-safe event publishing
 
         # Logging
         self.logger = logging.getLogger(__name__)
@@ -506,7 +517,10 @@ class BinanceDataCollector:
                 # Clear references
                 self.ws_clients.clear()
 
-            # Step 4: Close REST API client (if it has a close method)
+            # Step 4: Stop User Data Stream (Issue #54)
+            await self.stop_user_data_stream()
+
+            # Step 5: Close REST API client (if it has a close method)
             # Note: UMFutures uses requests.Session internally, which doesn't require explicit close
             # But we log for completeness
             self.logger.debug("REST API client cleanup complete")
@@ -581,11 +595,28 @@ class BinanceDataCollector:
         """
         Monitor WebSocket connection status with periodic heartbeat logging.
 
-        Logs connection status every 30 seconds to detect silent failures.
+        Logs connection status at fixed times: :10 and :40 seconds of each minute.
+        This ensures consistent log timing regardless of when the system started.
         """
         while self._running:
             try:
-                await asyncio.sleep(self._heartbeat_interval)
+                # Calculate seconds until next :10 or :40 mark
+                now = datetime.now()
+                current_second = now.second
+
+                # Determine next target second (:10 or :40)
+                if current_second < 10:
+                    next_target = 10
+                elif current_second < 40:
+                    next_target = 40
+                else:
+                    next_target = 70  # :10 of next minute (60 + 10)
+
+                sleep_seconds = next_target - current_second
+                # Account for microseconds to align precisely
+                sleep_seconds -= now.microsecond / 1_000_000
+
+                await asyncio.sleep(sleep_seconds)
 
                 if not self._running:
                     break
@@ -610,3 +641,211 @@ class BinanceDataCollector:
             except Exception as e:
                 self.logger.error(f"Heartbeat monitor error: {e}", exc_info=True)
                 await asyncio.sleep(5.0)  # Brief pause before retry
+
+    # =========================================================================
+    # User Data Stream Methods (Issue #54: Orphaned TP/SL Order Prevention)
+    # =========================================================================
+
+    async def start_user_data_stream(self, event_bus) -> None:
+        """
+        Start User Data Stream WebSocket for real-time order updates.
+
+        Creates a listen key via REST API and establishes WebSocket connection
+        to receive ORDER_TRADE_UPDATE events for TP/SL order fill detection.
+
+        Args:
+            event_bus: EventBus instance for publishing ORDER_FILLED events
+
+        Raises:
+            ConnectionError: If WebSocket connection fails
+            Exception: If listen key creation fails
+
+        Note:
+            The event_bus is stored for thread-safe event publishing from
+            the WebSocket callback (which runs in a different thread).
+        """
+        self._event_bus = event_bus
+        self._event_loop = asyncio.get_running_loop()
+
+        # Initialize UserDataStreamManager for listen key lifecycle
+        self.user_stream_manager = UserDataStreamManager(self.binance_service)
+
+        try:
+            # Create listen key (also starts keep-alive loop)
+            listen_key = await self.user_stream_manager.start()
+
+            # Determine WebSocket URL based on environment
+            base_url = (
+                self.TESTNET_USER_WS_URL if self.is_testnet else self.MAINNET_USER_WS_URL
+            )
+            ws_url = f"{base_url}/{listen_key}"
+
+            # Create WebSocket client for user data stream
+            self._user_ws_client = UMFuturesWebsocketClient(
+                stream_url=ws_url,
+                on_message=self._handle_user_data_message,
+            )
+
+            self.logger.info(
+                f"User Data Stream connected: {ws_url[:60]}... "
+                f"(testnet={self.is_testnet})"
+            )
+
+        except Exception as e:
+            self.logger.error(f"Failed to start User Data Stream: {e}", exc_info=True)
+            # Cleanup on failure
+            if self.user_stream_manager:
+                await self.user_stream_manager.stop()
+                self.user_stream_manager = None
+            raise
+
+    def _handle_user_data_message(self, _, message) -> None:
+        """
+        Handle incoming User Data Stream WebSocket messages.
+
+        Routes messages by event type:
+        - ORDER_TRADE_UPDATE: Order status changes (fills, cancellations)
+        - ACCOUNT_UPDATE: Position and balance changes
+        - Other events: Ignored (MARGIN_CALL, etc.)
+
+        Args:
+            _: Unused WebSocket client parameter
+            message: Raw message (str or dict) from Binance
+
+        Note:
+            This callback runs in a separate thread managed by the
+            WebSocket library. Event publishing must be thread-safe.
+        """
+        try:
+            # Parse JSON string if needed
+            if isinstance(message, str):
+                data = json.loads(message)
+            else:
+                data = message
+
+            event_type = data.get("e")
+
+            if event_type == "ORDER_TRADE_UPDATE":
+                self._handle_order_trade_update(data)
+            elif event_type == "ACCOUNT_UPDATE":
+                # Log account updates for monitoring (position changes, etc.)
+                update_reason = data.get("a", {}).get("m", "unknown")
+                self.logger.debug(f"Account update received: reason={update_reason}")
+            # Ignore other event types (MARGIN_CALL, listenKeyExpired, etc.)
+
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Invalid JSON in user data message: {e}")
+        except Exception as e:
+            self.logger.error(
+                f"Error handling user data message: {e}", exc_info=True
+            )
+
+    def _handle_order_trade_update(self, data: dict) -> None:
+        """
+        Process ORDER_TRADE_UPDATE event and publish ORDER_FILLED to EventBus.
+
+        Extracts order information from the event and publishes an ORDER_FILLED
+        event to trigger orphaned order cancellation in TradingEngine.
+
+        Args:
+            data: ORDER_TRADE_UPDATE event data from Binance
+
+        Event Structure (from Binance):
+            {
+                "e": "ORDER_TRADE_UPDATE",
+                "T": 1234567890123,  # Transaction time
+                "o": {
+                    "s": "BTCUSDT",       # Symbol
+                    "c": "client_id",     # Client order ID
+                    "S": "BUY",           # Side
+                    "o": "LIMIT",         # Order type (original)
+                    "ot": "TAKE_PROFIT_MARKET",  # Order type (for TP/SL)
+                    "q": "0.001",         # Original quantity
+                    "p": "50000",         # Original price
+                    "ap": "50100",        # Average fill price
+                    "X": "FILLED",        # Order status
+                    "i": 123456789,       # Order ID
+                    ...
+                }
+            }
+
+        Only publishes events for FILLED TP/SL orders to minimize noise.
+        """
+        order_data = data.get("o", {})
+
+        order_status = order_data.get("X")  # FILLED, CANCELED, NEW, etc.
+        order_type = order_data.get("ot")  # TAKE_PROFIT_MARKET, STOP_MARKET, etc.
+        symbol = order_data.get("s")
+        order_id = str(order_data.get("i", ""))
+
+        self.logger.info(
+            f"Order update: {symbol} {order_type} -> {order_status} (ID: {order_id})"
+        )
+
+        # Only publish for FILLED TP/SL orders (triggers orphan prevention)
+        if order_status == "FILLED" and order_type in (
+            "TAKE_PROFIT_MARKET",
+            "STOP_MARKET",
+        ):
+            from src.models.event import Event, EventType
+            from src.models.event import QueueType
+            from src.models.order import Order, OrderType, OrderStatus, OrderSide
+
+            # Create Order object for event payload
+            # Note: TP/SL orders require stop_price (trigger price)
+            order = Order(
+                order_id=order_id,
+                symbol=symbol,
+                side=OrderSide(order_data.get("S")),
+                order_type=OrderType(order_type),
+                quantity=float(order_data.get("q", 0)),
+                price=float(order_data.get("ap", 0)),  # Average fill price
+                stop_price=float(order_data.get("sp", 0)),  # Stop/trigger price
+                status=OrderStatus.FILLED,
+            )
+
+            event = Event(
+                event_type=EventType.ORDER_FILLED,
+                data=order,
+                source="user_data_stream",
+            )
+
+            # Publish to EventBus (thread-safe via run_coroutine_threadsafe)
+            if self._event_bus and self._event_loop:
+                asyncio.run_coroutine_threadsafe(
+                    self._event_bus.publish(event, queue_type=QueueType.ORDER),
+                    self._event_loop,
+                )
+                self.logger.info(
+                    f"Published ORDER_FILLED event for {symbol} {order_type}"
+                )
+
+    async def stop_user_data_stream(self) -> None:
+        """
+        Stop User Data Stream and cleanup resources.
+
+        Gracefully shuts down:
+        1. WebSocket client connection
+        2. UserDataStreamManager (listen key cleanup)
+
+        Note:
+            - Method is idempotent - safe to call multiple times
+            - Called automatically by stop() method
+        """
+        # Stop WebSocket client
+        if self._user_ws_client:
+            try:
+                self._user_ws_client.stop()
+                self.logger.info("User Data Stream WebSocket stopped")
+            except Exception as e:
+                self.logger.warning(f"Error stopping user WebSocket: {e}")
+            self._user_ws_client = None
+
+        # Stop UserDataStreamManager (closes listen key)
+        if self.user_stream_manager:
+            await self.user_stream_manager.stop()
+            self.user_stream_manager = None
+
+        # Clear references
+        self._event_bus = None
+        self._event_loop = None
