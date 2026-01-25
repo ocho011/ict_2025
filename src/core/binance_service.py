@@ -71,7 +71,9 @@ class RequestWeightTracker:
         return {
             "current_weight": self.current_weight,
             "weight_limit": self.weight_limit,
-            "usage_percent": (self.current_weight / self.weight_limit * 100) if self.weight_limit > 0 else 0,
+            "usage_percent": (self.current_weight / self.weight_limit * 100)
+            if self.weight_limit > 0
+            else 0,
             "safe_to_proceed": self.check_limit(),
         }
 
@@ -86,12 +88,37 @@ class BinanceServiceClient:
     - Automatic response unwrapping when show_limit_usage=True
     """
 
-    def __init__(
-        self,
-        api_key: str,
-        api_secret: str,
-        is_testnet: bool = True
-    ) -> None:
+    def __init__(self, api_key: str, api_secret: str, is_testnet: bool = True) -> None:
+        """
+        Initialize Binance service.
+
+        Args:
+            api_key: Binance API key
+            api_secret: Binance API secret
+            is_testnet: Whether to use testnet (default: True)
+        """
+        self.api_key = api_key
+        self.api_secret = api_secret
+        self.is_testnet = is_testnet
+        self.base_url = (
+            "https://testnet.binancefuture.com"
+            if is_testnet
+            else "https://fapi.binance.com"
+        )
+
+        # Initialize underlying UMFutures client
+        # show_limit_usage=True ensures weight information is returned in headers
+        self.client = UMFutures(
+            key=api_key,
+            secret=api_secret,
+            base_url=self.base_url,
+            show_limit_usage=True,
+        )
+
+        self.weight_tracker = RequestWeightTracker()
+        self.logger = logging.getLogger(__name__)
+
+    def __init__(self, api_key: str, api_secret: str, is_testnet: bool = True) -> None:
         """
         Initialize the Binance service.
 
@@ -104,7 +131,11 @@ class BinanceServiceClient:
         self.api_secret = api_secret
         self.is_testnet = is_testnet
 
-        self.base_url = "https://testnet.binancefuture.com" if is_testnet else "https://fapi.binance.com"
+        self.base_url = (
+            "https://testnet.binancefuture.com"
+            if is_testnet
+            else "https://fapi.binance.com"
+        )
 
         # Initialize the underlying UMFutures client
         # show_limit_usage=True ensures weight information is returned in headers
@@ -112,7 +143,7 @@ class BinanceServiceClient:
             key=api_key,
             secret=api_secret,
             base_url=self.base_url,
-            show_limit_usage=True
+            show_limit_usage=True,
         )
 
         self.weight_tracker = RequestWeightTracker()
@@ -151,11 +182,13 @@ class BinanceServiceClient:
         attr = getattr(self.client, name)
 
         if callable(attr):
+
             def wrapper(*args, **kwargs):
                 # Execute the actual API call
                 response = attr(*args, **kwargs)
                 # Apply weight tracking and data unwrapping
                 return self._handle_response(response)
+
             return wrapper
 
         return attr
