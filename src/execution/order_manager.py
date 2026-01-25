@@ -692,7 +692,24 @@ class OrderExecutionManager:
         except (ValueError, TypeError) as e:
             raise OrderExecutionError(f"Invalid data type in API response: {e}")
 
-    @retry_with_backoff(max_retries=3
+    @retry_with_backoff(max_retries=3)
+    def _place_sl_order(self, signal: Signal, side: OrderSide, adjusted_stop_loss: float = None) -> Optional[Order]:
+        """
+        Place STOP_MARKET order for position exit.
+        
+        Args:
+            signal: Trading signal with stop_loss price
+            side: Order side to close position (opposite of entry)
+            
+        Returns:
+            Order object if successful, None if placement fails
+            
+        Note:
+            Uses retry decorator to handle transient API failures.
+        """
+        try:
+            # Validate stop_loss exists
+            if signal.stop_loss is None:
                 self.logger.error(
                     f"Cannot place SL order: stop_loss is None for {signal.symbol}"
                 )
