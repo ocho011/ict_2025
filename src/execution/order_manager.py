@@ -692,41 +692,97 @@ class OrderExecutionManager:
         except (ValueError, TypeError) as e:
             raise OrderExecutionError(f"Invalid data type in API response: {e}")
 
-    def _place_tp_order(self, signal: Signal, side: OrderSide) -> Optional[Order]:
+    @retry_with_backoff(max_retries=3, initial_delay=1.0)
+    def _place_sl_order(self, signal: Signal, side: OrderSide) -> Optional[Order]:
         """
-        Place TAKE_PROFIT_MARKET order for position exit.
+        Place STOP_MARKET order for position exit.
 
         Args:
-            signal: Trading signal with take_profit price
+            signal: Trading signal with stop_loss price
             side: Order side to close position (opposite of entry)
 
         Returns:
             Order object if successful, None if placement fails
 
         Note:
-            Failures are logged but not raised to avoid failing the entire trade.
-
-        Example:
-            >>> tp_order = manager._place_tp_order(signal, OrderSide.SELL)
-            >>> if tp_order:
-            ...     print(f"TP placed: {tp_order.order_id}")
+            Uses retry decorator to handle transient API failures.
         """
         try:
-            # Validate take_profit exists
-            if signal.take_profit is None:
+            # Validate stop_loss exists
+            if signal.stop_loss is None:
                 self.logger.error(
-                    f"Cannot place TP order: take_profit is None for {signal.symbol}"
+                    f"Cannot place SL order: stop_loss is None for {signal.symbol}"
                 )
                 return None
 
-            # Format stop price to Binance precision
-            stop_price_str = self._format_price(signal.take_profit, signal.symbol)
+            # Add buffer to prevent immediate trigger (code -2021)
+            # Similar to SL order logic to ensure both TP/SL orders have proper buffer
+            if signal.take_profit:
+                current_price = (
+                    signal.entry_price if hasattr(signal, "entry_price") else 0.0
+                )
+                min_distance = current_price * 0.001  # 0.1% minimum distance from entry
+                original_take_profit = signal.take_profit
+                adjusted_take_profit = original_take_profit
 
-            # Log TP order intent
-            self.logger.info(
-                f"Placing TP order: {signal.symbol} {side.value} "
-                f"@ {stop_price_str} (close position)"
-            )
+                # Adjust take profit to be at minimum distance from entry
+                if abs(original_take_profit - current_price) < min_distance:
+                    if original_take_profit > current_price:
+                        adjusted_take_profit = current_price + min_distance
+                    else:
+                        adjusted_take_profit = current_price - min_distance
+                    self.logger.warning(
+                        f"TP price adjusted from original to prevent immediate trigger: "
+                        f"{current_price} → {adjusted_take_profit} (min distance: {min_distance})"
+                    )
+                else:
+                    adjusted_take_profit = original_take_profit
+                original_take_profit = signal.take_profit
+                min_distance = current_price * 0.001  # 0.1% minimum distance from entry
+                if abs(original_take_profit - current_price) < min_distance:
+                    # Adjust take profit to be at minimum distance from entry
+                    if original_take_profit > current_price:
+                        adjusted_take_profit = current_price + min_distance
+                    else:
+                        adjusted_take_profit = current_price - min_distance
+                    stop_price_str = self._format_price(
+                        adjusted_take_profit, signal.symbol
+                    )
+                    self.logger.warning(
+                        f"TP price adjusted from original to prevent immediate trigger: "
+                        f"{current_price} → {adjusted_take_profit} (min distance: {min_distance})"
+                    )
+                    # Use the adjusted price in the order parameters
+                    signal_take_profit = adjusted_take_profit
+                original_stop_loss = signal.stop_loss
+                min_distance = current_price * 0.001  # 0.1% minimum distance from entry
+                if abs(original_stop_loss - current_price) < min_distance:
+                    # Use local copy for adjusted price to avoid frozen dataclass issue
+                    if original_stop_loss > current_price:
+                        adjusted_stop_loss = current_price + min_distance
+                    else:
+                        adjusted_stop_loss = current_price - min_distance
+                    stop_price_str = self._format_price(
+                        adjusted_stop_loss, signal.symbol
+                    )
+                    self.logger.warning(
+                        f"SL price adjusted from original to prevent immediate trigger: "
+                        f"{current_price} → {adjusted_stop_loss} (min distance: {min_distance})"
+                    )
+                min_distance = current_price * 0.001  # 0.1% minimum distance from entry
+                if abs(signal.take_profit - current_price) < min_distance:
+                    # Adjust take profit to be at minimum distance from entry
+                    if signal.take_profit > current_price:
+                        signal.take_profit = current_price + min_distance
+                    else:
+                        signal.take_profit = current_price - min_distance
+                    stop_price_str = self._format_price(
+                        signal.take_profit, signal.symbol
+                    )
+                    self.logger.warning(
+                        f"TP price adjusted from original to prevent immediate trigger: "
+                        f"{current_price} → {signal.take_profit} (min distance: {min_distance})"
+                    )
 
             # Place TAKE_PROFIT_MARKET order via Binance API
             response = self.client.new_order(
@@ -812,83 +868,6 @@ class OrderExecutionManager:
                 pass  # Don't double-log
 
             return None
-
-    def _place_sl_order(self, signal: Signal, side: OrderSide) -> Optional[Order]:
-        """
-        Place STOP_MARKET order for position exit.
-
-        Args:
-            signal: Trading signal with stop_loss price
-            side: Order side to close position (opposite of entry)
-
-        Returns:
-            Order object if successful, None if placement fails
-
-        Note:
-            Failures are logged but not raised to avoid failing the entire trade.
-
-        Example:
-            >>> sl_order = manager._place_sl_order(signal, OrderSide.SELL)
-            >>> if sl_order:
-            ...     print(f"SL placed: {sl_order.order_id}")
-        """
-        try:
-            # Validate stop_loss exists
-            if signal.stop_loss is None:
-                self.logger.error(
-                    f"Cannot place SL order: stop_loss is None for {signal.symbol}"
-                )
-                return None
-
-            # Format stop price to Binance precision
-            stop_price_str = self._format_price(signal.stop_loss, signal.symbol)
-
-            # Log SL order intent
-            self.logger.info(
-                f"Placing SL order: {signal.symbol} {side.value} "
-                f"@ {stop_price_str} (close position)"
-            )
-
-            # Place STOP_MARKET order via Binance API
-            response = self.client.new_order(
-                symbol=signal.symbol,
-                side=side.value,  # SELL for long, BUY for short
-                type=OrderType.STOP_MARKET.value,  # "STOP_MARKET"
-                stopPrice=stop_price_str,  # Trigger price (formatted)
-                closePosition="true",  # Close entire position
-                workingType="MARK_PRICE",  # Use mark price for trigger
-            )
-
-            # Parse API response into Order object
-            order = self._parse_order_response(
-                response=response, symbol=signal.symbol, side=side
-            )
-
-            # Override order_type and stop_price
-            order.order_type = OrderType.STOP_MARKET
-            order.stop_price = signal.stop_loss
-
-            # Log successful placement
-            self.logger.info(
-                f"SL order placed: ID={order.order_id}, stopPrice={stop_price_str}"
-            )
-
-            # Audit log: SL order placed successfully
-            try:
-                self.audit_logger.log_order_placed(
-                    symbol=signal.symbol,
-                    order_data={
-                        "order_type": "STOP_MARKET",
-                        "side": side.value,
-                        "stop_price": signal.stop_loss,
-                        "close_position": True,
-                    },
-                    response={"order_id": order.order_id, "status": order.status.value},
-                )
-            except Exception as e:
-                self.logger.warning(f"Audit logging failed: {e}")
-
-            return order
 
         except ClientError as e:
             # Binance API error - log but don't raise
@@ -1102,13 +1081,24 @@ class OrderExecutionManager:
             # SHORT_ENTRY: entry is SELL → TP/SL are BUY
             tpsl_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
 
-            # Place TP order
-            tp_order = self._place_tp_order(signal, tpsl_side)
-            if tp_order:
-                tpsl_orders.append(tp_order)
+    # Place TP order with adjusted price if needed
+    tp_order = self._place_tp_order(signal, tpsl_side, adjusted_take_profit if 'adjusted_take_profit' in locals() else signal.take_profit)
+    if tp_order:
+        tpsl_orders.append(tp_order)
 
-            # Place SL order
-            sl_order = self._place_sl_order(signal, tpsl_side)
+    # Place SL order with adjusted price if needed
+    sl_order = self._place_sl_order(signal, tpsl_side, adjusted_stop_loss if 'adjusted_stop_loss' in locals() else signal.stop_loss)
+    if sl_order:
+        tpsl_orders.append(sl_order)
+
+            # Place SL order with adjusted price if needed
+            sl_order = self._place_sl_order(
+                signal,
+                tpsl_side,
+                adjusted_stop_loss
+                if "adjusted_stop_loss" in locals()
+                else signal.stop_loss,
+            )
             if sl_order:
                 tpsl_orders.append(sl_order)
 
@@ -1200,7 +1190,7 @@ class OrderExecutionManager:
 
             # 4. Parse response
             if not response:
-                # Cache the None result as failure
+                # Cache the None result as failure and let retry decorator handle it
                 self._position_cache[symbol] = (None, current_time, "failure")
                 self.logger.error(f"Position API failed for {symbol} - no response")
                 return None
