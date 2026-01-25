@@ -118,37 +118,6 @@ class BinanceServiceClient:
         self.weight_tracker = RequestWeightTracker()
         self.logger = logging.getLogger(__name__)
 
-    def __init__(self, api_key: str, api_secret: str, is_testnet: bool = True) -> None:
-        """
-        Initialize the Binance service.
-
-        Args:
-            api_key: Binance API key
-            api_secret: Binance API secret
-            is_testnet: Whether to use testnet (default: True)
-        """
-        self.api_key = api_key
-        self.api_secret = api_secret
-        self.is_testnet = is_testnet
-
-        self.base_url = (
-            "https://testnet.binancefuture.com"
-            if is_testnet
-            else "https://fapi.binance.com"
-        )
-
-        # Initialize the underlying UMFutures client
-        # show_limit_usage=True ensures weight information is returned in headers
-        self.client = UMFutures(
-            key=api_key,
-            secret=api_secret,
-            base_url=self.base_url,
-            show_limit_usage=True,
-        )
-
-        self.weight_tracker = RequestWeightTracker()
-        self.logger = logging.getLogger(__name__)
-
     def _handle_response(self, response: Any) -> Any:
         """
         Update weight tracker and unwrap data from response.
@@ -192,3 +161,61 @@ class BinanceServiceClient:
             return wrapper
 
         return attr
+
+    # User Data Stream Listen Key Methods
+    # These methods are explicitly defined for documentation and clarity,
+    # even though __getattr__ would proxy them to the underlying client.
+
+    def new_listen_key(self) -> Dict[str, Any]:
+        """
+        Create a new listen key for User Data Stream.
+
+        POST /fapi/v1/listenKey
+
+        Listen keys are valid for 60 minutes. Use renew_listen_key() to extend.
+
+        Returns:
+            Dict containing {"listenKey": "abc123..."}
+
+        Raises:
+            Exception: If API request fails
+        """
+        response = self.client.new_listen_key()
+        return self._handle_response(response)
+
+    def renew_listen_key(self) -> Dict[str, Any]:
+        """
+        Keep-alive ping for listen key (prevents expiration).
+
+        PUT /fapi/v1/listenKey
+
+        Should be called at least once per 60 minutes. Recommended: every 30 minutes.
+
+        Returns:
+            Dict containing {"listenKey": "abc123..."} or empty dict on success
+
+        Raises:
+            Exception: If API request fails
+        """
+        response = self.client.renew_listen_key()
+        return self._handle_response(response)
+
+    def close_listen_key(self, listen_key: str) -> Dict[str, Any]:
+        """
+        Close/delete listen key on shutdown.
+
+        DELETE /fapi/v1/listenKey
+
+        Call this when shutting down the User Data Stream to clean up resources.
+
+        Args:
+            listen_key: The listen key to close/delete
+
+        Returns:
+            Empty dict on success
+
+        Raises:
+            Exception: If API request fails
+        """
+        response = self.client.close_listen_key(listenKey=listen_key)
+        return self._handle_response(response)

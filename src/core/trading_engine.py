@@ -1382,6 +1382,18 @@ class TradingEngine:
                 )
                 self.logger.info("DataCollector streaming enabled")
 
+                # Start User Data Stream for real-time order updates (Issue #54)
+                # This enables TP/SL fill detection to prevent orphaned orders
+                try:
+                    await self.data_collector.start_user_data_stream(self.event_bus)
+                    self.logger.info("User Data Stream enabled for order updates")
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to start User Data Stream: {e}. "
+                        f"TP/SL orphan prevention will NOT work.",
+                        exc_info=True
+                    )
+
             # Run until interrupted
             # return_exceptions=True prevents one task error from cancelling others
             await asyncio.gather(*tasks, return_exceptions=True)
