@@ -1309,7 +1309,7 @@ class OrderExecutionManager:
             )
 
             # 4. Parse response
-            if not response:
+            if response is None:
                 # Cache the None result as failure and let retry decorator handle it
                 self._position_cache[symbol] = (None, current_time, "failure")
                 self.logger.error(f"Position API failed for {symbol} - no response")
