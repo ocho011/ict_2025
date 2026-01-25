@@ -12,6 +12,7 @@ from binance.error import ClientError, ServerError
 
 from src.core.audit_logger import AuditEventType, AuditLogger
 from src.core.binance_service import BinanceServiceClient
+from src.core.circuit_breaker import CircuitBreaker
 from src.core.exceptions import OrderExecutionError, OrderRejectedError, ValidationError
 from src.core.retry import retry_with_backoff
 from src.models.order import Order, OrderSide, OrderStatus, OrderType
@@ -78,9 +79,15 @@ class OrderExecutionManager:
         # Initialize state tracking
         self._open_orders: Dict[str, List[Order]] = {}
 
-        # Position cache with 5-second TTL
-        self._position_cache: Dict[str, tuple[Optional[Position], float]] = {}
+        # Position cache with separate TTLs for success/failure
+        self._position_cache: Dict[str, tuple[Optional[Position], float, str]] = {}
         self._cache_ttl_seconds = 5.0
+        self._cache_failure_ttl_seconds = 30.0
+
+        # Circuit breaker for position queries
+        self._position_circuit_breaker = CircuitBreaker(
+            failure_threshold=3, recovery_timeout=30
+        )
 
         # Exchange info cache with 24h TTL
         self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
@@ -1140,6 +1147,7 @@ class OrderExecutionManager:
         # Return entry order and TP/SL orders
         return (entry_order, tpsl_orders)
 
+    @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def get_position(self, symbol: str) -> Optional[Position]:
         """
         Query current position information for a symbol.
@@ -1171,20 +1179,29 @@ class OrderExecutionManager:
         # 2. Check cache first
         cached_data = self._position_cache.get(symbol)
         current_time = time.time()
-        if cached_data and (current_time - cached_data[1]) < self._cache_ttl_seconds:
-            return cached_data[0]  # Return cached position
+        if cached_data:
+            cached_position, cache_time, cache_type = cached_data
+            ttl = (
+                self._cache_failure_ttl_seconds
+                if cache_type == "failure"
+                else self._cache_ttl_seconds
+            )
+            if (current_time - cache_time) < ttl:
+                return cached_position  # Return cached position
 
         # 3. Log API call (only if cache miss)
         self.logger.info(f"Querying position for {symbol} (cache miss)")
 
         try:
-            # 3. Call Binance API
-            response = self.client.get_position_risk(symbol=symbol)
+            # 3. Call Binance API through circuit breaker
+            response = self._position_circuit_breaker.call(
+                self.client.get_position_risk, symbol=symbol
+            )
 
             # 4. Parse response
             if not response:
-                # Cache the None result
-                self._position_cache[symbol] = (None, current_time)
+                # Cache the None result as failure
+                self._position_cache[symbol] = (None, current_time, "failure")
                 self.logger.error(f"Position API failed for {symbol} - no response")
                 return None
 
@@ -1194,8 +1211,8 @@ class OrderExecutionManager:
             if isinstance(unwrapped, list):
                 # Direct list response or unwrapped data list
                 if len(unwrapped) == 0:
-                    # Cache the None result
-                    self._position_cache[symbol] = (None, current_time)
+                    # Cache the None result as success (no position)
+                    self._position_cache[symbol] = (None, current_time, "success")
                     self.logger.info(f"No active position for {symbol} (empty data)")
                     return None
                 position_data = unwrapped[0]
@@ -1209,8 +1226,8 @@ class OrderExecutionManager:
 
             # 5. Check if position exists
             if position_amt == 0:
-                # Cache the None result
-                self._position_cache[symbol] = (None, current_time)
+                # Cache the None result as success (no position)
+                self._position_cache[symbol] = (None, current_time, "success")
                 self.logger.info(f"No active position for {symbol}")
                 return None
 
@@ -1223,7 +1240,7 @@ class OrderExecutionManager:
             leverage = int(
                 position_data.get("leverage", 1)
             )  # Default to 1x if not provided
-            unrealized_pnl = float(position_data["unRealizedProfit"])
+            unrealized_pnl = float(position_data.get("unRealizedProfit", 0))
 
             # 8. Extract optional liquidation price
             liquidation_price = None
@@ -1248,8 +1265,8 @@ class OrderExecutionManager:
                 f"PnL: {unrealized_pnl}"
             )
 
-            # Store in cache
-            self._position_cache[symbol] = (position, current_time)
+            # Store in cache as success
+            self._position_cache[symbol] = (position, current_time, "success")
 
             # Audit log: position query successful
             try:
@@ -1272,40 +1289,54 @@ class OrderExecutionManager:
 
             return position
 
-        except ClientError as e:
+        except (ClientError, ServerError) as e:
             # Audit log: API error during position query
             try:
                 from src.core.audit_logger import AuditEventType
+
+                if isinstance(e, ServerError):
+                    error_info = {
+                        "status_code": e.status_code,
+                        "error_message": e.message,
+                        "error_type": "ServerError",
+                    }
+                else:
+                    error_info = {
+                        "error_code": e.error_code,
+                        "error_message": e.error_message,
+                        "error_type": "ClientError",
+                    }
 
                 self.audit_logger.log_event(
                     event_type=AuditEventType.API_ERROR,
                     operation="get_position",
                     symbol=symbol,
-                    error={
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                    },
+                    error=error_info,
                 )
             except Exception:
                 pass  # Don't double-log
 
-            # Cache the error result too
-            self._position_cache[symbol] = (None, current_time)
+            # Cache the error result as failure
+            self._position_cache[symbol] = (None, current_time, "failure")
 
-            # Handle Binance API errors
-            if e.error_code == -1121:
-                raise ValidationError(f"Invalid symbol: {symbol}")
-            elif e.error_code == -2015:
+            if isinstance(e, ServerError):
                 raise OrderExecutionError(
-                    f"API authentication failed: {e.error_message}"
+                    f"Position query failed: server error {e.status_code}, msg={e.message}"
                 )
             else:
-                raise OrderExecutionError(
-                    f"Position query failed: code={e.error_code}, msg={e.error_message}"
-                )
+                if e.error_code == -1121:
+                    raise ValidationError(f"Invalid symbol: {symbol}")
+                elif e.error_code == -2015:
+                    raise OrderExecutionError(
+                        f"API authentication failed: {e.error_message}"
+                    )
+                else:
+                    raise OrderExecutionError(
+                        f"Position query failed: code={e.error_code}, msg={e.error_message}"
+                    )
         except (KeyError, ValueError, TypeError) as e:
-            # Cache the None result too
-            self._position_cache[symbol] = (None, current_time)
+            # Cache parsing error as failure
+            self._position_cache[symbol] = (None, current_time, "failure")
 
             # Audit log: parsing error
             try:

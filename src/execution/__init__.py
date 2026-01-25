@@ -2,4 +2,4 @@
 Order execution package
 """
 
-__all__ = []
+__all__ = ["OrderManager"]
