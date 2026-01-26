@@ -209,6 +209,36 @@ class ICTStrategy(BaseStrategy):
                 f"[{self.__class__.__name__}] Indicator cache enabled for {self.symbol}"
             )
 
+    def _create_price_config(self, config: dict) -> "PriceDeterminerConfig":
+        """ICT uses zone-based SL and displacement-based TP."""
+        from src.pricing.stop_loss.zone_based import ZoneBasedStopLoss
+        from src.pricing.take_profit.displacement import DisplacementTakeProfit
+        from src.pricing.base import PriceDeterminerConfig
+
+        # Load profile parameters for defaults (same as in __init__)
+        from src.config.ict_profiles import load_profile_from_name, get_profile_parameters
+
+        profile_name = config.get("active_profile", "strict")
+        try:
+            profile = load_profile_from_name(profile_name)
+            profile_params = get_profile_parameters(profile)
+        except ValueError:
+            profile_params = {}
+
+        # Get rr_ratio from config or profile defaults
+        default_rr_ratio = profile_params.get("rr_ratio", 2.0)
+
+        return PriceDeterminerConfig(
+            stop_loss_determiner=ZoneBasedStopLoss(
+                buffer_percent=config.get("sl_buffer_percent", 0.001),
+                fallback_percent=config.get("stop_loss_percent", 0.01),
+            ),
+            take_profit_determiner=DisplacementTakeProfit(
+                risk_reward_ratio=config.get("rr_ratio", default_rr_ratio),
+                fallback_risk_percent=config.get("fallback_risk_percent", 0.02),
+            ),
+        )
+
     async def analyze(self, candle: Candle) -> Optional[Signal]:
         """
         Analyze candle using ICT methodology with Multi-Timeframe structure (Issue #47).
@@ -617,7 +647,8 @@ class ICTStrategy(BaseStrategy):
         """
         Calculate take profit using risk-reward ratio with candle buffer.
 
-        TP is calculated as entry +/- (risk * rr_ratio).
+        DEPRECATED: Use calculate_take_profit_with_context() instead.
+        This method is kept for backward compatibility.
 
         Args:
             entry_price: Position entry price
@@ -632,54 +663,60 @@ class ICTStrategy(BaseStrategy):
             candle_buffer, displacement_ratio=self.displacement_ratio
         )
 
+        displacement_size = None
         if displacements:
             # Use last displacement size as base risk
             last_disp = displacements[-1]
-            risk_amount = last_disp.size
-        else:
-            # Fallback: Use 2% of entry price as risk
-            risk_amount = entry_price * 0.02
+            displacement_size = last_disp.size
 
-        reward_amount = risk_amount * self.rr_ratio
+        return self.calculate_take_profit_with_context(
+            entry_price=entry_price,
+            side=side,
+            displacement_size=displacement_size,
+        )
 
-        if side == "LONG":
-            tp = entry_price + reward_amount
-            # Safety: TP must be > entry_price
-            return tp if tp > entry_price else entry_price * 1.02
-        else:  # SHORT
-            tp = entry_price - reward_amount
-            # Safety: TP must be < entry_price
-            return tp if tp < entry_price else entry_price * 0.98
-
-    def calculate_take_profit(self, entry_price: float, side: str) -> float:
+    def calculate_stop_loss_with_context(
+        self,
+        entry_price: float,
+        side: str,
+        nearest_fvg=None,
+        nearest_ob=None,
+    ) -> float:
         """
-        Calculate take profit using risk-reward ratio.
+        ICT-specific SL with zone context.
 
-        Uses LTF buffer from self.buffers for displacement calculation.
-
-        Args:
-            entry_price: Position entry price
-            side: 'LONG' or 'SHORT'
-
-        Returns:
-            Take profit price
+        This method extracts zone tuples and passes them to the determiner.
+        Zone extraction happens here (strategy side), not in determiner.
         """
-        ltf_buffer = self.buffers.get(self.ltf_interval)
-        if ltf_buffer:
-            return self._calculate_take_profit_with_buffer(
-                entry_price, side, list(ltf_buffer)
-            )
-        else:
-            # Fallback: Use 2% of entry price as risk
-            risk_amount = entry_price * 0.02
-            reward_amount = risk_amount * self.rr_ratio
+        fvg_zone = get_entry_zone(nearest_fvg) if nearest_fvg else None
+        ob_zone_tuple = get_ob_zone(nearest_ob) if nearest_ob else None
 
-            if side == "LONG":
-                tp = entry_price + reward_amount
-                return tp if tp > entry_price else entry_price * 1.02
-            else:  # SHORT
-                tp = entry_price - reward_amount
-                return tp if tp < entry_price else entry_price * 0.98
+        context = self._create_price_context(
+            entry_price=entry_price,
+            side=side,
+            fvg_zone=fvg_zone,
+            ob_zone=ob_zone_tuple,
+        )
+        return self._price_config.stop_loss_determiner.calculate_stop_loss(context)
+
+    def calculate_take_profit_with_context(
+        self,
+        entry_price: float,
+        side: str,
+        displacement_size: Optional[float] = None,
+    ) -> float:
+        """
+        ICT-specific TP with displacement context.
+
+        Uses displacement size for risk calculation if available.
+        """
+        context = self._create_price_context(
+            entry_price=entry_price,
+            side=side,
+            displacement_size=displacement_size,
+        )
+        stop_loss = self.calculate_stop_loss(entry_price, side)
+        return self._price_config.take_profit_determiner.calculate_take_profit(context, stop_loss)
 
     def _calculate_stop_loss_with_indicators(
         self, entry_price: float, side: str, nearest_fvg=None, nearest_ob=None
@@ -687,62 +724,15 @@ class ICTStrategy(BaseStrategy):
         """
         Calculate stop loss below/above FVG or OB zone.
 
-        SL is placed below the FVG/OB zone (for longs) or above (for shorts)
-        to avoid premature stops during mitigation.
-
-        Args:
-            entry_price: Position entry price
-            side: 'LONG' or 'SHORT'
-            nearest_fvg: Nearest FVG object (optional)
-            nearest_ob: Nearest OB object (optional)
-
-        Returns:
-            Stop loss price
+        DEPRECATED: Use calculate_stop_loss_with_context() instead.
+        This method is kept for backward compatibility.
         """
-        # Try to use FVG/OB zone for SL
-        if nearest_fvg:
-            zone_low, zone_high = get_entry_zone(nearest_fvg)
-        elif nearest_ob:
-            zone_low, zone_high = get_ob_zone(nearest_ob)
-        else:
-            # Fallback: Use 1% of entry price
-            if side == "LONG":
-                return entry_price * 0.99
-            else:  # SHORT
-                return entry_price * 1.01
-
-        # Place SL below/above zone with small buffer
-        buffer = entry_price * 0.001  # 0.1% buffer
-
-        if side == "LONG":
-            # SL below FVG/OB zone
-            sl = zone_low - buffer
-            # Safety: SL must be < entry_price
-            return sl if sl < entry_price else entry_price * 0.99
-        else:  # SHORT
-            # SL above FVG/OB zone
-            sl = zone_high + buffer
-            # Safety: SL must be > entry_price
-            return sl if sl > entry_price else entry_price * 1.01
-
-    def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-        """
-        Calculate stop loss using 1% of entry price.
-
-        This is a simplified version for compatibility with BaseStrategy.
-        For FVG/OB-based SL, use _calculate_stop_loss_with_indicators.
-
-        Args:
-            entry_price: Position entry price
-            side: 'LONG' or 'SHORT'
-
-        Returns:
-            Stop loss price
-        """
-        if side == "LONG":
-            return entry_price * 0.99
-        else:  # SHORT
-            return entry_price * 1.01
+        return self.calculate_stop_loss_with_context(
+            entry_price=entry_price,
+            side=side,
+            nearest_fvg=nearest_fvg,
+            nearest_ob=nearest_ob,
+        )
 
     def get_condition_stats(self) -> dict:
         """

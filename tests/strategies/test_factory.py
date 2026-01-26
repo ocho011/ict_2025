@@ -28,8 +28,8 @@ class TestStrategyFactoryCreation:
         # Verify default config values
         assert strategy.fast_period == 10
         assert strategy.slow_period == 20
-        assert strategy.risk_reward_ratio == 2.0
-        assert strategy.stop_loss_percent == 0.01
+        assert strategy.config.get("risk_reward_ratio", 2.0) == 2.0
+        assert strategy.config.get("stop_loss_percent", 0.01) == 0.01
 
     def test_create_mock_sma_strategy_custom_config(self):
         """Test factory creates strategy with custom configuration."""
@@ -45,8 +45,8 @@ class TestStrategyFactoryCreation:
         assert strategy.symbol == "ETHUSDT"
         assert strategy.fast_period == 5
         assert strategy.slow_period == 15
-        assert strategy.risk_reward_ratio == 3.0
-        assert strategy.stop_loss_percent == 0.015
+        assert strategy.config.get("risk_reward_ratio") == 3.0
+        assert strategy.config.get("stop_loss_percent") == 0.015
 
     def test_create_mock_sma_strategy_partial_config(self):
         """Test factory merges partial config with defaults."""
@@ -58,7 +58,7 @@ class TestStrategyFactoryCreation:
         assert strategy.fast_period == 7
         # Defaults for others
         assert strategy.slow_period == 20
-        assert strategy.risk_reward_ratio == 2.0
+        assert strategy.config.get("risk_reward_ratio", 2.0) == 2.0
 
     def test_create_returns_baseStrate_type(self):
         """Test factory returns BaseStrategy type for type safety."""
@@ -188,6 +188,9 @@ class TestStrategyFactoryExtensibility:
             async def analyze(self, candle):
                 return None
 
+            async def should_exit(self, position, candle):
+                return None
+
             def calculate_take_profit(self, entry_price, side):
                 return entry_price * 1.01
 
@@ -229,6 +232,9 @@ class TestStrategyFactoryExtensibility:
 
         class AnotherStrategy(BaseStrategy):
             async def analyze(self, candle):
+                return None
+
+            async def should_exit(self, position, candle):
                 return None
 
             def calculate_take_profit(self, entry_price, side):

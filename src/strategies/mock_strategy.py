@@ -109,10 +109,6 @@ class MockSMACrossoverStrategy(BaseStrategy):
         self.fast_period: int = config.get("fast_period", 10)
         self.slow_period: int = config.get("slow_period", 20)
 
-        # Risk management parameters
-        self.risk_reward_ratio: float = config.get("risk_reward_ratio", 2.0)
-        self.stop_loss_percent: float = config.get("stop_loss_percent", 0.01)
-
         # Internal state
         self._last_signal_type: Optional[SignalType] = None
 
@@ -248,12 +244,35 @@ class MockSMACrossoverStrategy(BaseStrategy):
         # No crossover detected
         return None
 
+    async def should_exit(self, position, candle: Candle) -> Optional[Signal]:
+        """
+        Evaluate exit conditions for mock strategy.
+
+        For this test strategy, we rely on TP/SL orders and don't
+        generate manual exit signals. Dynamic exit logic could be
+        added here for more sophisticated exit strategies.
+
+        Args:
+            position: Current open position
+            candle: Current candle data
+
+        Returns:
+            None - relies on TP/SL orders for exits
+
+        Notes:
+            - This is a simple crossover strategy for testing
+            - Production strategies might implement trailing stops, time-based exits, etc.
+            - See BaseStrategy.should_exit() docstring for exit pattern examples
+        """
+        return None
+
     def _create_signal(self, candle: Candle, signal_type: SignalType) -> Signal:
         """
         Create Signal object with calculated TP/SL prices.
 
         Helper method to construct Signal objects with proper entry/TP/SL prices
-        based on the signal type (LONG/SHORT).
+        based on the signal type (LONG/SHORT). Uses inherited pricing methods
+        from BaseStrategy which delegate to configured pricing modules.
 
         Args:
             candle: Candle that triggered the signal
@@ -267,13 +286,14 @@ class MockSMACrossoverStrategy(BaseStrategy):
             # Internal usage in analyze()
             signal = self._create_signal(candle, SignalType.LONG_ENTRY)
             # signal.entry_price = candle.close
-            # signal.take_profit = calculated TP above entry
-            # signal.stop_loss = calculated SL below entry
+            # signal.take_profit = calculated TP above entry (via RiskRewardTakeProfit)
+            # signal.stop_loss = calculated SL below entry (via PercentageStopLoss)
             ```
 
         Notes:
             - Entry price = candle close price
-            - TP/SL calculated via calculate_take_profit() and calculate_stop_loss()
+            - TP/SL calculated via inherited BaseStrategy methods
+            - BaseStrategy uses PercentageStopLoss and RiskRewardTakeProfit modules
             - Signal validates TP/SL relationships in __post_init__()
             - Strategy name automatically set to class name
         """
@@ -290,105 +310,3 @@ class MockSMACrossoverStrategy(BaseStrategy):
             timestamp=datetime.now(timezone.utc),
         )
 
-    def calculate_take_profit(self, entry_price: float, side: str) -> float:
-        """
-        Calculate take profit price based on risk-reward ratio.
-
-        TP is calculated as a multiple of the stop loss distance:
-        - LONG: TP = entry + (SL_distance * risk_reward_ratio)
-        - SHORT: TP = entry - (SL_distance * risk_reward_ratio)
-
-        Args:
-            entry_price: Position entry price
-            side: 'LONG' or 'SHORT'
-
-        Returns:
-            Take profit price (float)
-
-        Formula:
-            SL_distance = entry_price * stop_loss_percent
-            TP_distance = SL_distance * risk_reward_ratio
-
-            LONG:  TP = entry + TP_distance
-            SHORT: TP = entry - TP_distance
-
-        Example:
-            ```python
-            # Default: risk_reward_ratio=2.0, stop_loss_percent=0.01
-            entry = 50000.0
-
-            # LONG position
-            tp_long = strategy.calculate_take_profit(50000.0, 'LONG')
-            # SL_distance = 50000 * 0.01 = 500
-            # TP_distance = 500 * 2.0 = 1000
-            # TP = 50000 + 1000 = 51000.0
-
-            # SHORT position
-            tp_short = strategy.calculate_take_profit(50000.0, 'SHORT')
-            # TP = 50000 - 1000 = 49000.0
-            ```
-
-        Validation:
-            - LONG: TP > entry (enforced by Signal.__post_init__)
-            - SHORT: TP < entry (enforced by Signal.__post_init__)
-
-        Notes:
-            - Risk-reward ratio configurable via config dict
-            - Higher ratio = larger TP relative to SL
-            - Typical values: 1.5 (conservative) to 3.0 (aggressive)
-        """
-        sl_distance = entry_price * self.stop_loss_percent
-        tp_distance = sl_distance * self.risk_reward_ratio
-
-        if side == "LONG":
-            return entry_price + tp_distance
-        else:  # SHORT
-            return entry_price - tp_distance
-
-    def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-        """
-        Calculate stop loss price as percentage of entry price.
-
-        SL is set at a fixed percentage below (LONG) or above (SHORT) entry:
-        - LONG: SL = entry - (entry * stop_loss_percent)
-        - SHORT: SL = entry + (entry * stop_loss_percent)
-
-        Args:
-            entry_price: Position entry price
-            side: 'LONG' or 'SHORT'
-
-        Returns:
-            Stop loss price (float)
-
-        Formula:
-            LONG:  SL = entry * (1 - stop_loss_percent)
-            SHORT: SL = entry * (1 + stop_loss_percent)
-
-        Example:
-            ```python
-            # Default: stop_loss_percent=0.01 (1%)
-            entry = 50000.0
-
-            # LONG position
-            sl_long = strategy.calculate_stop_loss(50000.0, 'LONG')
-            # SL = 50000 * (1 - 0.01) = 50000 * 0.99 = 49500.0
-
-            # SHORT position
-            sl_short = strategy.calculate_stop_loss(50000.0, 'SHORT')
-            # SL = 50000 * (1 + 0.01) = 50000 * 1.01 = 50500.0
-            ```
-
-        Validation:
-            - LONG: SL < entry (enforced by Signal.__post_init__)
-            - SHORT: SL > entry (enforced by Signal.__post_init__)
-
-        Notes:
-            - Fixed percentage SL (simple but effective for testing)
-            - Configurable via config dict
-            - Typical values: 0.005 (0.5%) to 0.02 (2%)
-            - Production strategies might use ATR or volatility-based SL
-        """
-        if side == "LONG":
-            return entry_price * (1 - self.stop_loss_percent)
-        else:  # SHORT
-            return entry_price * (1 + self.stop_loss_percent)

@@ -12,7 +12,7 @@ and multi-timeframe strategies. Supports pre-computed detectors (Issue #19).
 import logging
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from src.models.candle import Candle
 from src.models.position import Position
@@ -152,6 +152,9 @@ class BaseStrategy(ABC):
         self.config: dict = config
         self.buffer_size: int = config.get("buffer_size", 100)
 
+        # Initialize price determiner configuration
+        self._price_config = self._create_price_config(config)
+
         # Issue #27: Unified buffer structure
         # Determine intervals from parameter or config
         if intervals is not None:
@@ -176,6 +179,49 @@ class BaseStrategy(ABC):
         self._indicator_cache: Optional["IndicatorStateCache"] = None
 
         self.logger = logging.getLogger(self.__class__.__name__)
+
+    def _create_price_config(self, config: Dict[str, Any]) -> "PriceDeterminerConfig":
+        """
+        Factory method for price determiner configuration.
+
+        Subclasses can override to provide custom determiners.
+        Default implementation: percentage-based SL + risk-reward TP.
+        """
+        from src.pricing.stop_loss.percentage import PercentageStopLoss
+        from src.pricing.take_profit.risk_reward import RiskRewardTakeProfit
+        from src.pricing.base import PriceDeterminerConfig
+
+        return PriceDeterminerConfig(
+            stop_loss_determiner=PercentageStopLoss(
+                stop_loss_percent=config.get("stop_loss_percent", 0.01)
+            ),
+            take_profit_determiner=RiskRewardTakeProfit(
+                risk_reward_ratio=config.get("risk_reward_ratio", 2.0)
+            ),
+        )
+
+    def _create_price_context(
+        self,
+        entry_price: float,
+        side: str,
+        fvg_zone: Optional[Tuple[float, float]] = None,
+        ob_zone: Optional[Tuple[float, float]] = None,
+        displacement_size: Optional[float] = None,
+    ) -> "PriceContext":
+        """
+        Create PriceContext for determiner calls.
+
+        Provides all required fields (symbol, timestamp) from strategy state.
+        """
+        from src.pricing.base import PriceContext
+        return PriceContext.from_strategy(
+            entry_price=entry_price,
+            side=side,
+            symbol=self.symbol,
+            fvg_zone=fvg_zone,
+            ob_zone=ob_zone,
+            displacement_size=displacement_size,
+        )
 
     def initialize_with_historical_data(
         self, candles: List[Candle], interval: Optional[str] = None
@@ -941,12 +987,11 @@ class BaseStrategy(ABC):
         """
         return None  # Default: no custom exit logic
 
-    @abstractmethod
     def calculate_take_profit(self, entry_price: float, side: str) -> float:
         """
-        Calculate take profit price for a position.
+        Calculate take profit price via injected determiner.
 
-        Must be implemented by all subclasses to define TP logic.
+        Subclasses can override _create_price_config() to customize.
 
         Args:
             entry_price: Position entry price
@@ -1006,17 +1051,18 @@ class BaseStrategy(ABC):
             ```
 
         Notes:
-            - Abstract method - must be implemented
             - Logic varies by strategy (percentage, RR, fixed, dynamic)
             - Signal.__post_init__() validates TP > entry (LONG) or TP < entry (SHORT)
         """
+        context = self._create_price_context(entry_price, side)
+        stop_loss = self.calculate_stop_loss(entry_price, side)
+        return self._price_config.take_profit_determiner.calculate_take_profit(context, stop_loss)
 
-    @abstractmethod
     def calculate_stop_loss(self, entry_price: float, side: str) -> float:
         """
-        Calculate stop loss price for a position.
+        Calculate stop loss price via injected determiner.
 
-        Must be implemented by all subclasses to define SL logic.
+        Subclasses can override _create_price_config() to customize.
 
         Args:
             entry_price: Position entry price
@@ -1077,8 +1123,9 @@ class BaseStrategy(ABC):
             ```
 
         Notes:
-            - Abstract method - must be implemented
             - Logic varies by strategy (percentage, ATR, S/R, volatility)
             - Signal.__post_init__() validates SL < entry (LONG) or SL > entry (SHORT)
             - Critical for risk management - should be conservative
         """
+        context = self._create_price_context(entry_price, side)
+        return self._price_config.stop_loss_determiner.calculate_stop_loss(context)

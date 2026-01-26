@@ -592,7 +592,11 @@ class OrderExecutionManager:
         return mapping[signal.signal_type]
 
     def _parse_order_response(
-        self, response: Dict[str, Any], symbol: str, side: OrderSide
+        self,
+        response: Dict[str, Any],
+        symbol: str,
+        side: OrderSide,
+        expected_order_type: Optional[OrderType] = None,
     ) -> Order:
         """
         Parse Binance API response into Order object.
@@ -605,6 +609,8 @@ class OrderExecutionManager:
             response: Binance new_order() API response dictionary
             symbol: Trading pair (for validation)
             side: Order side (for validation)
+            expected_order_type: Optional hint for order type (used for Algo Order API
+                responses which may not include type field)
 
         Returns:
             Order object with populated fields
@@ -653,8 +659,9 @@ class OrderExecutionManager:
                 )
 
             # Extract required fields
-            order_id = str(order_data["orderId"])
-            status_str = order_data["status"]
+            # Algo Order API returns algoId, regular API returns orderId
+            order_id = str(order_data.get("algoId") or order_data.get("orderId"))
+            status_str = order_data.get("status", "NEW")
 
             # For MARKET orders: origQty is filled quantity
             # For STOP/TP orders: origQty may be "0" when using closePosition
@@ -670,14 +677,20 @@ class OrderExecutionManager:
             # Map Binance status string to OrderStatus enum
             status = OrderStatus[status_str]  # Raises KeyError if invalid
 
-            # Determine order type from response
-            order_type_str = order_data.get("type", "MARKET")
-            order_type = OrderType[order_type_str]
+            # Determine order type from response or use expected type hint
+            # Algo Order API responses may not include type field
+            if expected_order_type is not None:
+                order_type = expected_order_type
+            else:
+                order_type_str = order_data.get("type", "MARKET")
+                order_type = OrderType[order_type_str]
 
             # Extract stop price for STOP/TP orders
+            # Regular API uses "stopPrice", Algo API uses "triggerPrice"
             stop_price = None
-            if "stopPrice" in order_data and order_data["stopPrice"]:
-                stop_price = float(order_data["stopPrice"])
+            stop_price_str = order_data.get("stopPrice") or order_data.get("triggerPrice")
+            if stop_price_str:
+                stop_price = float(stop_price_str)
 
             # Create Order object
             return Order(
@@ -753,23 +766,27 @@ class OrderExecutionManager:
             # Format stop price for API
             stop_price_str = self._format_price(adjusted_stop_loss, signal.symbol)
 
-            # Place STOP_MARKET order via Binance API
-            response = self.client.new_order(
+            # Place STOP_MARKET order via Binance Algo Order API
+            # Since 2025-12-09, conditional orders require /fapi/v1/algoOrder endpoint
+            response = self.client.new_algo_order(
                 symbol=signal.symbol,
                 side=side.value,  # SELL for long, BUY for short
                 type=OrderType.STOP_MARKET.value,  # "STOP_MARKET"
-                stopPrice=stop_price_str,  # Trigger price (formatted)
+                triggerPrice=stop_price_str,  # Algo API uses triggerPrice, not stopPrice
                 closePosition="true",  # Close entire position
                 workingType="MARK_PRICE",  # Use mark price for trigger
             )
 
             # Parse API response into Order object
+            # Pass expected_order_type for Algo API which may not include type field
             order = self._parse_order_response(
-                response=response, symbol=signal.symbol, side=side
+                response=response,
+                symbol=signal.symbol,
+                side=side,
+                expected_order_type=OrderType.STOP_MARKET,
             )
 
-            # Override order_type and stop_price (response may not have correct values)
-            order.order_type = OrderType.STOP_MARKET
+            # Override stop_price (response may not have correct value)
             order.stop_price = adjusted_stop_loss
 
             # Log successful placement
@@ -797,17 +814,17 @@ class OrderExecutionManager:
         except ClientError as e:
             # Binance API error (4xx) - log but don't raise
             self.logger.error(
-                f"TP order rejected: code={e.error_code}, msg={e.error_message}"
+                f"SL order rejected: code={e.error_code}, msg={e.error_message}"
             )
 
-            # Audit log: TP order rejected
+            # Audit log: SL order rejected
             try:
                 self.audit_logger.log_order_rejected(
                     symbol=signal.symbol,
                     order_data={
-                        "order_type": "TAKE_PROFIT_MARKET",
+                        "order_type": "STOP_MARKET",
                         "side": side.value,
-                        "stop_price": signal.take_profit,
+                        "stop_price": signal.stop_loss,
                     },
                     error={
                         "error_code": e.error_code,
@@ -821,15 +838,15 @@ class OrderExecutionManager:
 
         except Exception as e:
             # Unexpected error - log but don't raise
-            self.logger.error(f"TP order placement failed: {type(e).__name__}: {e}")
+            self.logger.error(f"SL order placement failed: {type(e).__name__}: {e}")
 
-            # Audit log: API error during TP order placement
+            # Audit log: API error during SL order placement
             try:
                 from src.core.audit_logger import AuditEventType
 
                 self.audit_logger.log_event(
                     event_type=AuditEventType.API_ERROR,
-                    operation="place_tp_order",
+                    operation="place_sl_order",
                     symbol=signal.symbol,
                     error={"error_type": type(e).__name__, "error_message": str(e)},
                 )
@@ -930,23 +947,27 @@ class OrderExecutionManager:
             # Format stop price for API
             stop_price_str = self._format_price(adjusted_take_profit, signal.symbol)
 
-            # Place TAKE_PROFIT_MARKET order via Binance API
-            response = self.client.new_order(
+            # Place TAKE_PROFIT_MARKET order via Binance Algo Order API
+            # Since 2025-12-09, conditional orders require /fapi/v1/algoOrder endpoint
+            response = self.client.new_algo_order(
                 symbol=signal.symbol,
                 side=side.value,  # SELL for long, BUY for short
                 type=OrderType.TAKE_PROFIT_MARKET.value,  # "TAKE_PROFIT_MARKET"
-                stopPrice=stop_price_str,  # Trigger price (formatted)
+                triggerPrice=stop_price_str,  # Algo API uses triggerPrice, not stopPrice
                 closePosition="true",  # Close entire position
                 workingType="MARK_PRICE",  # Use mark price for trigger
             )
 
             # Parse API response into Order object
+            # Pass expected_order_type for Algo API which may not include type field
             order = self._parse_order_response(
-                response=response, symbol=signal.symbol, side=side
+                response=response,
+                symbol=signal.symbol,
+                side=side,
+                expected_order_type=OrderType.TAKE_PROFIT_MARKET,
             )
 
-            # Override order_type and stop_price (response may not have correct values)
-            order.order_type = OrderType.TAKE_PROFIT_MARKET
+            # Override stop_price (response may not have correct value)
             order.stop_price = signal.take_profit
 
             # Log successful placement
@@ -1218,18 +1239,8 @@ class OrderExecutionManager:
         if sl_order:
             tpsl_orders.append(sl_order)
 
-        # Log TP/SL placement summary
-        self.logger.info(
-            f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed"
-        )
-
-        if len(tpsl_orders) < 2:
-            self.logger.warning(
-                f"Partial TP/SL placement: entry filled but "
-                f"only {len(tpsl_orders)}/2 exit orders placed"
-            )
-
-        elif signal.signal_type in (SignalType.CLOSE_LONG, SignalType.CLOSE_SHORT):
+        # Handle different post-entry processing based on signal type
+        if signal.signal_type in (SignalType.CLOSE_LONG, SignalType.CLOSE_SHORT):
             # Close signals: Cancel all remaining TP/SL orders (Issue #9)
             # Position is being closed, so any remaining TP/SL orders should be cancelled
             try:
@@ -1248,6 +1259,17 @@ class OrderExecutionManager:
                 self.logger.warning(
                     f"Failed to cancel remaining orders after position closure: {e}. "
                     f"Manual cleanup may be required."
+                )
+        else:
+            # Entry signals: Log TP/SL placement summary
+            self.logger.info(
+                f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed"
+            )
+
+            if len(tpsl_orders) < 2:
+                self.logger.warning(
+                    f"Partial TP/SL placement: entry filled but "
+                    f"only {len(tpsl_orders)}/2 exit orders placed"
                 )
 
         # Return entry order and TP/SL orders

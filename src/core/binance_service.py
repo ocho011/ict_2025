@@ -219,3 +219,58 @@ class BinanceServiceClient:
         """
         response = self.client.close_listen_key(listenKey=listen_key)
         return self._handle_response(response)
+
+    # Algo Order API Methods
+    # Required since 2025-12-09 for conditional orders (STOP_MARKET, TAKE_PROFIT_MARKET, etc.)
+
+    def new_algo_order(
+        self,
+        symbol: str,
+        side: str,
+        type: str,
+        **kwargs,
+    ) -> Dict[str, Any]:
+        """
+        Place a new algo order (conditional order).
+
+        POST /fapi/v1/algoOrder
+
+        Required for STOP_MARKET, TAKE_PROFIT_MARKET, STOP, TAKE_PROFIT,
+        and TRAILING_STOP_MARKET orders since Binance migrated these to
+        the Algo Service on 2025-12-09.
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+            side: Order side ("BUY" or "SELL")
+            type: Order type (e.g., "STOP_MARKET", "TAKE_PROFIT_MARKET")
+            **kwargs: Additional parameters:
+                - triggerPrice: Price to trigger the order (required)
+                - quantity: Position size (cannot use with closePosition=true)
+                - closePosition: "true" to close entire position
+                - workingType: "MARK_PRICE" or "CONTRACT_PRICE" (default)
+                - positionSide: "LONG", "SHORT", or "BOTH" (for hedge mode)
+                - priceProtect: "TRUE" or "FALSE"
+                - recvWindow: Request validity window in ms
+
+        Returns:
+            Dict containing algo order details including algoId
+
+        Raises:
+            ClientError: If API request fails
+        """
+        # Build payload with required algoType
+        payload = {
+            "algoType": "CONDITIONAL",
+            "symbol": symbol,
+            "side": side,
+            "type": type,
+            **kwargs,
+        }
+
+        # Use sign_request to call the algo order endpoint
+        response = self.client.sign_request(
+            http_method="POST",
+            url_path="/fapi/v1/algoOrder",
+            payload=payload,
+        )
+        return self._handle_response(response)

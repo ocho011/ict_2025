@@ -36,16 +36,17 @@ class TestOrderExecutionManager:
         service._client = mock_client
         service.is_testnet = True
         service.weight_tracker = MagicMock()
-        
+
         # Proxy calls
         service.change_leverage = mock_client.change_leverage
         service.change_margin_type = mock_client.change_margin_type
         service.new_order = mock_client.new_order
+        service.new_algo_order = mock_client.new_algo_order  # Algo Order API for TP/SL
         service.exchange_info = mock_client.exchange_info
         service.cancel_open_orders = mock_client.cancel_open_orders
         service.get_position_risk = mock_client.get_position_risk
         service.account = mock_client.account
-        
+
         # Default return values
         mock_client.exchange_info.return_value = {"symbols": []}
         return service
@@ -280,16 +281,17 @@ class TestExecuteSignal:
         service._client = mock_client
         service.is_testnet = True
         service.weight_tracker = MagicMock()
-        
+
         # Proxy calls
         service.change_leverage = mock_client.change_leverage
         service.change_margin_type = mock_client.change_margin_type
         service.new_order = mock_client.new_order
+        service.new_algo_order = mock_client.new_algo_order  # Algo Order API for TP/SL
         service.exchange_info = mock_client.exchange_info
         service.cancel_open_orders = mock_client.cancel_open_orders
         service.get_position_risk = mock_client.get_position_risk
         service.account = mock_client.account
-        
+
         # Default return values
         mock_client.exchange_info.return_value = {"symbols": []}
         return service
@@ -673,16 +675,17 @@ class TestTPSLPlacement:
         service._client = mock_client
         service.is_testnet = True
         service.weight_tracker = MagicMock()
-        
+
         # Proxy calls
         service.change_leverage = mock_client.change_leverage
         service.change_margin_type = mock_client.change_margin_type
         service.new_order = mock_client.new_order
+        service.new_algo_order = mock_client.new_algo_order  # Algo Order API for TP/SL
         service.exchange_info = mock_client.exchange_info
         service.cancel_open_orders = mock_client.cancel_open_orders
         service.get_position_risk = mock_client.get_position_risk
         service.account = mock_client.account
-        
+
         # Default return values
         mock_client.exchange_info.return_value = {"symbols": []}
         return service
@@ -802,13 +805,14 @@ class TestTPSLPlacement:
             ]
         }
 
-        mock_client.new_order.return_value = {
-            "orderId": 987654321,
+        # Use new_algo_order for TAKE_PROFIT_MARKET (Binance Algo Order API)
+        mock_client.new_algo_order.return_value = {
+            "algoId": 987654321,
             "symbol": "BTCUSDT",
             "status": "NEW",
             "type": "TAKE_PROFIT_MARKET",
             "side": "SELL",
-            "stopPrice": "52000.00",
+            "triggerPrice": "52000.00",
             "updateTime": 1678886401000,
             "origQty": "0.000",
             "avgPrice": "0.00",
@@ -822,10 +826,10 @@ class TestTPSLPlacement:
         assert tp_order.stop_price == 52000.0
         assert tp_order.side == OrderSide.SELL
 
-        # Verify new_order called (may be called twice: exchange_info + order)
+        # Verify new_algo_order called with TAKE_PROFIT_MARKET type
         assert any(
             call.kwargs.get("type") == "TAKE_PROFIT_MARKET"
-            for call in mock_client.new_order.call_args_list
+            for call in mock_client.new_algo_order.call_args_list
         )
 
     def test_place_tp_order_short_success(self, manager, mock_client, short_entry_signal):
@@ -847,13 +851,14 @@ class TestTPSLPlacement:
             ]
         }
 
-        mock_client.new_order.return_value = {
-            "orderId": 987654322,
+        # Use new_algo_order for TAKE_PROFIT_MARKET (Binance Algo Order API)
+        mock_client.new_algo_order.return_value = {
+            "algoId": 987654322,
             "symbol": "BTCUSDT",
             "status": "NEW",
             "type": "TAKE_PROFIT_MARKET",
             "side": "BUY",
-            "stopPrice": "48000.00",
+            "triggerPrice": "48000.00",
             "updateTime": 1678886401000,
             "origQty": "0.000",
             "avgPrice": "0.00",
@@ -867,7 +872,7 @@ class TestTPSLPlacement:
 
     def test_place_tp_order_api_error_returns_none(self, manager, mock_client, long_entry_signal):
         """TP 주문 API 에러 시 None 반환"""
-        mock_client.new_order.side_effect = ClientError(
+        mock_client.new_algo_order.side_effect = ClientError(
             status_code=400,
             error_code=-2010,
             error_message="Order would immediately trigger",
@@ -899,13 +904,14 @@ class TestTPSLPlacement:
             ]
         }
 
-        mock_client.new_order.return_value = {
-            "orderId": 987654323,
+        # Use new_algo_order for STOP_MARKET (Binance Algo Order API)
+        mock_client.new_algo_order.return_value = {
+            "algoId": 987654323,
             "symbol": "BTCUSDT",
             "status": "NEW",
             "type": "STOP_MARKET",
             "side": "SELL",
-            "stopPrice": "49000.00",
+            "triggerPrice": "49000.00",
             "updateTime": 1678886402000,
             "origQty": "0.000",
             "avgPrice": "0.00",
@@ -917,10 +923,10 @@ class TestTPSLPlacement:
         assert sl_order.order_type == OrderType.STOP_MARKET
         assert sl_order.stop_price == 49000.0
 
-        # Verify STOP_MARKET order was placed
+        # Verify STOP_MARKET order was placed via Algo Order API
         assert any(
             call.kwargs.get("type") == "STOP_MARKET"
-            for call in mock_client.new_order.call_args_list
+            for call in mock_client.new_algo_order.call_args_list
         )
 
     def test_place_sl_order_short_success(self, manager, mock_client, short_entry_signal):
@@ -942,13 +948,14 @@ class TestTPSLPlacement:
             ]
         }
 
-        mock_client.new_order.return_value = {
-            "orderId": 987654324,
+        # Use new_algo_order for STOP_MARKET (Binance Algo Order API)
+        mock_client.new_algo_order.return_value = {
+            "algoId": 987654324,
             "symbol": "BTCUSDT",
             "status": "NEW",
             "type": "STOP_MARKET",
             "side": "BUY",
-            "stopPrice": "51000.00",
+            "triggerPrice": "51000.00",
             "updateTime": 1678886402000,
             "origQty": "0.000",
             "avgPrice": "0.00",
@@ -964,7 +971,7 @@ class TestTPSLPlacement:
         self, manager, mock_client, long_entry_signal
     ):
         """SL 주문 네트워크 에러 시 None 반환"""
-        mock_client.new_order.side_effect = ConnectionError("Network timeout")
+        mock_client.new_algo_order.side_effect = ConnectionError("Network timeout")
 
         sl_order = manager._place_sl_order(long_entry_signal, OrderSide.SELL)
 
@@ -993,39 +1000,41 @@ class TestTPSLPlacement:
             ]
         }
 
-        mock_client.new_order.side_effect = [
-            # Entry order (MARKET)
-            {
-                "orderId": 123456789,
-                "symbol": "BTCUSDT",
-                "status": "FILLED",
-                "type": "MARKET",
-                "side": "BUY",
-                "avgPrice": "50123.45",
-                "origQty": "0.001",
-                "executedQty": "0.001",
-                "updateTime": 1678886400000,
-            },
+        # Entry order uses new_order (MARKET)
+        mock_client.new_order.return_value = {
+            "orderId": 123456789,
+            "symbol": "BTCUSDT",
+            "status": "FILLED",
+            "type": "MARKET",
+            "side": "BUY",
+            "avgPrice": "50123.45",
+            "origQty": "0.001",
+            "executedQty": "0.001",
+            "updateTime": 1678886400000,
+        }
+
+        # TP/SL orders use new_algo_order (Algo Order API)
+        mock_client.new_algo_order.side_effect = [
             # TP order (TAKE_PROFIT_MARKET)
             {
-                "orderId": 123456790,
+                "algoId": 123456790,
                 "symbol": "BTCUSDT",
                 "status": "NEW",
                 "type": "TAKE_PROFIT_MARKET",
                 "side": "SELL",
-                "stopPrice": "52000.00",
+                "triggerPrice": "52000.00",
                 "updateTime": 1678886401000,
                 "origQty": "0.000",
                 "avgPrice": "0.00",
             },
             # SL order (STOP_MARKET)
             {
-                "orderId": 123456791,
+                "algoId": 123456791,
                 "symbol": "BTCUSDT",
                 "status": "NEW",
                 "type": "STOP_MARKET",
                 "side": "SELL",
-                "stopPrice": "49000.00",
+                "triggerPrice": "49000.00",
                 "updateTime": 1678886402000,
                 "origQty": "0.000",
                 "avgPrice": "0.00",
@@ -1053,8 +1062,9 @@ class TestTPSLPlacement:
         assert sl_order.stop_price == 49000.0
         assert sl_order.side == OrderSide.SELL
 
-        # new_order called 3 times (entry + TP + SL)
-        assert mock_client.new_order.call_count == 3
+        # new_order called 1 time (entry), new_algo_order called 2 times (TP + SL)
+        assert mock_client.new_order.call_count == 1
+        assert mock_client.new_algo_order.call_count == 2
 
     def test_execute_signal_short_entry_with_tpsl_success(
         self, manager, mock_client, short_entry_signal
@@ -1077,35 +1087,38 @@ class TestTPSLPlacement:
             ]
         }
 
-        mock_client.new_order.side_effect = [
+        # Entry order uses new_order (MARKET)
+        mock_client.new_order.return_value = {
+            "orderId": 123456800,
+            "symbol": "BTCUSDT",
+            "status": "FILLED",
+            "type": "MARKET",
+            "side": "SELL",
+            "avgPrice": "50000.00",
+            "origQty": "0.001",
+            "updateTime": 1678886400000,
+        }
+
+        # TP/SL orders use new_algo_order (Algo Order API)
+        mock_client.new_algo_order.side_effect = [
             {
-                "orderId": 123456800,
-                "symbol": "BTCUSDT",
-                "status": "FILLED",
-                "type": "MARKET",
-                "side": "SELL",
-                "avgPrice": "50000.00",
-                "origQty": "0.001",
-                "updateTime": 1678886400000,
-            },
-            {
-                "orderId": 123456801,
+                "algoId": 123456801,
                 "symbol": "BTCUSDT",
                 "status": "NEW",
                 "type": "TAKE_PROFIT_MARKET",
                 "side": "BUY",
-                "stopPrice": "48000.00",
+                "triggerPrice": "48000.00",
                 "updateTime": 1678886401000,
                 "origQty": "0.000",
                 "avgPrice": "0.00",
             },
             {
-                "orderId": 123456802,
+                "algoId": 123456802,
                 "symbol": "BTCUSDT",
                 "status": "NEW",
                 "type": "STOP_MARKET",
                 "side": "BUY",
-                "stopPrice": "51000.00",
+                "triggerPrice": "51000.00",
                 "updateTime": 1678886402000,
                 "origQty": "0.000",
                 "avgPrice": "0.00",
@@ -1176,18 +1189,20 @@ class TestTPSLPlacement:
             ]
         }
 
-        mock_client.new_order.side_effect = [
-            # Entry succeeds
-            {
-                "orderId": 123456789,
-                "symbol": "BTCUSDT",
-                "status": "FILLED",
-                "type": "MARKET",
-                "side": "BUY",
-                "avgPrice": "50123.45",
-                "origQty": "0.001",
-                "updateTime": 1678886400000,
-            },
+        # Entry order uses new_order (MARKET)
+        mock_client.new_order.return_value = {
+            "orderId": 123456789,
+            "symbol": "BTCUSDT",
+            "status": "FILLED",
+            "type": "MARKET",
+            "side": "BUY",
+            "avgPrice": "50123.45",
+            "origQty": "0.001",
+            "updateTime": 1678886400000,
+        }
+
+        # TP/SL orders use new_algo_order (Algo Order API)
+        mock_client.new_algo_order.side_effect = [
             # TP fails
             ClientError(
                 status_code=400,
@@ -1197,12 +1212,12 @@ class TestTPSLPlacement:
             ),
             # SL succeeds
             {
-                "orderId": 123456791,
+                "algoId": 123456791,
                 "symbol": "BTCUSDT",
                 "status": "NEW",
                 "type": "STOP_MARKET",
                 "side": "SELL",
-                "stopPrice": "49000.00",
+                "triggerPrice": "49000.00",
                 "updateTime": 1678886402000,
                 "origQty": "0.000",
                 "avgPrice": "0.00",
@@ -1262,16 +1277,17 @@ class TestQueryMethods:
         service._client = mock_client
         service.is_testnet = True
         service.weight_tracker = MagicMock()
-        
+
         # Proxy calls
         service.change_leverage = mock_client.change_leverage
         service.change_margin_type = mock_client.change_margin_type
         service.new_order = mock_client.new_order
+        service.new_algo_order = mock_client.new_algo_order  # Algo Order API for TP/SL
         service.exchange_info = mock_client.exchange_info
         service.cancel_open_orders = mock_client.cancel_open_orders
         service.get_position_risk = mock_client.get_position_risk
         service.account = mock_client.account
-        
+
         # Default return values
         mock_client.exchange_info.return_value = {"symbols": []}
         return service
@@ -1561,16 +1577,17 @@ class TestPriceFormatting:
         service._client = mock_client
         service.is_testnet = True
         service.weight_tracker = MagicMock()
-        
+
         # Proxy calls
         service.change_leverage = mock_client.change_leverage
         service.change_margin_type = mock_client.change_margin_type
         service.new_order = mock_client.new_order
+        service.new_algo_order = mock_client.new_algo_order  # Algo Order API for TP/SL
         service.exchange_info = mock_client.exchange_info
         service.cancel_open_orders = mock_client.cancel_open_orders
         service.get_position_risk = mock_client.get_position_risk
         service.account = mock_client.account
-        
+
         # Default return values
         mock_client.exchange_info.return_value = {"symbols": []}
         return service
