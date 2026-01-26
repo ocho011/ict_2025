@@ -39,7 +39,13 @@
       "Bash(git pull:*)",
       "Bash(gh issue view:*)",
       "Bash(task-master add-task:*)",
-      "mcp__task-master-ai__get_tasks"
+      "mcp__task-master-ai__get_tasks",
+      "Bash(grep:*)",
+      "Bash(pytest:*)",
+      "Bash(source:*)",
+      "WebSearch",
+      "WebFetch(domain:developers.binance.com)",
+      "Bash(pip show:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
