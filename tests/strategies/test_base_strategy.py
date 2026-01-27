@@ -79,6 +79,10 @@ class ConcreteTestStrategy(BaseStrategy):
         else:  # SHORT
             return entry_price * (1 + sl_percent)
 
+    async def should_exit(self, position, candle):
+        """Test implementation - no exit logic."""
+        return None
+
 
 # ============================================================================
 # Test Fixtures

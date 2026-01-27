@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from src.models.candle import Candle
+from src.models.position import Position
 from src.models.signal import Signal, SignalType
 from src.strategies.base import BaseStrategy
 
@@ -62,6 +63,13 @@ class AlwaysSignalStrategy(BaseStrategy):
                 - risk_reward_ratio (float): TP/SL ratio (default: 2.0)
                 - stop_loss_percent (float): SL percentage (default: 0.02)
         """
+        # Set default risk parameters in config before super().__init__()
+        # This ensures _create_price_config() uses the correct defaults
+        if "risk_reward_ratio" not in config:
+            config["risk_reward_ratio"] = 2.0
+        if "stop_loss_percent" not in config:
+            config["stop_loss_percent"] = 0.02
+
         super().__init__(symbol, config)
 
         # Logger for test strategy
@@ -74,9 +82,9 @@ class AlwaysSignalStrategy(BaseStrategy):
                 f"signal_type must be 'LONG', 'SHORT', or 'ALTERNATE', got '{self.signal_mode}'"
             )
 
-        # Risk management parameters
-        self.risk_reward_ratio: float = config.get("risk_reward_ratio", 2.0)
-        self.stop_loss_percent: float = config.get("stop_loss_percent", 0.02)
+        # Risk management parameters (already set in config above)
+        self.risk_reward_ratio: float = config["risk_reward_ratio"]
+        self.stop_loss_percent: float = config["stop_loss_percent"]
 
         # Internal state for alternating signals
         self._last_signal_type: Optional[SignalType] = None
@@ -133,6 +141,23 @@ class AlwaysSignalStrategy(BaseStrategy):
 
         return signal
 
+    async def should_exit(self, position: Position, candle: Candle) -> Optional[Signal]:
+        """
+        Evaluate exit conditions for test strategy.
+
+        For this test strategy, we rely on TP/SL orders and don't
+        generate manual exit signals.
+
+        Args:
+            position: Current open position
+            candle: Current candle data
+
+        Returns:
+            None (relies on TP/SL orders for exits)
+        """
+        # Test strategy doesn't manually exit - relies on TP/SL orders
+        return None
+
     def _create_signal(self, candle: Candle, signal_type: SignalType) -> Signal:
         """
         Create Signal object with calculated TP/SL prices.
@@ -164,39 +189,3 @@ class AlwaysSignalStrategy(BaseStrategy):
             timestamp=datetime.now(timezone.utc),
         )
 
-    def calculate_take_profit(self, entry_price: float, side: str) -> float:
-        """
-        Calculate take profit price.
-
-        Args:
-            entry_price: Entry price for the trade
-            side: Trade direction ('LONG' or 'SHORT')
-
-        Returns:
-            Take profit price
-        """
-        sl_distance = entry_price * self.stop_loss_percent
-        tp_distance = sl_distance * self.risk_reward_ratio
-
-        if side == "LONG":
-            return entry_price + tp_distance
-        else:  # SHORT
-            return entry_price - tp_distance
-
-    def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-        """
-        Calculate stop loss price.
-
-        Args:
-            entry_price: Entry price for the trade
-            side: Trade direction ('LONG' or 'SHORT')
-
-        Returns:
-            Stop loss price
-        """
-        sl_distance = entry_price * self.stop_loss_percent
-
-        if side == "LONG":
-            return entry_price - sl_distance
-        else:  # SHORT
-            return entry_price + sl_distance

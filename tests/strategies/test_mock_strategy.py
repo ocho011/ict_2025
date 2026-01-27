@@ -199,8 +199,9 @@ class TestMockSMAInitialization:
         assert strategy.symbol == "BTCUSDT"
         assert strategy.fast_period == 10
         assert strategy.slow_period == 20
-        assert strategy.risk_reward_ratio == 2.0
-        assert strategy.stop_loss_percent == 0.01
+        # risk_reward_ratio and stop_loss_percent now stored in config, not as instance attributes
+        assert strategy.config.get("risk_reward_ratio", 2.0) == 2.0
+        assert strategy.config.get("stop_loss_percent", 0.01) == 0.01
         assert strategy.buffer_size == 100
         assert strategy._last_signal_type is None
         assert len(strategy.buffers['1m']) == 0
@@ -212,8 +213,9 @@ class TestMockSMAInitialization:
         assert strategy.symbol == "ETHUSDT"
         assert strategy.fast_period == 5
         assert strategy.slow_period == 15
-        assert strategy.risk_reward_ratio == 3.0
-        assert strategy.stop_loss_percent == 0.015
+        # risk_reward_ratio and stop_loss_percent now stored in config, not as instance attributes
+        assert strategy.config["risk_reward_ratio"] == 3.0
+        assert strategy.config["stop_loss_percent"] == 0.015
         assert strategy.buffer_size == 50
 
     def test_initialization_validation_fast_equals_slow(self):
@@ -233,8 +235,9 @@ class TestMockSMAInitialization:
 
         assert strategy.fast_period == 7
         assert strategy.slow_period == 20  # Default
-        assert strategy.risk_reward_ratio == 2.5
-        assert strategy.stop_loss_percent == 0.01  # Default
+        # risk_reward_ratio and stop_loss_percent now stored in config, not as instance attributes
+        assert strategy.config["risk_reward_ratio"] == 2.5
+        assert strategy.config.get("stop_loss_percent", 0.01) == 0.01  # Default
 
 
 # ============================================================================
