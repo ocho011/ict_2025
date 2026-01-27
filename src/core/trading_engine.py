@@ -303,15 +303,37 @@ class TradingEngine:
             )
             self.logger.info(f"  ✅ Strategy created for {symbol}")
 
-        # Step 5: Initialize BinanceDataCollector
-        self.logger.info("Creating BinanceDataCollector...")
+        # Step 5: Initialize BinanceDataCollector with composition pattern (Issue #57)
+        self.logger.info("Creating data collection components...")
+
+        # Step 5a: Create PublicMarketStreamer for kline WebSocket
+        from src.core.public_market_streamer import PublicMarketStreamer
+
+        self.logger.info("  Creating PublicMarketStreamer...")
+        market_streamer = PublicMarketStreamer(
+            symbols=trading_config.symbols,
+            intervals=trading_config.intervals,
+            is_testnet=is_testnet,
+            on_candle_callback=self.on_candle_received,
+        )
+
+        # Step 5b: Create PrivateUserStreamer for order updates
+        from src.core.private_user_streamer import PrivateUserStreamer
+
+        self.logger.info("  Creating PrivateUserStreamer...")
+        user_streamer = PrivateUserStreamer(
+            binance_service=self.binance_service,
+            is_testnet=is_testnet,
+        )
+
+        # Step 5c: Create BinanceDataCollector facade with injected streamers
         from src.core.data_collector import BinanceDataCollector
 
+        self.logger.info("  Creating BinanceDataCollector facade...")
         self.data_collector = BinanceDataCollector(
             binance_service=self.binance_service,
-            symbols=trading_config.symbols,  # Issue #8: Multi-coin support
-            intervals=trading_config.intervals,
-            on_candle_callback=self.on_candle_received,
+            market_streamer=market_streamer,
+            user_streamer=user_streamer,
         )
 
         # Step 5.5: Validate strategy-DataCollector compatibility (Issue #24)

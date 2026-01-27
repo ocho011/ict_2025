@@ -5,14 +5,19 @@ This test suite verifies:
 1. Listen key lifecycle management (creation, keep-alive, cleanup)
 2. BinanceService listen key method wrappers
 3. DataCollector integration with User Data Stream
-4. TradingEngine ORDER_UPDATE event handling for TP/SL orphaned order prevention
+4. PrivateUserStreamer ORDER_TRADE_UPDATE event handling
+
+Updated for Issue #57: Uses new composition pattern with injected streamers.
 """
 
 import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from src.core.user_data_stream import UserDataStreamManager
 from src.core.binance_service import BinanceServiceClient
+from src.core.data_collector import BinanceDataCollector
+from src.core.public_market_streamer import PublicMarketStreamer
+from src.core.private_user_streamer import PrivateUserStreamer
 from src.models.event import EventType
 
 
@@ -224,7 +229,7 @@ class TestBinanceServiceListenKey:
 
 
 class TestDataCollectorUserDataStream:
-    """Test DataCollector User Data Stream integration."""
+    """Test DataCollector User Data Stream integration (Issue #57)."""
 
     @pytest.fixture
     def binance_service(self):
@@ -237,14 +242,36 @@ class TestDataCollectorUserDataStream:
         return service
 
     @pytest.fixture
-    def data_collector(self, binance_service):
-        """Create BinanceDataCollector with mocked service."""
-        from src.core.data_collector import BinanceDataCollector
+    def mock_market_streamer(self):
+        """Create mock PublicMarketStreamer."""
+        streamer = Mock(spec=PublicMarketStreamer)
+        streamer.symbols = ["BTCUSDT"]
+        streamer.intervals = ["1h"]
+        streamer.is_connected = False
+        streamer.on_candle_callback = None
+        streamer.start = AsyncMock()
+        streamer.stop = AsyncMock()
+        return streamer
 
+    @pytest.fixture
+    def mock_user_streamer(self, binance_service):
+        """Create mock PrivateUserStreamer with real-like behavior."""
+        streamer = Mock(spec=PrivateUserStreamer)
+        streamer.is_connected = False
+        streamer.start = AsyncMock()
+        streamer.stop = AsyncMock()
+        streamer.set_event_bus = Mock()
+        streamer._event_bus = None
+        streamer._event_loop = None
+        return streamer
+
+    @pytest.fixture
+    def data_collector(self, binance_service, mock_market_streamer, mock_user_streamer):
+        """Create BinanceDataCollector with mocked streamers."""
         return BinanceDataCollector(
             binance_service=binance_service,
-            symbols=["BTCUSDT"],
-            intervals=["1h"],
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
         )
 
     @pytest.fixture
@@ -255,44 +282,75 @@ class TestDataCollectorUserDataStream:
         return bus
 
     @pytest.mark.asyncio
-    async def test_start_user_data_stream(self, data_collector, event_bus):
-        """Test starting User Data Stream."""
-        with patch(
-            "src.core.data_collector.UMFuturesWebsocketClient"
-        ) as mock_ws_client:
-            await data_collector.start_user_data_stream(event_bus)
+    async def test_start_user_data_stream(self, data_collector, mock_user_streamer, event_bus):
+        """Test starting User Data Stream via facade."""
+        await data_collector.start_user_data_stream(event_bus)
 
-            assert data_collector.user_stream_manager is not None
-            assert data_collector._user_ws_client is not None
-            assert data_collector._event_bus == event_bus
-            assert data_collector._event_loop is not None
-
-            # Cleanup
-            await data_collector.stop_user_data_stream()
+        # Verify facade delegates to user_streamer
+        mock_user_streamer.set_event_bus.assert_called_once_with(event_bus)
+        mock_user_streamer.start.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stop_user_data_stream(self, data_collector, event_bus):
-        """Test stopping User Data Stream."""
-        with patch(
-            "src.core.data_collector.UMFuturesWebsocketClient"
-        ) as mock_ws_client:
+    async def test_stop_user_data_stream(self, data_collector, mock_user_streamer, event_bus):
+        """Test stopping User Data Stream via facade."""
+        await data_collector.start_user_data_stream(event_bus)
+
+        # Stop the stream
+        await data_collector.stop_user_data_stream()
+
+        # Verify facade delegates to user_streamer
+        mock_user_streamer.stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_start_user_data_stream_without_user_streamer(
+        self, binance_service, mock_market_streamer, event_bus, caplog
+    ):
+        """Test that start_user_data_stream logs warning when user_streamer is None."""
+        import logging
+
+        data_collector = BinanceDataCollector(
+            binance_service=binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=None,
+        )
+
+        with caplog.at_level(logging.WARNING):
             await data_collector.start_user_data_stream(event_bus)
 
-            # Stop the stream
-            await data_collector.stop_user_data_stream()
+        assert "PrivateUserStreamer not configured" in caplog.text
 
-            assert data_collector.user_stream_manager is None
-            assert data_collector._user_ws_client is None
-            assert data_collector._event_bus is None
 
-    def test_handle_order_trade_update_tp_filled(self, data_collector, event_bus):
+class TestPrivateUserStreamerOrderHandling:
+    """Test PrivateUserStreamer ORDER_TRADE_UPDATE event handling."""
+
+    @pytest.fixture
+    def binance_service(self):
+        """Create mock BinanceServiceClient."""
+        service = MagicMock(spec=BinanceServiceClient)
+        service.is_testnet = True
+        service.new_listen_key.return_value = {"listenKey": "test_key"}
+        return service
+
+    @pytest.fixture
+    def user_streamer(self, binance_service):
+        """Create PrivateUserStreamer instance."""
+        return PrivateUserStreamer(
+            binance_service=binance_service,
+            is_testnet=True,
+        )
+
+    @pytest.fixture
+    def event_bus(self):
+        """Create mock EventBus."""
+        bus = MagicMock()
+        bus.publish = AsyncMock()
+        return bus
+
+    def test_handle_order_trade_update_tp_filled(self, user_streamer, event_bus):
         """Test handling ORDER_TRADE_UPDATE for TP fill."""
-        import asyncio
-
-        # Set up the event loop and event bus
         loop = asyncio.new_event_loop()
-        data_collector._event_bus = event_bus
-        data_collector._event_loop = loop
+        user_streamer._event_bus = event_bus
+        user_streamer._event_loop = loop
 
         # Simulate ORDER_TRADE_UPDATE for TAKE_PROFIT_MARKET fill
         order_data = {
@@ -304,34 +362,32 @@ class TestDataCollectorUserDataStream:
                 "ot": "TAKE_PROFIT_MARKET",
                 "q": "0.001",
                 "ap": "51000",
-                "sp": "51000",  # Stop/trigger price required for TP orders
+                "sp": "51000",
                 "X": "FILLED",
             },
         }
 
         # Call handler
-        data_collector._handle_order_trade_update(order_data)
+        user_streamer._handle_order_trade_update(order_data)
 
         # Verify event was scheduled to be published
-        # Note: run_coroutine_threadsafe schedules the coroutine
-        # We can't easily verify it was called without running the loop
         loop.close()
 
-    def test_handle_user_data_message_order_update(self, data_collector):
+    def test_handle_user_data_message_order_update(self, user_streamer):
         """Test _handle_user_data_message routes ORDER_TRADE_UPDATE correctly."""
         with patch.object(
-            data_collector, "_handle_order_trade_update"
+            user_streamer, "_handle_order_trade_update"
         ) as mock_handler:
             message = {
                 "e": "ORDER_TRADE_UPDATE",
                 "o": {"s": "BTCUSDT", "X": "FILLED"},
             }
 
-            data_collector._handle_user_data_message(None, message)
+            user_streamer._handle_user_data_message(None, message)
 
             mock_handler.assert_called_once_with(message)
 
-    def test_handle_user_data_message_account_update(self, data_collector):
+    def test_handle_user_data_message_account_update(self, user_streamer):
         """Test _handle_user_data_message handles ACCOUNT_UPDATE."""
         # Should not raise, just log
         message = {
@@ -340,31 +396,29 @@ class TestDataCollectorUserDataStream:
         }
 
         # Should not raise
-        data_collector._handle_user_data_message(None, message)
+        user_streamer._handle_user_data_message(None, message)
 
-    def test_handle_user_data_message_json_string(self, data_collector):
+    def test_handle_user_data_message_json_string(self, user_streamer):
         """Test _handle_user_data_message parses JSON strings."""
         import json
 
         with patch.object(
-            data_collector, "_handle_order_trade_update"
+            user_streamer, "_handle_order_trade_update"
         ) as mock_handler:
             message = json.dumps({
                 "e": "ORDER_TRADE_UPDATE",
                 "o": {"s": "BTCUSDT", "X": "NEW"},
             })
 
-            data_collector._handle_user_data_message(None, message)
+            user_streamer._handle_user_data_message(None, message)
 
             mock_handler.assert_called_once()
 
-    def test_handle_order_trade_update_sl_filled(self, data_collector, event_bus):
+    def test_handle_order_trade_update_sl_filled(self, user_streamer, event_bus):
         """Test handling ORDER_TRADE_UPDATE for SL fill."""
-        import asyncio
-
         loop = asyncio.new_event_loop()
-        data_collector._event_bus = event_bus
-        data_collector._event_loop = loop
+        user_streamer._event_bus = event_bus
+        user_streamer._event_loop = loop
 
         # Simulate ORDER_TRADE_UPDATE for STOP_MARKET fill
         order_data = {
@@ -376,23 +430,21 @@ class TestDataCollectorUserDataStream:
                 "ot": "STOP_MARKET",
                 "q": "0.1",
                 "ap": "1800",
-                "sp": "1800",  # Stop/trigger price required for SL orders
+                "sp": "1800",
                 "X": "FILLED",
             },
         }
 
         # Should not raise
-        data_collector._handle_order_trade_update(order_data)
+        user_streamer._handle_order_trade_update(order_data)
 
         loop.close()
 
-    def test_handle_order_trade_update_non_tpsl_ignored(self, data_collector, event_bus):
+    def test_handle_order_trade_update_non_tpsl_ignored(self, user_streamer, event_bus):
         """Test that non-TP/SL orders don't trigger event publishing."""
-        import asyncio
-
         loop = asyncio.new_event_loop()
-        data_collector._event_bus = event_bus
-        data_collector._event_loop = loop
+        user_streamer._event_bus = event_bus
+        user_streamer._event_loop = loop
 
         # Simulate ORDER_TRADE_UPDATE for regular MARKET order
         order_data = {
@@ -409,10 +461,8 @@ class TestDataCollectorUserDataStream:
         }
 
         # Call handler - should not publish event for MARKET orders
-        data_collector._handle_order_trade_update(order_data)
+        user_streamer._handle_order_trade_update(order_data)
 
-        # Event bus publish should not be called for non-TP/SL orders
-        # (We'd need to run the loop to verify, but the logic skips non-TP/SL)
         loop.close()
 
 

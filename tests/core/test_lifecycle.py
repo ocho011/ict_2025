@@ -6,105 +6,168 @@ Tests cover:
 - stop() method (graceful shutdown)
 - Async context manager (__aenter__, __aexit__)
 - Integration scenarios
+
+Updated for Issue #57: Uses new composition pattern with injected streamers.
 """
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
 from src.core.data_collector import BinanceDataCollector
+from src.core.public_market_streamer import PublicMarketStreamer
+from src.core.private_user_streamer import PrivateUserStreamer
 from src.core.binance_service import BinanceServiceClient
 from src.models.candle import Candle
-from unittest.mock import Mock, patch
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def mock_binance_service():
+    """Provide mock BinanceServiceClient for testing."""
+    service = Mock(spec=BinanceServiceClient)
+    service.is_testnet = True
+    return service
+
+
+@pytest.fixture
+def mock_market_streamer():
+    """Provide mock PublicMarketStreamer for testing."""
+    streamer = Mock(spec=PublicMarketStreamer)
+    streamer.symbols = ["BTCUSDT"]
+    streamer.intervals = ["1m"]
+    streamer.is_connected = False
+    streamer.on_candle_callback = None
+    streamer.start = AsyncMock()
+    streamer.stop = AsyncMock()
+    return streamer
+
+
+@pytest.fixture
+def mock_user_streamer():
+    """Provide mock PrivateUserStreamer for testing."""
+    streamer = Mock(spec=PrivateUserStreamer)
+    streamer.is_connected = False
+    streamer.start = AsyncMock()
+    streamer.stop = AsyncMock()
+    streamer.set_event_bus = Mock()
+    return streamer
+
+
+@pytest.fixture
+def basic_config():
+    """Provide basic configuration for testing."""
+    return {
+        "symbols": ["BTCUSDT"],
+        "intervals": ["1m"],
+    }
+
+
+@pytest.fixture
+def data_collector(mock_binance_service, mock_market_streamer, mock_user_streamer):
+    """Create BinanceDataCollector instance for testing."""
+    return BinanceDataCollector(
+        binance_service=mock_binance_service,
+        market_streamer=mock_market_streamer,
+        user_streamer=mock_user_streamer,
+    )
+
+
+# =============================================================================
+# Connection State Tests
+# =============================================================================
 
 
 class TestBinanceDataCollectorConnectionState:
     """Test suite for is_connected property"""
 
-    @pytest.fixture
-    def mock_binance_service(self):
-        """Provide mock BinanceServiceClient for testing."""
-        service = Mock(spec=BinanceServiceClient)
-        service.is_testnet = True
-        return service
+    def test_is_connected_false_when_not_started(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Verify is_connected returns False before start_streaming()"""
+        mock_market_streamer.is_connected = False
 
-    @pytest.fixture
-    def basic_config(self):
-        """Provide basic configuration for testing."""
-        return {
-            "symbols": ["BTCUSDT"],
-            "intervals": ["1m"],
-        }
-
-    @pytest.fixture
-    def data_collector(self, mock_binance_service, basic_config):
-        """Create BinanceDataCollector instance for testing."""
-        return BinanceDataCollector(
+        data_collector = BinanceDataCollector(
             binance_service=mock_binance_service,
-            symbols=basic_config["symbols"],
-            intervals=basic_config["intervals"],
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
         )
 
-    def test_is_connected_false_when_not_started(self, data_collector):
-        """Verify is_connected returns False before start_streaming()"""
         assert data_collector.is_connected is False
-        assert data_collector._is_connected is False
-        assert len(data_collector.ws_clients) == 0
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_is_connected_true_after_start(self, mock_ws_client_class, data_collector):
+    @pytest.mark.asyncio
+    async def test_is_connected_true_after_start(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
         """Verify is_connected returns True after successful start_streaming()"""
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
         # Start streaming
         await data_collector.start_streaming()
 
+        # Update mock to reflect connected state
+        mock_market_streamer.is_connected = True
+
         # Verify is_connected
         assert data_collector.is_connected is True
-        assert data_collector._is_connected is True
-        assert len(data_collector.ws_clients) > 0
+        assert data_collector._running is True
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_is_connected_false_after_stop(self, mock_ws_client_class, data_collector):
+    @pytest.mark.asyncio
+    async def test_is_connected_false_after_stop(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
         """Verify is_connected returns False after stop()"""
-        # Start and then stop
-        await data_collector.start_streaming()
+        mock_market_streamer.is_connected = True
+
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+        data_collector._running = True
+
+        # Stop
         await data_collector.stop()
+
+        # Update mock to reflect disconnected state
+        mock_market_streamer.is_connected = False
 
         # Verify is_connected
         assert data_collector.is_connected is False
-        assert data_collector._is_connected is False
+        assert data_collector._running is False
+
+
+# =============================================================================
+# Stop Method Tests
+# =============================================================================
 
 
 class TestBinanceDataCollectorStop:
     """Test suite for stop() method"""
 
-    @pytest.fixture
-    def mock_binance_service(self):
-        """Provide mock BinanceServiceClient for testing."""
-        service = Mock(spec=BinanceServiceClient)
-        service.is_testnet = True
-        return service
+    @pytest.mark.asyncio
+    async def test_stop_idempotency(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Verify multiple stop() calls are safe"""
+        mock_market_streamer.is_connected = False
 
-    @pytest.fixture
-    def basic_config(self):
-        """Provide basic configuration for testing."""
-        return {
-            "symbols": ["BTCUSDT"],
-            "intervals": ["1m"],
-        }
-
-    @pytest.fixture
-    def data_collector(self, mock_binance_service, basic_config):
-        """Create BinanceDataCollector instance for testing."""
-        return BinanceDataCollector(
+        data_collector = BinanceDataCollector(
             binance_service=mock_binance_service,
-            symbols=basic_config["symbols"],
-            intervals=basic_config["intervals"],
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
         )
 
-    async def test_stop_idempotency(self, data_collector):
-        """Verify multiple stop() calls are safe"""
         # Call stop multiple times
         await data_collector.stop()
         await data_collector.stop()
@@ -112,124 +175,147 @@ class TestBinanceDataCollectorStop:
 
         # Should not raise, flags should be False
         assert data_collector._running is False
-        assert data_collector._is_connected is False
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_stop_closes_websocket(self, mock_ws_client_class, data_collector):
-        """Verify WebSocket client stop() is called"""
-        mock_ws_instance = Mock()
-        mock_ws_client_class.return_value = mock_ws_instance
-        
-        # Start streaming
-        await data_collector.start_streaming()
+    @pytest.mark.asyncio
+    async def test_stop_closes_websocket(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Verify market_streamer.stop() is called"""
+        mock_market_streamer.is_connected = True
+
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+        data_collector._running = True
 
         # Stop collector
         await data_collector.stop()
 
-        # Verify ws_client.stop was called
-        mock_ws_instance.stop.assert_called()
+        # Verify market_streamer.stop was called
+        mock_market_streamer.stop.assert_called_once()
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_stop_timeout_handling(self, mock_ws_client_class, data_collector):
-        """Verify timeout parameter works correctly"""
-        mock_ws_instance = Mock()
-        mock_ws_client_class.return_value = mock_ws_instance
-        
-        # Start streaming
-        await data_collector.start_streaming()
+    @pytest.mark.asyncio
+    async def test_stop_timeout_handling(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Verify timeout parameter is passed to streamer"""
+        mock_market_streamer.is_connected = True
 
-        # Mock ws_client.stop to take longer than timeout
-        async def slow_stop():
-            await asyncio.sleep(10)  # Longer than timeout
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+        data_collector._running = True
 
-        mock_ws_instance.stop.side_effect = lambda: asyncio.run(slow_stop())
-
-        # Stop with short timeout (should timeout but not raise)
+        # Stop with custom timeout
         await data_collector.stop(timeout=0.1)
 
-        # Should complete without raising, flags should be False
+        # Verify stop was called with timeout
+        mock_market_streamer.stop.assert_called_once_with(timeout=0.1)
         assert data_collector._running is False
-        assert data_collector._is_connected is False
 
-    async def test_stop_without_websocket(self, data_collector):
-        """Verify stop() works when ws_client is None"""
+    @pytest.mark.asyncio
+    async def test_stop_without_websocket(
+        self, mock_binance_service, mock_market_streamer
+    ):
+        """Verify stop() works when user_streamer is None"""
+        mock_market_streamer.is_connected = False
+
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=None,
+        )
+
         # Don't start streaming, just call stop
         await data_collector.stop()
 
         # Should complete without errors
         assert data_collector._running is False
-        assert data_collector._is_connected is False
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_stop_handles_websocket_errors(self, mock_ws_client_class, data_collector):
-        """Verify cleanup continues if WebSocket stop() raises"""
-        mock_ws_instance = Mock()
-        mock_ws_client_class.return_value = mock_ws_instance
-        
-        # Start streaming
-        await data_collector.start_streaming()
+    @pytest.mark.asyncio
+    async def test_stop_handles_websocket_errors(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Verify cleanup continues if streamer stop() raises"""
+        mock_market_streamer.is_connected = True
+        mock_market_streamer.stop = AsyncMock(side_effect=RuntimeError("WebSocket error"))
 
-        # Mock ws_client.stop to raise exception
-        mock_ws_instance.stop.side_effect = RuntimeError("WebSocket error")
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+        data_collector._running = True
 
         # Stop should not raise, should log error
         await data_collector.stop()
 
         # Flags should still be updated
         assert data_collector._running is False
-        assert data_collector._is_connected is False
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_stop_updates_state_flags(self, mock_ws_client_class, data_collector):
-        """Verify _running and _is_connected are set to False"""
+    @pytest.mark.asyncio
+    async def test_stop_updates_state_flags(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Verify _running is set to False"""
+        mock_market_streamer.is_connected = True
+
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
         # Start streaming
         await data_collector.start_streaming()
         assert data_collector._running is True
-        assert data_collector._is_connected is True
 
         # Stop
         await data_collector.stop()
 
         # Verify flags
         assert data_collector._running is False
-        assert data_collector._is_connected is False
+
+
+# =============================================================================
+# Context Manager Tests
+# =============================================================================
 
 
 class TestBinanceDataCollectorContextManager:
     """Test suite for async context manager"""
 
-    @pytest.fixture
-    def mock_binance_service(self):
-        """Provide mock BinanceServiceClient for testing."""
-        service = Mock(spec=BinanceServiceClient)
-        service.is_testnet = True
-        return service
-
-    @pytest.fixture
-    def basic_config(self):
-        """Provide basic configuration for testing."""
-        return {
-            "symbols": ["BTCUSDT"],
-            "intervals": ["1m"],
-        }
-
-    @pytest.fixture
-    def data_collector(self, mock_binance_service, basic_config):
-        """Create BinanceDataCollector instance for testing."""
-        return BinanceDataCollector(
+    @pytest.mark.asyncio
+    async def test_context_manager_enter_returns_self(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Verify __aenter__ returns collector instance"""
+        data_collector = BinanceDataCollector(
             binance_service=mock_binance_service,
-            symbols=basic_config["symbols"],
-            intervals=basic_config["intervals"],
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
         )
 
-    async def test_context_manager_enter_returns_self(self, data_collector):
-        """Verify __aenter__ returns collector instance"""
         returned = await data_collector.__aenter__()
         assert returned is data_collector
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_context_manager_exit_calls_stop(self, mock_ws_client_class, data_collector):
+    @pytest.mark.asyncio
+    async def test_context_manager_exit_calls_stop(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
         """Verify __aexit__ calls stop() automatically"""
+        mock_market_streamer.is_connected = True
+
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
         # Enter context
         await data_collector.__aenter__()
 
@@ -242,11 +328,21 @@ class TestBinanceDataCollectorContextManager:
 
         # Verify stop was called (flags should be False)
         assert data_collector._running is False
-        assert data_collector._is_connected is False
+        mock_market_streamer.stop.assert_called()
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_context_manager_with_exception(self, mock_ws_client_class, data_collector):
+    @pytest.mark.asyncio
+    async def test_context_manager_with_exception(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
         """Verify cleanup runs even with context exception"""
+        mock_market_streamer.is_connected = True
+
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
         # Enter context
         await data_collector.__aenter__()
 
@@ -258,17 +354,35 @@ class TestBinanceDataCollectorContextManager:
 
         # Verify cleanup still happened
         assert data_collector._running is False
-        assert data_collector._is_connected is False
 
-    async def test_context_manager_does_not_suppress_exceptions(self, data_collector):
+    @pytest.mark.asyncio
+    async def test_context_manager_does_not_suppress_exceptions(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
         """Verify context exceptions propagate correctly"""
+        mock_market_streamer.is_connected = False
+
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
         # __aexit__ should return None (falsy) to not suppress exceptions
         result = await data_collector.__aexit__(ValueError, ValueError("test"), None)
         assert result is None
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_context_manager_full_lifecycle(self, mock_ws_client_class, data_collector):
+    @pytest.mark.asyncio
+    async def test_context_manager_full_lifecycle(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
         """Integration: async with → start_streaming → cleanup"""
+        data_collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
         # Use async context manager
         async with data_collector as collector:
             # Verify we got the collector
@@ -276,75 +390,70 @@ class TestBinanceDataCollectorContextManager:
 
             # Start streaming
             await collector.start_streaming()
+            mock_market_streamer.is_connected = True
             assert collector.is_connected is True
 
         # After context exit, should be stopped
-        assert data_collector.is_connected is False
         assert data_collector._running is False
+
+
+# =============================================================================
+# Lifecycle Integration Tests
+# =============================================================================
 
 
 class TestBinanceDataCollectorLifecycleIntegration:
     """Integration tests for lifecycle management"""
 
-    @pytest.fixture
-    def mock_binance_service(self):
-        """Provide mock BinanceServiceClient for testing."""
-        service = Mock(spec=BinanceServiceClient)
-        service.is_testnet = True
-        return service
-
-    @pytest.fixture
-    def basic_config(self):
-        """Provide basic configuration for testing."""
-        return {
-            "symbols": ["BTCUSDT"],
-            "intervals": ["1m"],
-        }
-
-    @pytest.fixture
-    def data_collector(self, mock_binance_service, basic_config):
-        """Create BinanceDataCollector instance for testing."""
-        return BinanceDataCollector(
+    @pytest.mark.asyncio
+    async def test_start_and_stop_lifecycle(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """Full lifecycle: start → stop → verify cleanup"""
+        data_collector = BinanceDataCollector(
             binance_service=mock_binance_service,
-            symbols=basic_config["symbols"],
-            intervals=basic_config["intervals"],
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
         )
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_start_and_stop_lifecycle(self, mock_ws_client_class, data_collector):
-        """Full lifecycle: start → stop → verify cleanup"""
         # Initial state
         assert data_collector.is_connected is False
 
         # Start
         await data_collector.start_streaming()
+        mock_market_streamer.is_connected = True
         assert data_collector.is_connected is True
-        assert len(data_collector.ws_clients) > 0
 
         # Stop
         await data_collector.stop()
+        mock_market_streamer.is_connected = False
         assert data_collector.is_connected is False
         assert data_collector._running is False
 
-    @patch("src.core.data_collector.UMFuturesWebsocketClient")
-    async def test_context_manager_usage_pattern(self, mock_ws_client_class, data_collector, mock_binance_service):
+    @pytest.mark.asyncio
+    async def test_context_manager_usage_pattern(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
         """Real-world usage pattern with context manager"""
         collected_candles = []
 
         def callback(candle: Candle):
             collected_candles.append(candle)
 
+        # Configure mock to use callback
+        mock_market_streamer.on_candle_callback = callback
+
         # Create collector with callback
         collector = BinanceDataCollector(
             binance_service=mock_binance_service,
-            symbols=["BTCUSDT"],
-            intervals=["1m"],
-            on_candle_callback=callback,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
         )
 
         # Use context manager
         async with collector:
             await collector.start_streaming()
+            mock_market_streamer.is_connected = True
 
             # Simulate receiving candles via callback
             for i in range(3):
@@ -364,6 +473,7 @@ class TestBinanceDataCollectorLifecycleIntegration:
                     collector.on_candle_callback(candle)
 
         # After context, verify cleanup
+        mock_market_streamer.is_connected = False
         assert collector.is_connected is False
 
         # Verify callbacks were invoked

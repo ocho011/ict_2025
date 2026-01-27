@@ -45,7 +45,9 @@
       "Bash(source:*)",
       "WebSearch",
       "WebFetch(domain:developers.binance.com)",
-      "Bash(pip show:*)"
+      "Bash(pip show:*)",
+      "Bash(/opt/homebrew/bin/python3 -m pytest:*)",
+      "Bash(/usr/bin/python3 -m pytest:*)"
     ]
   },
   "enableAllProjectMcpServers": true,
