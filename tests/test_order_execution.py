@@ -1287,9 +1287,12 @@ class TestQueryMethods:
         service.cancel_open_orders = mock_client.cancel_open_orders
         service.get_position_risk = mock_client.get_position_risk
         service.account = mock_client.account
+        service.get_orders = mock_client.get_orders  # For get_open_orders()
+        service.cancel_order = mock_client.cancel_order  # For _cancel_order_by_id()
 
         # Default return values
         mock_client.exchange_info.return_value = {"symbols": []}
+        mock_client.get_orders.return_value = []  # No open orders by default
         return service
 
     @pytest.fixture
@@ -1557,6 +1560,176 @@ class TestQueryMethods:
 
         with pytest.raises(OrderExecutionError, match="Order cancellation failed"):
             manager.cancel_all_orders("BTCUSDT")
+
+    # ========== get_open_orders() Tests ==========
+
+    def test_get_open_orders_success(self, manager, mock_client):
+        """Open orders query returns list of orders"""
+        mock_client.get_orders.return_value = [
+            {
+                "orderId": 123456,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "LIMIT",
+                "side": "BUY",
+                "price": "50000.00",
+                "origQty": "0.001",
+            },
+            {
+                "orderId": 123457,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "STOP_MARKET",
+                "side": "SELL",
+                "stopPrice": "49000.00",
+                "origQty": "0.001",
+            },
+        ]
+
+        orders = manager.get_open_orders("BTCUSDT")
+
+        assert len(orders) == 2
+        assert orders[0]["orderId"] == 123456
+        assert orders[1]["orderId"] == 123457
+        mock_client.get_orders.assert_called_once_with(symbol="BTCUSDT")
+
+    def test_get_open_orders_empty(self, manager, mock_client):
+        """No open orders returns empty list"""
+        mock_client.get_orders.return_value = []
+
+        orders = manager.get_open_orders("BTCUSDT")
+
+        assert orders == []
+        mock_client.get_orders.assert_called_once_with(symbol="BTCUSDT")
+
+    def test_get_open_orders_invalid_symbol(self, manager, mock_client):
+        """Invalid symbol raises ValidationError"""
+        mock_client.get_orders.side_effect = ClientError(
+            status_code=400, error_code=-1121, error_message="Invalid symbol.", header={}
+        )
+
+        with pytest.raises(ValidationError, match="Invalid symbol"):
+            manager.get_open_orders("INVALID")
+
+    def test_get_open_orders_api_error(self, manager, mock_client):
+        """API error raises OrderExecutionError"""
+        mock_client.get_orders.side_effect = ClientError(
+            status_code=500, error_code=-1000, error_message="Server error", header={}
+        )
+
+        with pytest.raises(OrderExecutionError, match="Failed to query open orders"):
+            manager.get_open_orders("BTCUSDT")
+
+    # ========== _cancel_order_by_id() Tests ==========
+
+    def test_cancel_order_by_id_success(self, manager, mock_client):
+        """Single order cancellation success"""
+        mock_client.cancel_order.return_value = {
+            "orderId": 123456,
+            "symbol": "BTCUSDT",
+            "status": "CANCELED",
+        }
+
+        result = manager._cancel_order_by_id("BTCUSDT", 123456)
+
+        assert result is True
+        mock_client.cancel_order.assert_called_once_with(symbol="BTCUSDT", orderId=123456)
+
+    def test_cancel_order_by_id_already_cancelled(self, manager, mock_client):
+        """Order already cancelled returns True (graceful handling)"""
+        mock_client.cancel_order.side_effect = ClientError(
+            status_code=400, error_code=-2011, error_message="Unknown order sent.", header={}
+        )
+
+        result = manager._cancel_order_by_id("BTCUSDT", 123456)
+
+        assert result is True  # Should return True, not raise
+
+    def test_cancel_order_by_id_order_not_exist(self, manager, mock_client):
+        """Order doesn't exist returns True (graceful handling)"""
+        mock_client.cancel_order.side_effect = ClientError(
+            status_code=400, error_code=-2013, error_message="Order does not exist.", header={}
+        )
+
+        result = manager._cancel_order_by_id("BTCUSDT", 999999)
+
+        assert result is True  # Should return True, not raise
+
+    def test_cancel_order_by_id_other_error(self, manager, mock_client):
+        """Other API errors return False"""
+        mock_client.cancel_order.side_effect = ClientError(
+            status_code=500, error_code=-1000, error_message="Server error", header={}
+        )
+
+        result = manager._cancel_order_by_id("BTCUSDT", 123456)
+
+        assert result is False
+
+    # ========== cancel_all_orders() with verify Tests ==========
+
+    def test_cancel_all_orders_with_verify_success(self, manager, mock_client, mock_cancel_with_orders):
+        """Verification passes on first try"""
+        mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
+        mock_client.get_orders.return_value = []  # No remaining orders
+
+        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True)
+
+        assert cancelled_count == 2
+        mock_client.cancel_open_orders.assert_called_once()
+        # get_orders called twice: once in verification loop, once in final check
+        assert mock_client.get_orders.call_count >= 1
+
+    def test_cancel_all_orders_with_verify_retry_needed(self, manager, mock_client, mock_cancel_with_orders):
+        """Orders remain, retry succeeds"""
+        mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
+
+        # First get_orders returns remaining orders, second returns empty
+        remaining_orders = [
+            {"orderId": 123458, "symbol": "BTCUSDT", "status": "NEW"}
+        ]
+        mock_client.get_orders.side_effect = [remaining_orders, []]
+        mock_client.cancel_order.return_value = {"status": "CANCELED"}
+
+        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=3)
+
+        assert cancelled_count == 3  # 2 from bulk + 1 from individual
+        assert mock_client.cancel_order.call_count == 1
+
+    def test_cancel_all_orders_with_verify_max_retries(self, manager, mock_client, mock_cancel_with_orders, caplog):
+        """Orders remain after max retries (logs error)"""
+        mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
+
+        # Always return remaining orders
+        remaining_orders = [
+            {"orderId": 123458, "symbol": "BTCUSDT", "status": "NEW"}
+        ]
+        mock_client.get_orders.return_value = remaining_orders
+        mock_client.cancel_order.return_value = {"status": "NEW"}  # Failed to cancel
+
+        with caplog.at_level(logging.ERROR):
+            cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=2)
+
+        # Should log error about remaining orders
+        assert "CRITICAL" in caplog.text or "remain" in caplog.text.lower()
+
+    def test_cancel_all_orders_verify_false_skips_check(self, manager, mock_client, mock_cancel_with_orders):
+        """verify=False preserves old behavior (no verification)"""
+        mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
+
+        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=False)
+
+        assert cancelled_count == 2
+        mock_client.cancel_open_orders.assert_called_once()
+        mock_client.get_orders.assert_not_called()  # No verification check
+
+    def test_cancel_all_orders_default_verify_true(self, manager, mock_client, mock_cancel_no_orders):
+        """Default verify=True behavior"""
+        mock_client.cancel_open_orders.return_value = mock_cancel_no_orders
+        mock_client.get_orders.return_value = []
+
+        manager.cancel_all_orders("BTCUSDT")  # Default verify=True
+
+        mock_client.get_orders.assert_called()  # Verification was performed
 
 
 # ==================== Price Formatting Tests (Task 6.5) ====================

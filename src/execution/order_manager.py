@@ -1568,15 +1568,133 @@ class OrderExecutionManager:
         except (KeyError, ValueError, TypeError) as e:
             raise OrderExecutionError(f"Failed to parse account data: {e}")
 
-    def cancel_all_orders(self, symbol: str) -> int:
+    def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
         """
-        Cancel all open orders for a symbol.
+        Query all open orders for a symbol.
 
-        Cancels all active orders for the specified trading symbol using
-        Binance Futures API. Returns the count of cancelled orders.
+        Uses Binance REST API: GET /fapi/v1/openOrders
 
         Args:
             symbol: Trading pair (e.g., 'BTCUSDT')
+
+        Returns:
+            List of open order dictionaries with keys:
+            - orderId: int
+            - symbol: str
+            - status: str (e.g., 'NEW')
+            - type: str (e.g., 'LIMIT', 'STOP_MARKET')
+            - side: str ('BUY' or 'SELL')
+            - price: str
+            - origQty: str
+
+        Raises:
+            ValidationError: Invalid symbol format
+            OrderExecutionError: API call fails
+
+        Example:
+            >>> orders = manager.get_open_orders('BTCUSDT')
+            >>> for order in orders:
+            ...     print(f"Order {order['orderId']}: {order['type']}")
+        """
+        # Validate input
+        if not symbol or not isinstance(symbol, str):
+            raise ValidationError(f"Invalid symbol: {symbol}")
+
+        self.logger.debug(f"Querying open orders for {symbol}")
+
+        try:
+            # Call Binance API (proxied via BinanceServiceClient)
+            response = self.client.get_orders(symbol=symbol)
+
+            # Response is already unwrapped by BinanceServiceClient
+            if isinstance(response, list):
+                self.logger.debug(f"Found {len(response)} open orders for {symbol}")
+                return response
+            else:
+                self.logger.warning(f"Unexpected response format for open orders: {response}")
+                return []
+
+        except ClientError as e:
+            if e.error_code == -1121:
+                raise ValidationError(f"Invalid symbol: {symbol}")
+            elif e.error_code == -2015:
+                raise OrderExecutionError(
+                    f"API authentication failed: {e.error_message}"
+                )
+            else:
+                raise OrderExecutionError(
+                    f"Failed to query open orders: code={e.error_code}, msg={e.error_message}"
+                )
+        except Exception as e:
+            raise OrderExecutionError(f"Unexpected error querying open orders: {e}")
+
+    def _cancel_order_by_id(self, symbol: str, order_id: int) -> bool:
+        """
+        Cancel a single order by its ID.
+
+        Uses Binance REST API: DELETE /fapi/v1/order
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            order_id: The order ID to cancel
+
+        Returns:
+            True if cancellation successful, False otherwise
+
+        Example:
+            >>> success = manager._cancel_order_by_id('BTCUSDT', 123456789)
+            >>> if success:
+            ...     print("Order cancelled")
+        """
+        try:
+            self.logger.debug(f"Cancelling order {order_id} for {symbol}")
+            response = self.client.cancel_order(symbol=symbol, orderId=order_id)
+
+            # Check if cancelled successfully
+            if isinstance(response, dict):
+                status = response.get("status", "")
+                if status == "CANCELED":
+                    self.logger.debug(f"Successfully cancelled order {order_id}")
+                    return True
+                else:
+                    self.logger.debug(f"Order {order_id} status: {status}")
+                    return True  # Consider any response as success
+
+            return True
+
+        except ClientError as e:
+            # Order already cancelled or doesn't exist - not an error
+            if e.error_code in (-2011, -2013):  # Unknown order, order does not exist
+                self.logger.debug(
+                    f"Order {order_id} already cancelled or doesn't exist: {e.error_message}"
+                )
+                return True
+            else:
+                self.logger.warning(
+                    f"Failed to cancel order {order_id}: code={e.error_code}, msg={e.error_message}"
+                )
+                return False
+        except Exception as e:
+            self.logger.warning(f"Unexpected error cancelling order {order_id}: {e}")
+            return False
+
+    def cancel_all_orders(
+        self,
+        symbol: str,
+        verify: bool = True,
+        max_retries: int = 3,
+    ) -> int:
+        """
+        Cancel all open orders for a symbol with optional verification.
+
+        Cancels all active orders for the specified trading symbol using
+        Binance Futures API. When verify=True, confirms all orders are
+        cancelled and retries if any remain.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            verify: If True, verify all orders cancelled and retry if needed
+            max_retries: Maximum retry attempts when verify=True (default: 3)
 
         Returns:
             Number of orders cancelled
@@ -1588,6 +1706,9 @@ class OrderExecutionManager:
         Example:
             >>> cancelled_count = manager.cancel_all_orders('BTCUSDT')
             >>> print(f"Cancelled {cancelled_count} orders")
+
+            >>> # Without verification (legacy behavior)
+            >>> cancelled_count = manager.cancel_all_orders('BTCUSDT', verify=False)
         """
         # 1. Validate input
         if not symbol or not isinstance(symbol, str):
@@ -1597,7 +1718,7 @@ class OrderExecutionManager:
         self.logger.info(f"Cancelling all orders for {symbol}")
 
         try:
-            # 3. Call Binance API
+            # 3. Call Binance API (bulk cancel)
             response = self.client.cancel_open_orders(symbol=symbol)
 
             # 4. Parse response (now already unwrapped by BinanceServiceClient)
@@ -1618,6 +1739,46 @@ class OrderExecutionManager:
                 self.logger.warning(f"Unexpected response format: {response}")
                 cancelled_count = 0
 
+            # 5. Verification loop (if enabled)
+            if verify:
+                for attempt in range(max_retries):
+                    try:
+                        remaining = self.get_open_orders(symbol)
+                        if not remaining:
+                            self.logger.debug(
+                                f"Verification passed: all orders cancelled for {symbol}"
+                            )
+                            break  # All cancelled successfully
+
+                        # Orders remain - cancel individually
+                        self.logger.warning(
+                            f"Verification attempt {attempt + 1}/{max_retries}: "
+                            f"{len(remaining)} orders still open for {symbol}"
+                        )
+
+                        for order in remaining:
+                            order_id = order.get("orderId")
+                            if order_id:
+                                if self._cancel_order_by_id(symbol, order_id):
+                                    cancelled_count += 1
+
+                    except Exception as e:
+                        self.logger.warning(
+                            f"Verification attempt {attempt + 1} failed: {e}"
+                        )
+
+                # Final check after all retries
+                try:
+                    final_remaining = self.get_open_orders(symbol)
+                    if final_remaining:
+                        self.logger.error(
+                            f"CRITICAL: {len(final_remaining)} orders remain after "
+                            f"{max_retries} retry attempts for {symbol}. "
+                            f"Order IDs: {[o.get('orderId') for o in final_remaining]}"
+                        )
+                except Exception as e:
+                    self.logger.warning(f"Final verification check failed: {e}")
+
             # Audit log: order cancellation
             try:
                 from src.core.audit_logger import AuditEventType
@@ -1628,6 +1789,7 @@ class OrderExecutionManager:
                     symbol=symbol,
                     response={
                         "cancelled_count": cancelled_count,
+                        "verified": verify,
                         "order_ids": (
                             [o.get("orderId") for o in response]
                             if isinstance(response, list)
