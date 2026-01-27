@@ -122,14 +122,28 @@ class BinanceDataCollector:
     @property
     def is_connected(self) -> bool:
         """
-        Check if market data WebSocket connections are active.
+        Check if all required WebSocket connections are active.
+
+        Returns True only if:
+        - Market streamer is connected (always required)
+        - User streamer is connected (if configured)
+
+        This ensures the system reports disconnected status when User Data
+        Stream drops, preventing silent failures in TP/SL orphan prevention.
+
+        Issue #58: Added conditional User Data Stream connection check.
 
         Returns:
-            True if market streamer is connected, False otherwise.
+            True if all configured streamers are connected, False otherwise.
         """
         if self.market_streamer is None:
             return False
-        return self.market_streamer.is_connected
+        if not self.market_streamer.is_connected:
+            return False
+        # Conditional check: only if user_streamer was initialized
+        if self.user_streamer is not None:
+            return self.user_streamer.is_connected
+        return True
 
     @property
     def on_candle_callback(self) -> Optional[Callable[[Candle], None]]:

@@ -340,14 +340,22 @@ class TestBinanceDataCollectorStreaming:
 
 
 class TestBinanceDataCollectorConnectionStatus:
-    """Test suite for connection status properties."""
+    """Test suite for connection status properties (Issue #58)."""
 
-    def test_is_connected_returns_market_streamer_status(
+    # =========================================================================
+    # Issue #58: is_connected must check both market AND user stream
+    # =========================================================================
+
+    def test_is_connected_true_when_both_streamers_connected(
         self, mock_binance_service, mock_market_streamer, mock_user_streamer
     ):
-        """Test that is_connected delegates to market_streamer."""
-        # Arrange
+        """
+        Issue #58 - AC1: is_connected returns True only when BOTH
+        market streamer AND user streamer (if configured) are connected.
+        """
+        # Arrange - Both streamers connected
         mock_market_streamer.is_connected = True
+        mock_user_streamer.is_connected = True
 
         collector = BinanceDataCollector(
             binance_service=mock_binance_service,
@@ -358,8 +366,90 @@ class TestBinanceDataCollectorConnectionStatus:
         # Assert
         assert collector.is_connected is True
 
+    def test_is_connected_false_when_user_streamer_disconnected(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """
+        Issue #58 - AC2: is_connected returns False if user streamer
+        exists but is disconnected, even if market streamer is connected.
+
+        This is the CRITICAL fix - prevents silent failure mode where system
+        reports "Connected" while TP/SL orphan prevention is broken.
+        """
+        # Arrange - Market connected, but User stream disconnected
+        mock_market_streamer.is_connected = True
+        mock_user_streamer.is_connected = False  # <-- Silent failure scenario
+
+        collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
+        # Assert - MUST return False
+        assert collector.is_connected is False
+
+    def test_is_connected_false_when_market_streamer_disconnected(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """
+        Issue #58: is_connected returns False if market streamer
+        is disconnected, regardless of user streamer status.
+        """
+        # Arrange - Market disconnected
+        mock_market_streamer.is_connected = False
+        mock_user_streamer.is_connected = True
+
+        collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+
+        # Assert
+        assert collector.is_connected is False
+
+    def test_is_connected_backward_compatible_without_user_streamer(
+        self, mock_binance_service, mock_market_streamer
+    ):
+        """
+        Issue #58 - AC3: is_connected still works correctly when
+        user_streamer is None (backward compatibility).
+
+        When user_streamer is not configured, is_connected should
+        only depend on market_streamer status.
+        """
+        # Arrange - No user streamer configured
+        mock_market_streamer.is_connected = True
+
+        collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=None,  # <-- No user stream
+        )
+
+        # Assert - Should return True (market is connected)
+        assert collector.is_connected is True
+
         # Change market_streamer status
         mock_market_streamer.is_connected = False
+        assert collector.is_connected is False
+
+    def test_is_connected_false_when_market_streamer_none(
+        self, mock_binance_service, mock_market_streamer, mock_user_streamer
+    ):
+        """
+        Edge case: is_connected returns False when market_streamer is None.
+        """
+        # Arrange
+        collector = BinanceDataCollector(
+            binance_service=mock_binance_service,
+            market_streamer=mock_market_streamer,
+            user_streamer=mock_user_streamer,
+        )
+        collector.market_streamer = None  # Force None state
+
+        # Assert
         assert collector.is_connected is False
 
     def test_on_candle_callback_returns_market_streamer_callback(
