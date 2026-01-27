@@ -165,6 +165,7 @@ class ICTStrategy(BaseStrategy):
             "liquidity_tolerance", profile_params.get("liquidity_tolerance", 0.001)
         )
         self.rr_ratio = config.get("rr_ratio", profile_params.get("rr_ratio", 2.0))
+        self.min_rr_ratio = config.get("min_rr_ratio", profile_params.get("min_rr_ratio", 1.5))
         self.use_killzones = config.get("use_killzones", True)
 
         # Log loaded parameters
@@ -173,7 +174,8 @@ class ICTStrategy(BaseStrategy):
             f"displacement_ratio={self.displacement_ratio}, "
             f"fvg_min_gap={self.fvg_min_gap_percent}, "
             f"ob_min_strength={self.ob_min_strength}, "
-            f"liquidity_tolerance={self.liquidity_tolerance}"
+            f"liquidity_tolerance={self.liquidity_tolerance}, "
+            f"min_rr_ratio={self.min_rr_ratio}"
         )
 
         # Minimum buffer size for ICT analysis
@@ -506,6 +508,19 @@ class ICTStrategy(BaseStrategy):
                     entry_price, side, nearest_fvg, nearest_ob
                 )
 
+                # Calculate RR ratio and validate minimum threshold
+                risk = entry_price - stop_loss  # For LONG: SL is below entry
+                reward = take_profit - entry_price  # For LONG: TP is above entry
+                calculated_rr = reward / risk if risk > 0 else 0.0
+
+                if calculated_rr < self.min_rr_ratio:
+                    self.logger.info(
+                        f"[{self.symbol}] LONG signal rejected: RR ratio {calculated_rr:.2f} "
+                        f"below minimum {self.min_rr_ratio} (entry={entry_price:.4f}, "
+                        f"TP={take_profit:.4f}, SL={stop_loss:.4f})"
+                    )
+                    return None
+
                 return Signal(
                     signal_type=SignalType.LONG_ENTRY,
                     symbol=self.symbol,
@@ -603,6 +618,19 @@ class ICTStrategy(BaseStrategy):
                 stop_loss = self._calculate_stop_loss_with_indicators(
                     entry_price, side, nearest_fvg, nearest_ob
                 )
+
+                # Calculate RR ratio and validate minimum threshold
+                risk = stop_loss - entry_price  # For SHORT: SL is above entry
+                reward = entry_price - take_profit  # For SHORT: TP is below entry
+                calculated_rr = reward / risk if risk > 0 else 0.0
+
+                if calculated_rr < self.min_rr_ratio:
+                    self.logger.info(
+                        f"[{self.symbol}] SHORT signal rejected: RR ratio {calculated_rr:.2f} "
+                        f"below minimum {self.min_rr_ratio} (entry={entry_price:.4f}, "
+                        f"TP={take_profit:.4f}, SL={stop_loss:.4f})"
+                    )
+                    return None
 
                 return Signal(
                     signal_type=SignalType.SHORT_ENTRY,

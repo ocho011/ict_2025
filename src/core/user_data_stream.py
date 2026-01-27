@@ -9,6 +9,8 @@ import asyncio
 import logging
 from typing import Optional
 
+from binance.error import ClientError
+
 
 class UserDataStreamManager:
     """
@@ -141,17 +143,8 @@ class UserDataStreamManager:
                     break
 
                 # Renew listen key via Binance API
-                self.logger.debug("Renewing listen key for keep-alive...")
-                response = self.binance_service.renew_listen_key()
-
-                # Verify renewal success
-                renewed_key = response.get("listenKey")
-                if not renewed_key:
-                    self.logger.warning("Listen key renewal returned no listenKey")
-
-                    # Try to fetch existing listen key if renewal failed
-                    # This prevents creating duplicate keys
-                    continue
+                self.logger.debug(f"Renewing listen key {self.listen_key} for keep-alive...")
+                self.binance_service.renew_listen_key(self.listen_key)
 
                 self.logger.debug("Listen key renewed successfully")
 
@@ -205,8 +198,17 @@ class UserDataStreamManager:
                 self.logger.debug(f"Closing listen key: {self.listen_key}")
                 self.binance_service.close_listen_key(self.listen_key)
                 self.logger.info("Listen key closed successfully")
+            except ClientError as e:
+                # Error code -1125: "This listenKey does not exist"
+                # This is expected when listen key has already expired or been invalidated
+                if e.error_code == -1125:
+                    self.logger.debug(
+                        f"Listen key already expired or invalidated (code: {e.error_code})"
+                    )
+                else:
+                    self.logger.warning(f"Failed to close listen key: {e}")
             except Exception as e:
-                self.logger.warning(f"Failed to close listen key: {e}", exc_info=True)
+                self.logger.warning(f"Failed to close listen key: {e}")
 
         # Step 3: Clear state
         self.listen_key = None

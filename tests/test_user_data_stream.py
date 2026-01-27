@@ -208,10 +208,10 @@ class TestBinanceServiceListenKey:
         """Test renew_listen_key method calls underlying client."""
         mock_client.renew_listen_key.return_value = {"listenKey": "renewed_key"}
 
-        result = binance_service.renew_listen_key()
+        result = binance_service.renew_listen_key("test_key_123")
 
         assert result == {"listenKey": "renewed_key"}
-        mock_client.renew_listen_key.assert_called_once()
+        mock_client.renew_listen_key.assert_called_once_with(listenKey="test_key_123")
 
     def test_close_listen_key(self, binance_service, mock_client):
         """Test close_listen_key method calls underlying client with listen key."""

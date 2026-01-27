@@ -183,7 +183,7 @@ class BinanceServiceClient:
         response = self.client.new_listen_key()
         return self._handle_response(response)
 
-    def renew_listen_key(self) -> Dict[str, Any]:
+    def renew_listen_key(self, listen_key: str) -> Dict[str, Any]:
         """
         Keep-alive ping for listen key (prevents expiration).
 
@@ -191,13 +191,16 @@ class BinanceServiceClient:
 
         Should be called at least once per 60 minutes. Recommended: every 30 minutes.
 
+        Args:
+            listen_key: The listen key to renew
+
         Returns:
             Dict containing {"listenKey": "abc123..."} or empty dict on success
 
         Raises:
             Exception: If API request fails
         """
-        response = self.client.renew_listen_key()
+        response = self.client.renew_listen_key(listenKey=listen_key)
         return self._handle_response(response)
 
     def close_listen_key(self, listen_key: str) -> Dict[str, Any]:

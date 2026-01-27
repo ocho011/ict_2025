@@ -680,3 +680,39 @@ class TestDataHandling:
 
         # Should not generate signal without clear trend
         assert signal is None
+
+
+# ============================================================================
+# Risk-Reward Ratio Validation Tests (Issue #60)
+# ============================================================================
+
+
+class TestMinRRRatioValidation:
+    """Test minimum risk-reward ratio enforcement (Issue #60)."""
+
+    def test_min_rr_ratio_config_default(self, default_config):
+        """Test min_rr_ratio defaults to 1.5 when not specified."""
+        strategy = ICTStrategy(symbol="BTCUSDT", config=default_config)
+        assert strategy.min_rr_ratio == 1.5
+
+    def test_min_rr_ratio_config_custom(self):
+        """Test min_rr_ratio can be customized via config."""
+        config = {
+            "buffer_size": 200,
+            "swing_lookback": 5,
+            "min_rr_ratio": 2.5,
+        }
+        strategy = ICTStrategy(symbol="BTCUSDT", config=config)
+        assert strategy.min_rr_ratio == 2.5
+
+    def test_min_rr_ratio_separate_from_rr_ratio(self):
+        """Test that min_rr_ratio is distinct from rr_ratio (used for TP calc)."""
+        config = {
+            "buffer_size": 200,
+            "rr_ratio": 3.0,      # TP calculation ratio
+            "min_rr_ratio": 1.5,  # Minimum enforcement threshold
+        }
+        strategy = ICTStrategy(symbol="BTCUSDT", config=config)
+        assert strategy.rr_ratio == 3.0
+        assert strategy.min_rr_ratio == 1.5
+        assert strategy.rr_ratio != strategy.min_rr_ratio
