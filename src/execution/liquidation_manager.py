@@ -516,15 +516,31 @@ class LiquidationManager:
                         closed_total += 1
                         position_closed = True
 
-                        # Audit log success
+                        # Extract exit details for realized PnL calculation
+                        exit_price = result.get("avg_price", 0.0)
+                        executed_qty = result.get("executed_qty", abs_position_amt)
+                        entry_price = float(position.get("entryPrice", 0))
+                        position_side = "LONG" if position_amt > 0 else "SHORT"
+
+                        # Calculate realized PnL
+                        if position_side == "LONG":
+                            realized_pnl = (exit_price - entry_price) * executed_qty
+                        else:
+                            realized_pnl = (entry_price - exit_price) * executed_qty
+
+                        # Audit log: trade_closed event with full exit details
                         self.audit_logger.log_event(
-                            event_type=AuditEventType.ORDER_PLACED,
+                            event_type=AuditEventType.TRADE_CLOSED,
                             operation="liquidation_close_position",
+                            symbol=symbol,
                             data={
                                 "correlation_id": correlation_id,
-                                "symbol": symbol,
-                                "side": close_side,
-                                "quantity": abs_position_amt,
+                                "exit_price": exit_price,
+                                "realized_pnl": realized_pnl,
+                                "exit_reason": "emergency_liquidation",
+                                "entry_price": entry_price,
+                                "quantity": executed_qty,
+                                "position_side": position_side,
                                 "order_id": result.get("order_id"),
                                 "attempt": attempt + 1,
                             },
@@ -532,6 +548,7 @@ class LiquidationManager:
 
                         self.logger.info(
                             f"Position closed: {symbol} order_id={result.get('order_id')} "
+                            f"exit_price={exit_price} realized_pnl={realized_pnl:.4f} "
                             f"(attempt {attempt + 1}/{self.config.max_retries}, "
                             f"correlation_id={correlation_id})"
                         )

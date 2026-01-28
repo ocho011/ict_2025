@@ -50,6 +50,7 @@ class AuditEventType(Enum):
     SIGNAL_PROCESSING = "signal_processing"
     TRADE_EXECUTED = "trade_executed"
     TRADE_EXECUTION_FAILED = "trade_execution_failed"
+    TRADE_CLOSED = "trade_closed"  # Exit with realized PnL and duration
 
     # Liquidation events (emergency shutdown)
     LIQUIDATION_STARTED = "liquidation_started"

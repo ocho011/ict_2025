@@ -1998,6 +1998,9 @@ class OrderExecutionManager:
 
             order_id = str(order_data.get("orderId"))
             status = order_data.get("status")
+            # Extract execution price for realized PnL calculation
+            avg_price = float(order_data.get("avgPrice", "0"))
+            executed_qty = float(order_data.get("executedQty", "0"))
 
             # Audit log success
             try:
@@ -2013,19 +2016,23 @@ class OrderExecutionManager:
                         "side": side,
                         "quantity": position_amt,
                         "reduce_only": reduce_only,
+                        "avg_price": avg_price,
+                        "executed_qty": executed_qty,
                     },
                 )
             except Exception as e:
                 self.logger.warning(f"Audit logging failed: {e}")
 
             self.logger.info(
-                f"Position close order executed: ID={order_id}, status={status}"
+                f"Position close order executed: ID={order_id}, status={status}, avgPrice={avg_price}"
             )
 
             return {
                 "success": True,
                 "order_id": order_id,
                 "status": status,
+                "avg_price": avg_price,
+                "executed_qty": executed_qty,
             }
 
         except ClientError as e:
