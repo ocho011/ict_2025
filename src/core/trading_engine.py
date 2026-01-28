@@ -1041,31 +1041,58 @@ class TradingEngine:
             # Step 4: Check result and log
             if result.get("success"):
                 order_id = result.get("order_id")
+                exit_price = result.get("avg_price", 0.0)
+                executed_qty = result.get("executed_qty", position.quantity)
+
+                # Calculate realized PnL
+                # LONG: (exit_price - entry_price) * quantity
+                # SHORT: (entry_price - exit_price) * quantity
+                if position.side == "LONG":
+                    realized_pnl = (exit_price - position.entry_price) * executed_qty
+                else:
+                    realized_pnl = (position.entry_price - exit_price) * executed_qty
+
+                # Calculate duration if entry_time is available
+                duration_seconds = None
+                if position.entry_time:
+                    from datetime import datetime, timezone
+
+                    duration = datetime.now(timezone.utc) - position.entry_time.replace(
+                        tzinfo=timezone.utc
+                    ) if position.entry_time.tzinfo is None else datetime.now(timezone.utc) - position.entry_time
+                    duration_seconds = duration.total_seconds()
+
                 self.logger.info(
                     f"✅ Position closed successfully: "
                     f"Order ID={order_id}, "
-                    f"Quantity={position.quantity}, "
+                    f"Quantity={executed_qty}, "
+                    f"Exit price={exit_price}, "
+                    f"Realized PnL={realized_pnl:.4f}, "
                     f"Exit reason={signal.exit_reason}"
                 )
 
-                # Audit log: exit trade executed
+                # Audit log: trade_closed event with full exit details
                 try:
                     from src.core.audit_logger import AuditEventType
 
                     self.audit_logger.log_event(
-                        event_type=AuditEventType.TRADE_EXECUTED,
+                        event_type=AuditEventType.TRADE_CLOSED,
                         operation="execute_exit",
                         symbol=signal.symbol,
-                        order_data={
-                            "signal_type": signal.signal_type.value,
-                            "exit_price": signal.entry_price,
+                        data={
+                            "exit_price": exit_price,
+                            "realized_pnl": realized_pnl,
                             "exit_reason": signal.exit_reason,
-                            "quantity": position.quantity,
+                            "duration_seconds": duration_seconds,
+                            "entry_price": position.entry_price,
+                            "quantity": executed_qty,
                             "position_side": position.side,
-                            "position_entry": position.entry_price,
+                            "leverage": position.leverage,
+                            "signal_type": signal.signal_type.value,
                         },
                         response={
                             "close_order_id": order_id,
+                            "status": result.get("status"),
                         },
                     )
                 except Exception as e:

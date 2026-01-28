@@ -182,3 +182,51 @@ class TestAuditLogger:
         assert "order_data" not in log_entry
         assert "response" not in log_entry
         assert "error" not in log_entry
+
+    def test_trade_closed_event_type_exists(self):
+        """Test TRADE_CLOSED event type is available (Issue #63)."""
+        assert hasattr(AuditEventType, "TRADE_CLOSED")
+        assert AuditEventType.TRADE_CLOSED.value == "trade_closed"
+
+    def test_log_trade_closed_with_full_data(self, audit_logger):
+        """Test logging trade_closed event with all required fields (Issue #63)."""
+        import time
+
+        audit_logger.log_event(
+            event_type=AuditEventType.TRADE_CLOSED,
+            operation="execute_exit",
+            symbol="BTCUSDT",
+            data={
+                "exit_price": 50000.0,
+                "realized_pnl": 150.25,
+                "exit_reason": "TP_HIT",
+                "duration_seconds": 3600.5,
+                "entry_price": 49500.0,
+                "quantity": 0.1,
+                "position_side": "LONG",
+                "leverage": 10,
+                "signal_type": "CLOSE_LONG",
+            },
+            response={
+                "close_order_id": "123456789",
+                "status": "FILLED",
+            },
+        )
+
+        # Give async queue time to flush
+        time.sleep(0.1)
+
+        with open(audit_logger.log_file) as f:
+            log_entry = json.loads(f.readline())
+
+        assert log_entry["event_type"] == "trade_closed"
+        assert log_entry["operation"] == "execute_exit"
+        assert log_entry["symbol"] == "BTCUSDT"
+        assert log_entry["data"]["exit_price"] == 50000.0
+        assert log_entry["data"]["realized_pnl"] == 150.25
+        assert log_entry["data"]["exit_reason"] == "TP_HIT"
+        assert log_entry["data"]["duration_seconds"] == 3600.5
+        assert log_entry["data"]["entry_price"] == 49500.0
+        assert log_entry["data"]["quantity"] == 0.1
+        assert log_entry["data"]["position_side"] == "LONG"
+        assert log_entry["response"]["close_order_id"] == "123456789"
