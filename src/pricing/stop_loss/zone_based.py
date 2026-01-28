@@ -16,6 +16,7 @@ class ZoneBasedStopLoss(StopLossDeterminer):
     """
     buffer_percent: float = 0.001  # 0.1%
     fallback_percent: float = 0.01  # 1% fallback
+    max_sl_percent: float = 0.02  # 2% maximum SL distance cap
 
     def calculate_stop_loss(self, context: PriceContext) -> float:
         # Priority: FVG zone > OB zone > fallback percentage
@@ -33,7 +34,19 @@ class ZoneBasedStopLoss(StopLossDeterminer):
 
         if context.side == "LONG":
             sl = zone_low - buffer
-            return sl if sl < context.entry_price else context.entry_price * (1 - self.fallback_percent)
+            if sl >= context.entry_price:
+                return context.entry_price * (1 - self.fallback_percent)
+            # Cap to maximum SL distance
+            distance_pct = (context.entry_price - sl) / context.entry_price
+            if distance_pct > self.max_sl_percent:
+                return context.entry_price * (1 - self.max_sl_percent)
+            return sl
         else:  # SHORT
             sl = zone_high + buffer
-            return sl if sl > context.entry_price else context.entry_price * (1 + self.fallback_percent)
+            if sl <= context.entry_price:
+                return context.entry_price * (1 + self.fallback_percent)
+            # Cap to maximum SL distance
+            distance_pct = (sl - context.entry_price) / context.entry_price
+            if distance_pct > self.max_sl_percent:
+                return context.entry_price * (1 + self.max_sl_percent)
+            return sl

@@ -30,6 +30,7 @@ PROFILE_PARAMETERS = {
         "ob_min_strength": 1.5,
         "liquidity_tolerance": 0.001,
         "rr_ratio": 2.0,
+        "min_rr_ratio": 1.5,
         "description": "Strict parameters (1-2 signals/week) - Current baseline",
         "signal_frequency": "1-2 per week",
         "use_case": "High-quality signals, minimal false positives",
@@ -41,6 +42,7 @@ PROFILE_PARAMETERS = {
         "ob_min_strength": 1.3,
         "liquidity_tolerance": 0.002,
         "rr_ratio": 2.0,
+        "min_rr_ratio": 1.2,
         "description": "Balanced parameters (5-10 signals/week) - Recommended",
         "signal_frequency": "5-10 per week",
         "use_case": "Good signal-to-noise ratio, suitable for active trading",
@@ -52,6 +54,7 @@ PROFILE_PARAMETERS = {
         "ob_min_strength": 1.1,
         "liquidity_tolerance": 0.005,
         "rr_ratio": 2.0,
+        "min_rr_ratio": 1.0,
         "description": "Relaxed parameters (15-20 signals/week) - Testing only",
         "signal_frequency": "15-20 per week",
         "use_case": "Maximum signals, higher false positive risk",
@@ -171,6 +174,7 @@ def compare_profiles() -> str:
         "ob_min_strength",
         "liquidity_tolerance",
         "rr_ratio",
+        "min_rr_ratio",
     ]
 
     for param in params:

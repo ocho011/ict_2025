@@ -234,6 +234,7 @@ class ICTStrategy(BaseStrategy):
             stop_loss_determiner=ZoneBasedStopLoss(
                 buffer_percent=config.get("sl_buffer_percent", 0.001),
                 fallback_percent=config.get("stop_loss_percent", 0.01),
+                max_sl_percent=config.get("max_sl_percent", 0.02),
             ),
             take_profit_determiner=DisplacementTakeProfit(
                 risk_reward_ratio=config.get("rr_ratio", default_rr_ratio),
