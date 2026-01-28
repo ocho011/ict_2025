@@ -18,6 +18,8 @@ from src.models.candle import Candle
 from src.models.position import Position
 from src.models.signal import Signal
 
+# Imports for type hinting only; prevents circular dependency at runtime
+# Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.strategies.indicator_cache import IndicatorStateCache
 

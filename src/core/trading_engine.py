@@ -14,6 +14,8 @@ import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional, Dict, Any
 
+# Imports for type hinting only; prevents circular dependency at runtime
+# Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.main import TradingBot
@@ -714,7 +716,7 @@ class TradingEngine:
         self, candle: Candle, strategy: BaseStrategy, position: "Position"
     ) -> bool:
         """
-        기존 포지션에 대한 청산 조건 확인 (Issue #42).
+        Check exit conditions for existing position (Issue #42).
 
         Returns:
             True if exit signal was generated and published, False otherwise.
@@ -753,7 +755,7 @@ class TradingEngine:
         self, candle: Candle, strategy: BaseStrategy
     ) -> None:
         """
-        신규 진입 조건 확인 (Issue #42).
+        Check new entry conditions (Issue #42).
         """
         try:
             signal = await strategy.analyze(candle)
@@ -783,7 +785,7 @@ class TradingEngine:
         audit_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         """
-        Audit Log 기록 및 EventBus 발행 공통 처리 (Issue #42).
+        Common handling for audit log recording and EventBus publication (Issue #42).
         """
         # 1. Log generation status
         if signal.is_exit_signal:

@@ -1,0 +1,172 @@
+ICT(Inner Circle Trader) 전략의 핵심 요소인 OB, FVG 등을 자동매매 시스템으로 구현하기 위한 **'지표 생명 주기 설계'**의 핵심 요약은 다음과 같습니다.
+
+---
+
+## 1. 데이터 구조의 분리 (Decoupling)
+
+시계열 데이터와 상태 데이터를 분리하여 관리하는 것이 효율성의 시작입니다.
+
+* **Candle Queue (시간 축):** 최근 개의 캔들을 보관하며, 지표 생성의 '재료'로만 사용합니다. 일정 시간이 지나면 삭제(Pop)됩니다.
+* **Indicator Registry (가격 축):** 생성된 OB, FVG 등을 별도의 객체로 관리합니다. 이들은 시간과 관계없이 **무효화 조건(Invalidation)**이 충족될 때까지 메모리에 상주합니다.
+
+---
+
+## 2. 객체 지향적 추상화 (OOP)
+
+지표의 종류가 많아짐에 따른 복잡도를 관리하기 위해 'PriceArea'라는 상위 클래스를 설계합니다.
+
+* **공통 속성:** 가격 범위(Top, Bottom), 생성 시점, 활성 상태(IsActive).
+* **개별 로직:** 지표 클래스 내부에 스스로를 검증하는 `check_invalidation()` 메서드를 포함하여, 시스템이 지표의 종류를 몰라도 일괄적으로 상태를 업데이트하게 합니다.
+
+---
+
+## 3. 지표의 카테고리화 및 관리 전략
+
+모든 지표를 매 틱마다 검사할 필요는 없으므로, 성격에 따라 관리 방식을 나눕니다.
+
+* **영역 기반 지표 (OB, FVG, Liquidity Pool):** '감시 리스트'에 등록하여 매 틱마다 현재가와의 충돌/돌파 여부를 확인합니다.
+* **이벤트 기반 지표 (MS, Swing Point, Sweep):** 캔들 마감 시점에 발생 여부만 판단하고, 기록(Log) 데이터로 전환하여 실시간 연산 대상에서 제외합니다.
+
+---
+
+## 4. 효율적인 생명 주기 루프 (Life-cycle Loop)
+
+오버헤드를 최소화하기 위한 실시간 처리 단계는 다음과 같습니다.
+
+1. **Tick 수신:** 현재가(Current Price) 업데이트.
+2. **상태 업데이트:** 활성 지표 리스트를 순회하며 무효화 조건(예: 가격 돌파) 확인.
+3. **정리(Cleanup):** 무효화된 지표를 리스트에서 즉시 제거하여 다음 연산의 부하를 감소시킴.
+4. **신호 발생:** 유효한 지표 내에 가격이 진입(Mitigation)할 경우 매매 로직 실행.
+
+---
+
+## 5. 설계의 장점
+
+* **정확성:** 캔들이 큐에서 사라져도 유효한 지표는 끝까지 추적할 수 있습니다.
+* **성능:** 수천 개의 과거 캔들을 뒤지는 대신, 현재 활성화된 소수의 지표만 검사하므로 연산 속도가 비약적으로 향상됩니다.
+* **확장성:** 새로운 ICT 개념(예: Silver Bullet, Unicorn)을 추가할 때 기존 로직을 수정하지 않고 클래스만 추가하여 통합할 수 있습니다.
+
+---
+
+[[이러한 설계를 바탕으로 **파이썬의 `dataclass`나 `inheritance`를 활용한 실제 코드 뼈대**를 구성]]
+
+ICT 전략의 지표 생명 주기를 효율적으로 관리하기 위해, 파이썬의 **`dataclass`**와 **상속(Inheritance)**을 활용한 아키텍처 예시이다. 이 구조는 지표의 추가가 용이하며 매 틱마다 발생하는 연산 부하를 최소화하도록 설계되었다.
+
+---
+
+## 1. 지표 추상화 및 개별 지표 정의
+
+모든 지표의 공통 분모를 `BaseIndicator`로 정의하고, 각 지표(OB, FVG)가 이를 상속받아 자신만의 무효화 로직을 갖게 한다.
+
+```python
+from dataclasses import dataclass, field
+from abc import ABC, abstractmethod
+from typing import List, Optional
+
+@dataclass
+class BaseIndicator(ABC):
+    id: int
+    top: float
+    bottom: float
+    is_active: bool = True
+    
+    @abstractmethod
+    def update(self, current_price: float):
+        """매 틱마다 호출되어 자신의 상태를 업데이트함"""
+        pass
+
+@dataclass
+class OrderBlock(BaseIndicator):
+    strength: float = 1.0
+    
+    def update(self, current_price: float):
+        # OB 무효화 조건: 가격이 OB 구역을 완전히 이탈하여 돌파할 때
+        if current_price < self.bottom * 0.99:  # 예시: 하단 1% 이탈 시
+            self.is_active = False
+
+@dataclass
+class FVG(BaseIndicator):
+    is_filled: bool = False
+    
+    def update(self, current_price: float):
+        # FVG 무효화 조건: 가격이 FVG 구간 내로 들어와서 반대편까지 채웠을 때
+        if self.bottom <= current_price <= self.top:
+            self.is_filled = True
+            self.is_active = False  # 채워진 FVG는 무효화 처리
+
+```
+
+---
+
+## 2. 중앙 지표 관리자 (Indicator Manager)
+
+관리자는 지표의 생성, 업데이트, 삭제를 전담한다.
+
+```python
+class ICTIndicatorManager:
+    def __init__(self):
+        self.active_indicators: List[BaseIndicator] = []
+        self._id_counter = 0
+
+    def add_indicator(self, indicator_type: str, top: float, bottom: float, **kwargs):
+        self._id_counter += 1
+        if indicator_type == "OB":
+            new_ind = OrderBlock(id=self._id_counter, top=top, bottom=bottom, **kwargs)
+        elif indicator_type == "FVG":
+            new_ind = FVG(id=self._id_counter, top=top, bottom=bottom, **kwargs)
+        
+        self.active_indicators.append(new_ind)
+
+    def on_tick(self, current_price: float):
+        # 1. 모든 지표 상태 업데이트
+        for ind in self.active_indicators:
+            ind.update(current_price)
+            
+        # 2. 무효화된 지표 제거 (Memory Management)
+        initial_count = len(self.active_indicators)
+        self.active_indicators = [ind for ind in self.active_indicators if ind.is_active]
+        
+        if len(self.active_indicators) < initial_count:
+            print(f"시스템 정리: {initial_count - len(self.active_indicators)}개의 지표 무효화됨.")
+
+    def get_signals(self, current_price: float):
+        # 현재 가격이 유효한 지표 영역 안에 있는지 확인
+        return [ind for ind in self.active_indicators 
+                if ind.bottom <= current_price <= ind.top]
+
+```
+
+---
+
+## 3. 메인 실행 흐름 (이벤트 루프)
+
+실제 시스템에서는 캔들이 마감될 때 지표를 생성하고, 매 틱마다 관리자의 `on_tick`을 호출한다.
+
+```python
+manager = ICTIndicatorManager()
+
+# 1. 캔들 마감 이벤트 (지표 생성 시점)
+# 예: 새로운 Bullish FVG 발견
+manager.add_indicator("FVG", top=150.0, bottom=145.0)
+manager.add_indicator("OB", top=142.0, bottom=138.0)
+
+# 2. 틱 데이터 수신 이벤트 (실시간 감시 시점)
+ticks = [148.0, 149.5, 151.0, 140.0]
+
+for price in ticks:
+    print(f"\n현재가: {price}")
+    manager.on_tick(price)
+    
+    signals = manager.get_signals(price)
+    for s in signals:
+        print(f"신호 포착: {type(s).__name__} 구역 진입!")
+
+```
+
+---
+
+## 4. 설계의 특징 요약
+
+* **성능:** `on_tick` 내의 리스트 컴프리헨션은 파이썬에서 매우 빠르게 동작한다. 무효화된 지표가 즉시 제거되므로 검사 대상은 항상 최소 수준으로 유지된다.
+* **가독성:** `dataclass`를 사용하여 지표의 속성을 명확히 정의하였고, 상속을 통해 새로운 ICT 개념(예: Breaker Block, Mitigation Block)을 추가하기 매우 쉬운 구조이다.
+* **유연성:** `update` 메서드 내에 단순 가격 비교 외에도 시간 제한(Expiration)이나 거래량 조건 등을 자유롭게 추가할 수 있다.

@@ -20,15 +20,15 @@ class OrderExecutionError(TradingSystemError):
 
 
 class ValidationError(OrderExecutionError):
-    """주문 파라미터 검증 실패"""
+    """Order parameter validation failed"""
 
 
 class RateLimitError(OrderExecutionError):
-    """Rate limit 초과"""
+    """Rate limit exceeded"""
 
 
 class OrderRejectedError(OrderExecutionError):
-    """Binance가 주문 거부"""
+    """Order rejected by Binance"""
 
 
 class RiskManagementError(TradingSystemError):

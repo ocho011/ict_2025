@@ -140,7 +140,19 @@ class BinanceServiceClient:
 
     def __getattr__(self, name: str) -> Any:
         """
-        Proxy method calls to the underlying UMFutures client with weight tracking.
+        Dynamic Proxy Implementation:
+        Proxies method calls to the underlying UMFutures client to intercept 
+        requests and inject cross-cutting concerns.
+
+        Role & Logic:
+        1. Acting as a Proxy: This class does not implement every Binance API 
+           method. Instead, it intercepts calls to undefined methods and 
+           delegates them to 'self.client' (the Real Subject).
+        2. Interception (Wrapping): It wraps the returned callable from the 
+           underlying client with a 'wrapper' function.
+        3. Feature Injection: This allows the service to automatically execute 
+           post-processing logic (Weight Tracking and Response Unwrapping) 
+           via '_handle_response' for every proxied API call.
 
         Args:
             name: Method name to call on UMFutures client
@@ -163,8 +175,9 @@ class BinanceServiceClient:
         return attr
 
     # User Data Stream Listen Key Methods
-    # These methods are explicitly defined for documentation and clarity,
-    # even though __getattr__ would proxy them to the underlying client.
+    # Explicitly defined despite proxy support:
+    # these methods handle semantically critical and high-risk APIs
+    # (listen keys, algo orders), so intent and usage must be explicit.
 
     def new_listen_key(self) -> Dict[str, Any]:
         """

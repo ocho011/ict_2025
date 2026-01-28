@@ -1,5 +1,5 @@
 """
-OrderExecutionManager 단위 테스트
+OrderExecutionManager Unit Tests
 """
 
 import logging
@@ -17,11 +17,11 @@ from src.models.signal import Signal, SignalType
 
 
 class TestOrderExecutionManager:
-    """OrderExecutionManager 단위 테스트"""
+    """OrderExecutionManager Unit Tests"""
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Binance UMFutures 클라이언트"""
+        """Mock Binance UMFutures Client"""
         return MagicMock()
 
     @pytest.fixture
@@ -53,13 +53,13 @@ class TestOrderExecutionManager:
 
     @pytest.fixture
     def manager(self, mock_binance_service, mock_audit_logger):
-        """OrderExecutionManager 인스턴스 (mock service 사용)"""
+        """OrderExecutionManager instance (using mock service)"""
         return OrderExecutionManager(
             audit_logger=mock_audit_logger,
             binance_service=mock_binance_service
         )
 
-    # ==================== 초기화 테스트 ====================
+    # ==================== Initialization Tests ====================
 
     def test_init_success(self, manager):
         """Initialization success check"""
@@ -67,13 +67,13 @@ class TestOrderExecutionManager:
         assert manager.binance_service is not None
 
     def test_init_open_orders_empty(self, manager):
-        """초기화 시 _open_orders가 빈 딕셔너리인지 확인"""
+        """Check if _open_orders is an empty dictionary on initialization"""
         assert manager._open_orders == {}
 
-    # ==================== 레버리지 설정 테스트 ====================
+    # ==================== Leverage Settings Tests ====================
 
     def test_set_leverage_success(self, manager, mock_client):
-        """레버리지 설정 성공"""
+        """Leverage set success"""
         mock_client.change_leverage.return_value = {"symbol": "BTCUSDT", "leverage": 10}
 
         result = manager.set_leverage("BTCUSDT", 10)
@@ -82,7 +82,7 @@ class TestOrderExecutionManager:
         mock_client.change_leverage.assert_called_once_with(symbol="BTCUSDT", leverage=10)
 
     def test_set_leverage_various_values(self, manager, mock_client):
-        """다양한 레버리지 값 테스트 (1x, 20x, 125x)"""
+        """Test various leverage values (1x, 20x, 125x)"""
         mock_client.change_leverage.return_value = {"leverage": 0}
 
         for leverage in [1, 20, 125]:
@@ -90,7 +90,7 @@ class TestOrderExecutionManager:
             assert result is True
 
     def test_set_leverage_api_error(self, manager, mock_client):
-        """API 오류 시 False 반환"""
+        """Return False on API error"""
         mock_client.change_leverage.side_effect = ClientError(
             status_code=400, error_code=-4028, error_message="Leverage 200 is not valid", header={}
         )
@@ -100,7 +100,7 @@ class TestOrderExecutionManager:
         assert result is False
 
     def test_set_leverage_network_error(self, manager, mock_client):
-        """네트워크 오류 시 False 반환"""
+        """Return False on network error"""
         mock_client.change_leverage.side_effect = Exception("Network error")
 
         result = manager.set_leverage("BTCUSDT", 10)
@@ -108,7 +108,7 @@ class TestOrderExecutionManager:
         assert result is False
 
     def test_set_leverage_logging_success(self, manager, mock_client, caplog):
-        """성공 시 로깅 확인"""
+        """Verify success logging"""
         mock_client.change_leverage.return_value = {"leverage": 10}
 
         with caplog.at_level(logging.INFO):
@@ -117,7 +117,7 @@ class TestOrderExecutionManager:
             assert "Leverage set to 10x for BTCUSDT" in caplog.text
 
     def test_set_leverage_logging_error(self, manager, mock_client, caplog):
-        """실패 시 로깅 확인"""
+        """Verify error logging"""
         mock_client.change_leverage.side_effect = ClientError(
             status_code=400, error_code=-4028, error_message="Invalid leverage", header={}
         )
@@ -127,10 +127,10 @@ class TestOrderExecutionManager:
 
             assert "Failed to set leverage" in caplog.text
 
-    # ==================== 마진 타입 설정 테스트 ====================
+    # ==================== Margin Type Settings Tests ====================
 
     def test_set_margin_type_isolated_success(self, manager, mock_client):
-        """ISOLATED 마진 타입 설정 성공"""
+        """ISOLATED margin type set success"""
         mock_client.change_margin_type.return_value = {"code": 200, "msg": "success"}
 
         result = manager.set_margin_type("BTCUSDT", "ISOLATED")
@@ -141,7 +141,7 @@ class TestOrderExecutionManager:
         )
 
     def test_set_margin_type_crossed_success(self, manager, mock_client):
-        """CROSSED 마진 타입 설정 성공"""
+        """CROSSED margin type set success"""
         mock_client.change_margin_type.return_value = {"code": 200}
 
         result = manager.set_margin_type("BTCUSDT", "CROSSED")
@@ -149,17 +149,17 @@ class TestOrderExecutionManager:
         assert result is True
 
     def test_set_margin_type_default_isolated(self, manager, mock_client):
-        """기본값이 ISOLATED인지 확인"""
+        """Verify default is ISOLATED"""
         mock_client.change_margin_type.return_value = {"code": 200}
 
         manager.set_margin_type("BTCUSDT")
 
-        # ISOLATED이 기본값으로 호출되었는지 확인
+        # Verify ISOLATED called as default
         call_args = mock_client.change_margin_type.call_args
         assert call_args.kwargs["marginType"] == "ISOLATED"
 
     def test_set_margin_type_already_set(self, manager, mock_client):
-        """이미 설정된 경우 (True 반환)"""
+        """Case where already set (Return True)"""
         mock_client.change_margin_type.side_effect = ClientError(
             status_code=400,
             error_code=-4046,
@@ -169,11 +169,11 @@ class TestOrderExecutionManager:
 
         result = manager.set_margin_type("BTCUSDT", "ISOLATED")
 
-        # "No need to change"는 성공으로 간주
+        # "No need to change" is treated as success
         assert result is True
 
     def test_set_margin_type_open_orders_error(self, manager, mock_client):
-        """오픈 주문이 있어서 실패"""
+        """Failure due to open orders"""
         mock_client.change_margin_type.side_effect = ClientError(
             status_code=400,
             error_code=-4047,
@@ -186,7 +186,7 @@ class TestOrderExecutionManager:
         assert result is False
 
     def test_set_margin_type_logging_success(self, manager, mock_client, caplog):
-        """성공 시 로깅 확인"""
+        """Verify success logging"""
         mock_client.change_margin_type.return_value = {"code": 200}
 
         with caplog.at_level(logging.INFO):
@@ -195,8 +195,8 @@ class TestOrderExecutionManager:
             assert "Margin type set to ISOLATED for BTCUSDT" in caplog.text
 
     def test_set_margin_type_logging_already_set(self, manager, mock_client, caplog):
-        """이미 설정된 경우 디버그 로깅 확인"""
-        # Logger 레벨을 DEBUG로 설정
+        """Verify debug logging when already set"""
+        # Set Logger level to DEBUG
         manager.logger.setLevel(logging.DEBUG)
 
         mock_client.change_margin_type.side_effect = ClientError(
@@ -212,11 +212,11 @@ class TestOrderExecutionManager:
             assert "already set" in caplog.text
 
 
-# ==================== 예외 클래스 테스트 ====================
+# ==================== Exception Class Tests ====================
 
 
 def test_validation_error_inheritance():
-    """ValidationError가 OrderExecutionError를 상속하는지 확인"""
+    """Check if ValidationError inherits from OrderExecutionError"""
     from src.core.exceptions import OrderExecutionError, ValidationError
 
     err = ValidationError("Test error")
@@ -224,7 +224,7 @@ def test_validation_error_inheritance():
 
 
 def test_rate_limit_error_inheritance():
-    """RateLimitError가 OrderExecutionError를 상속하는지 확인"""
+    """Check if RateLimitError inherits from OrderExecutionError"""
     from src.core.exceptions import OrderExecutionError, RateLimitError
 
     err = RateLimitError("Test error")
@@ -232,22 +232,22 @@ def test_rate_limit_error_inheritance():
 
 
 def test_order_rejected_error_inheritance():
-    """OrderRejectedError가 OrderExecutionError를 상속하는지 확인"""
+    """Check if OrderRejectedError inherits from OrderExecutionError"""
     from src.core.exceptions import OrderExecutionError, OrderRejectedError
 
     err = OrderRejectedError("Test error")
     assert isinstance(err, OrderExecutionError)
 
 
-# ==================== execute_signal() 테스트 ====================
+# ==================== execute_signal() Tests ====================
 
 
 class TestExecuteSignal:
-    """execute_signal() 메서드 테스트"""
+    """Test execute_signal() method"""
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Binance UMFutures 클라이언트"""
+        """Mock Binance UMFutures Client"""
         client = MagicMock()
         client.new_order.return_value = {
             "orderId": 123456789,
@@ -298,7 +298,7 @@ class TestExecuteSignal:
 
     @pytest.fixture
     def manager(self, mock_binance_service):
-        """OrderExecutionManager 인스턴스 (mock service 사용)"""
+        """OrderExecutionManager instance (using mock service)"""
         return OrderExecutionManager(
             audit_logger=MagicMock(),
             binance_service=mock_binance_service
@@ -306,7 +306,7 @@ class TestExecuteSignal:
 
     @pytest.fixture
     def long_entry_signal(self):
-        """LONG_ENTRY 시그널"""
+        """LONG_ENTRY signal"""
         return Signal(
             signal_type=SignalType.LONG_ENTRY,
             symbol="BTCUSDT",
@@ -319,7 +319,7 @@ class TestExecuteSignal:
 
     @pytest.fixture
     def short_entry_signal(self):
-        """SHORT_ENTRY 시그널"""
+        """SHORT_ENTRY signal"""
         return Signal(
             signal_type=SignalType.SHORT_ENTRY,
             symbol="BTCUSDT",
@@ -332,7 +332,7 @@ class TestExecuteSignal:
 
     @pytest.fixture
     def close_long_signal(self):
-        """CLOSE_LONG 시그널"""
+        """CLOSE_LONG signal"""
         return Signal(
             signal_type=SignalType.CLOSE_LONG,
             symbol="BTCUSDT",
@@ -345,7 +345,7 @@ class TestExecuteSignal:
 
     @pytest.fixture
     def close_short_signal(self):
-        """CLOSE_SHORT 시그널"""
+        """CLOSE_SHORT signal"""
         return Signal(
             signal_type=SignalType.CLOSE_SHORT,
             symbol="BTCUSDT",
@@ -356,20 +356,20 @@ class TestExecuteSignal:
             timestamp=datetime.now(timezone.utc),
         )
 
-    # ==================== _determine_order_side() 테스트 ====================
+    # ==================== _determine_order_side() Tests ====================
 
     def test_determine_order_side_long_entry(self, manager, long_entry_signal):
-        """LONG_ENTRY → BUY 매핑 확인"""
+        """Verify LONG_ENTRY -> BUY mapping"""
         side = manager._determine_order_side(long_entry_signal)
         assert side == OrderSide.BUY
 
     def test_determine_order_side_short_entry(self, manager, short_entry_signal):
-        """SHORT_ENTRY → SELL 매핑 확인"""
+        """Verify SHORT_ENTRY -> SELL mapping"""
         side = manager._determine_order_side(short_entry_signal)
         assert side == OrderSide.SELL
 
     def test_determine_order_side_close_long(self, manager):
-        """CLOSE_LONG → SELL 매핑 확인"""
+        """Verify CLOSE_LONG -> SELL mapping"""
         signal = Signal(
             signal_type=SignalType.CLOSE_LONG,
             symbol="BTCUSDT",
@@ -383,7 +383,7 @@ class TestExecuteSignal:
         assert side == OrderSide.SELL
 
     def test_determine_order_side_close_short(self, manager):
-        """CLOSE_SHORT → BUY 매핑 확인"""
+        """Verify CLOSE_SHORT -> BUY mapping"""
         signal = Signal(
             signal_type=SignalType.CLOSE_SHORT,
             symbol="BTCUSDT",
@@ -396,10 +396,10 @@ class TestExecuteSignal:
         side = manager._determine_order_side(signal)
         assert side == OrderSide.BUY
 
-    # ==================== _parse_order_response() 테스트 ====================
+    # ==================== _parse_order_response() Tests ====================
 
     def test_parse_order_response_filled(self, manager):
-        """FILLED 상태 응답 파싱"""
+        """Parse FILLED status response"""
         response = {
             "orderId": 123456789,
             "symbol": "BTCUSDT",
@@ -423,7 +423,7 @@ class TestExecuteSignal:
         assert isinstance(order.timestamp, datetime)
 
     def test_parse_order_response_partially_filled(self, manager):
-        """PARTIALLY_FILLED 상태 응답 파싱"""
+        """PARTIALLY_Parse FILLED status response"""
         response = {
             "orderId": 987654321,
             "symbol": "ETHUSDT",
@@ -439,7 +439,7 @@ class TestExecuteSignal:
         assert order.side == OrderSide.SELL
 
     def test_parse_order_response_timestamp_conversion(self, manager):
-        """타임스탬프 변환 (milliseconds → UTC datetime)"""
+        """Timestamp conversion (milliseconds -> UTC datetime)"""
         response = {
             "orderId": 111,
             "symbol": "BTCUSDT",
@@ -451,16 +451,16 @@ class TestExecuteSignal:
 
         order = manager._parse_order_response(response, "BTCUSDT", OrderSide.BUY)
 
-        # UTC datetime으로 변환되었는지 확인
+        # Verify conversion to UTC datetime
         assert order.timestamp.tzinfo == timezone.utc
         assert order.timestamp.year == 2022
         assert order.timestamp.month == 5
         assert order.timestamp.day == 26
 
     def test_parse_order_response_missing_field(self, manager):
-        """필수 필드 누락 시 OrderExecutionError"""
+        """OrderExecutionError on missing required fields"""
         response = {
-            # orderId 누락
+            # Missing orderId
             "symbol": "BTCUSDT",
             "status": "FILLED",
         }
@@ -469,7 +469,7 @@ class TestExecuteSignal:
             manager._parse_order_response(response, "BTCUSDT", OrderSide.BUY)
 
     def test_parse_order_response_invalid_status(self, manager):
-        """유효하지 않은 status 값"""
+        """Invalid status value"""
         response = {
             "orderId": 123,
             "symbol": "BTCUSDT",
@@ -483,28 +483,28 @@ class TestExecuteSignal:
             manager._parse_order_response(response, "BTCUSDT", OrderSide.BUY)
 
     def test_parse_order_response_zero_avg_price(self, manager):
-        """avgPrice가 0인 경우 price를 None으로 설정"""
+        """Set price to None if avgPrice is 0"""
         response = {
             "orderId": 123,
             "symbol": "BTCUSDT",
             "status": "NEW",
-            "avgPrice": "0",  # 미체결 주문
+            "avgPrice": "0",  # Unfilled order
             "origQty": "0.001",
             "updateTime": 1653563095000,
         }
 
         order = manager._parse_order_response(response, "BTCUSDT", OrderSide.BUY)
 
-        assert order.price is None  # avgPrice가 0이면 None
+        assert order.price is None  # None if avgPrice is 0
 
-    # ==================== execute_signal() 통합 테스트 ====================
+    # ==================== execute_signal() Integration Tests ====================
 
     def test_execute_signal_long_entry_success(self, manager, mock_client, long_entry_signal):
-        """LONG_ENTRY 시그널 실행 성공"""
+        """LONG_ENTRY signal execution success"""
         # execute_signal returns (Order, List[Order]) tuple
         entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
 
-        # Order 객체 검증
+        # Verify Order object
         assert entry_order.symbol == "BTCUSDT"
         assert entry_order.side == OrderSide.BUY
         assert entry_order.order_type == OrderType.MARKET
@@ -513,7 +513,7 @@ class TestExecuteSignal:
         assert entry_order.status == OrderStatus.FILLED
         assert entry_order.price == 59808.02
 
-        # API 호출 검증 (최소 1번 - entry order)
+        # Verify API calls (at least once - entry order)
         assert mock_client.new_order.call_count >= 1
         first_call = mock_client.new_order.call_args_list[0]
         assert first_call.kwargs["symbol"] == "BTCUSDT"
@@ -522,24 +522,24 @@ class TestExecuteSignal:
         assert first_call.kwargs["quantity"] == "0.001"
 
     def test_execute_signal_short_entry_success(self, manager, mock_client, short_entry_signal):
-        """SHORT_ENTRY 시그널 실행 성공"""
+        """SHORT_ENTRY signal execution success"""
         mock_client.new_order.return_value["side"] = "SELL"
 
         entry_order, tpsl_orders = manager.execute_signal(short_entry_signal, quantity=0.001)
 
-        # Order 객체 검증
+        # Verify Order object
         assert entry_order.side == OrderSide.SELL
         assert entry_order.symbol == "BTCUSDT"
 
-        # API 호출 검증 (side가 SELL인지 확인)
+        # API Call Verify (Verify side is SELL)
         first_call = mock_client.new_order.call_args_list[0]
         assert first_call.kwargs["side"] == "SELL"
 
     def test_execute_signal_reduce_only_true(self, manager, mock_client, long_entry_signal):
-        """reduce_only=True 파라미터 전달"""
+        """Pass reduce_only=True parameter"""
         manager.execute_signal(long_entry_signal, quantity=0.001, reduce_only=True)
 
-        # API 호출 시 reduceOnly=True 전달 확인 (첫 번째 호출인 진입 주문 확인)
+        # Verify reduceOnly=True passed in API call (check entry order in first call)
         first_call = mock_client.new_order.call_args_list[0]
         assert first_call.kwargs["reduceOnly"] is True
 
@@ -554,7 +554,7 @@ class TestExecuteSignal:
             manager.execute_signal(long_entry_signal, quantity=-0.001)
 
     def test_execute_signal_binance_rejection(self, manager, mock_client, long_entry_signal):
-        """Binance API 거부 → OrderRejectedError"""
+        """Binance API rejection -> OrderRejectedError"""
         mock_client.new_order.side_effect = ClientError(
             status_code=400, error_code=-2019, error_message="Margin is insufficient", header={}
         )
@@ -563,34 +563,34 @@ class TestExecuteSignal:
             manager.execute_signal(long_entry_signal, quantity=0.001)
 
     def test_execute_signal_network_error(self, manager, mock_client, long_entry_signal):
-        """네트워크 오류 → OrderExecutionError"""
+        """Network error -> OrderExecutionError"""
         mock_client.new_order.side_effect = Exception("Network unreachable")
 
         with pytest.raises(OrderExecutionError, match="Failed to execute order"):
             manager.execute_signal(long_entry_signal, quantity=0.001)
 
     def test_execute_signal_logging_intent(self, manager, mock_client, long_entry_signal, caplog):
-        """실행 전 의도 로깅 확인"""
+        """Verify intent logging before execution"""
         with caplog.at_level(logging.INFO):
             manager.execute_signal(long_entry_signal, quantity=0.001)
 
-            # 의도 로깅 확인
+            # Verify intent logging
             assert "Executing long_entry signal" in caplog.text
             assert "BTCUSDT BUY 0.001" in caplog.text
             assert "strategy: TestStrategy" in caplog.text
 
     def test_execute_signal_logging_success(self, manager, mock_client, long_entry_signal, caplog):
-        """실행 성공 로깅 확인"""
+        """Verify execution success logging"""
         with caplog.at_level(logging.INFO):
             manager.execute_signal(long_entry_signal, quantity=0.001)
 
-            # 성공 로깅 확인 (메시지 변경됨: "Order executed" → "Entry order executed")
+            # Verify success logging (message changed)
             assert "Entry order executed" in caplog.text
             assert "ID=123456789" in caplog.text
             assert "status=FILLED" in caplog.text
 
     def test_execute_signal_logging_error(self, manager, mock_client, long_entry_signal, caplog):
-        """실행 실패 로깅 확인"""
+        """Verify execution failure logging"""
         mock_client.new_order.side_effect = ClientError(
             status_code=400, error_code=-2019, error_message="Margin is insufficient", header={}
         )
@@ -601,7 +601,7 @@ class TestExecuteSignal:
             except OrderRejectedError:
                 pass
 
-            # 에러 로깅 확인 (메시지 변경됨)
+            # Verify error logging (message changed)
             assert "Entry order rejected by Binance" in caplog.text
             assert "code=-2019" in caplog.text
             assert "Margin is insufficient" in caplog.text
@@ -609,7 +609,7 @@ class TestExecuteSignal:
     def test_execute_signal_cancels_existing_orders_before_tpsl(
         self, manager, mock_client, long_entry_signal
     ):
-        """신규 TP/SL 주문 전 기존 주문 취소 확인"""
+        """Verify existing order cancellation before new TP/SL orders"""
         # Mock cancel_all_orders to track calls
         with patch.object(manager, "cancel_all_orders", return_value=2) as mock_cancel:
             # Execute signal
@@ -621,7 +621,7 @@ class TestExecuteSignal:
     def test_execute_signal_continues_if_cancel_fails(
         self, manager, mock_client, long_entry_signal, caplog
     ):
-        """cancel_all_orders 실패 시에도 TP/SL 주문 진행 확인"""
+        """Verify TP/SL order proceeds even if cancel_all_orders fails"""
         # Mock cancel_all_orders to raise exception
         with patch.object(manager, "cancel_all_orders", side_effect=Exception("Cancel failed")):
             with caplog.at_level(logging.WARNING):
@@ -638,7 +638,7 @@ class TestExecuteSignal:
     def test_execute_signal_logs_cancelled_count(
         self, manager, mock_client, long_entry_signal, caplog
     ):
-        """취소된 주문 개수 로깅 확인"""
+        """Verify cancellation count logging"""
         # Mock cancel_all_orders to return count
         with patch.object(manager, "cancel_all_orders", return_value=3):
             with caplog.at_level(logging.INFO):
@@ -650,7 +650,7 @@ class TestExecuteSignal:
     def test_execute_signal_close_signal_cancels_remaining_orders(
         self, manager, mock_client, close_long_signal
     ):
-        """CLOSE 시그널 시 잔여 주문 취소 확인 (Issue #9)"""
+        """Verify remaining order cancellation for CLOSE signal (Issue #9)"""
         # Mock cancel_all_orders to track calls
         with patch.object(manager, "cancel_all_orders", return_value=1) as mock_cancel:
             # Execute close signal
@@ -661,11 +661,11 @@ class TestExecuteSignal:
 
 
 class TestTPSLPlacement:
-    """TP/SL 주문 배치 테스트 (Task 6.3)"""
+    """TP/SL Order Placement Tests (Task 6.3)"""
 
     @pytest.fixture
     def mock_client(self):
-        """Mock Binance UMFutures 클라이언트"""
+        """Mock Binance UMFutures Client"""
         return MagicMock()
 
     @pytest.fixture
@@ -692,7 +692,7 @@ class TestTPSLPlacement:
 
     @pytest.fixture
     def manager(self, mock_binance_service):
-        """OrderExecutionManager 인스턴스 (mock service 사용)"""
+        """OrderExecutionManager instance (using mock service)"""
         return OrderExecutionManager(
             audit_logger=MagicMock(),
             binance_service=mock_binance_service
@@ -700,7 +700,7 @@ class TestTPSLPlacement:
 
     @pytest.fixture
     def long_entry_signal(self):
-        """LONG_ENTRY 시그널"""
+        """LONG_ENTRY signal"""
         return Signal(
             signal_type=SignalType.LONG_ENTRY,
             symbol="BTCUSDT",
@@ -713,7 +713,7 @@ class TestTPSLPlacement:
 
     @pytest.fixture
     def short_entry_signal(self):
-        """SHORT_ENTRY 시그널"""
+        """SHORT_ENTRY signal"""
         return Signal(
             signal_type=SignalType.SHORT_ENTRY,
             symbol="BTCUSDT",
@@ -726,7 +726,7 @@ class TestTPSLPlacement:
 
     @pytest.fixture
     def close_long_signal(self):
-        """CLOSE_LONG 시그널"""
+        """CLOSE_LONG signal"""
         return Signal(
             signal_type=SignalType.CLOSE_LONG,
             symbol="BTCUSDT",
@@ -740,7 +740,7 @@ class TestTPSLPlacement:
     # ==================== Helper Method Tests ====================
 
     def test_format_price_rounds_correctly(self, manager, mock_client):
-        """가격 포맷팅 (2자리 소수점)"""
+        """Price formatting (2 decimal places)"""
         # Mock exchange_info for _format_price (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -763,7 +763,7 @@ class TestTPSLPlacement:
         assert manager._format_price(50123.0, "BTCUSDT") == "50123.00"
 
     def test_format_price_handles_edge_cases(self, manager, mock_client):
-        """가격 포맷팅 엣지 케이스"""
+        """Price formatting edge cases"""
         # Mock exchange_info for _format_price (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -787,7 +787,7 @@ class TestTPSLPlacement:
     # ==================== TP Order Tests ====================
 
     def test_place_tp_order_long_success(self, manager, mock_client, long_entry_signal):
-        """LONG 포지션 TP 주문 배치 성공"""
+        """LONG position TP order placement success"""
         # Mock exchange_info for _format_price (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -833,7 +833,7 @@ class TestTPSLPlacement:
         )
 
     def test_place_tp_order_short_success(self, manager, mock_client, short_entry_signal):
-        """SHORT 포지션 TP 주문 배치 성공"""
+        """SHORT position TP order placement success"""
         # Mock exchange_info for _format_price (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -871,7 +871,7 @@ class TestTPSLPlacement:
         assert tp_order.stop_price == 48000.0
 
     def test_place_tp_order_api_error_returns_none(self, manager, mock_client, long_entry_signal):
-        """TP 주문 API 에러 시 None 반환"""
+        """Return None on TP order API error"""
         mock_client.new_algo_order.side_effect = ClientError(
             status_code=400,
             error_code=-2010,
@@ -886,7 +886,7 @@ class TestTPSLPlacement:
     # ==================== SL Order Tests ====================
 
     def test_place_sl_order_long_success(self, manager, mock_client, long_entry_signal):
-        """LONG 포지션 SL 주문 배치 성공"""
+        """LONG position SL order placement success"""
         # Mock exchange_info for _format_price (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -930,7 +930,7 @@ class TestTPSLPlacement:
         )
 
     def test_place_sl_order_short_success(self, manager, mock_client, short_entry_signal):
-        """SHORT 포지션 SL 주문 배치 성공"""
+        """SHORT position SL order placement success"""
         # Mock exchange_info for _format_price (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -970,7 +970,7 @@ class TestTPSLPlacement:
     def test_place_sl_order_network_error_returns_none(
         self, manager, mock_client, long_entry_signal
     ):
-        """SL 주문 네트워크 에러 시 None 반환"""
+        """Return None on SL order network error"""
         mock_client.new_algo_order.side_effect = ConnectionError("Network timeout")
 
         sl_order = manager._place_sl_order(long_entry_signal, OrderSide.SELL)
@@ -982,7 +982,7 @@ class TestTPSLPlacement:
     def test_execute_signal_long_entry_with_tpsl_success(
         self, manager, mock_client, long_entry_signal
     ):
-        """LONG 진입 + TP/SL 완전 성공"""
+        """LONG entry + TP/SL full success"""
         # Mock exchange_info for _format_price calls (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -1069,7 +1069,7 @@ class TestTPSLPlacement:
     def test_execute_signal_short_entry_with_tpsl_success(
         self, manager, mock_client, short_entry_signal
     ):
-        """SHORT 진입 + TP/SL 완전 성공"""
+        """SHORT entry + TP/SL full success"""
         # Mock exchange_info for _format_price calls (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -1133,7 +1133,7 @@ class TestTPSLPlacement:
         assert tpsl_orders[1].side == OrderSide.BUY  # SL for SHORT
 
     def test_execute_signal_close_long_no_tpsl(self, manager, mock_client, close_long_signal):
-        """CLOSE_LONG 시그널은 TP/SL 주문 없음"""
+        """CLOSE_LONG signal has no TP/SL orders"""
         mock_client.new_order.return_value = {
             "orderId": 123456789,
             "symbol": "BTCUSDT",
@@ -1157,7 +1157,7 @@ class TestTPSLPlacement:
     def test_execute_signal_entry_fails_raises_exception(
         self, manager, mock_client, long_entry_signal
     ):
-        """진입 주문 실패 시 예외 발생 (TP/SL 시도 없음)"""
+        """Exception on entry order failure (no TP/SL attempted)"""
         mock_client.new_order.side_effect = ClientError(
             status_code=400, error_code=-2019, error_message="Margin is insufficient", header={}
         )
@@ -1171,7 +1171,7 @@ class TestTPSLPlacement:
     def test_execute_signal_entry_success_tp_fails_sl_success(
         self, manager, mock_client, long_entry_signal
     ):
-        """진입 성공, TP 실패, SL 성공 (부분 실행)"""
+        """Entry success, TP failure, SL success (Partial execution)"""
         # Mock exchange_info for _format_price calls (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -1236,7 +1236,7 @@ class TestTPSLPlacement:
     def test_execute_signal_entry_success_both_tpsl_fail(
         self, manager, mock_client, long_entry_signal
     ):
-        """진입 성공, TP/SL 모두 실패"""
+        """Entry success, TP/SL both failed"""
         mock_client.new_order.side_effect = [
             # Entry succeeds
             {
@@ -1432,7 +1432,7 @@ class TestQueryMethods:
     # ========== get_position() Tests ==========
 
     def test_get_position_long_success(self, manager, mock_client, mock_position_long):
-        """LONG 포지션 조회 성공"""
+        """LONG position query success"""
         mock_client.get_position_risk.return_value = mock_position_long
 
         position = manager.get_position("BTCUSDT")
@@ -1449,7 +1449,7 @@ class TestQueryMethods:
         mock_client.get_position_risk.assert_called_once_with(symbol="BTCUSDT")
 
     def test_get_position_short_success(self, manager, mock_client, mock_position_short):
-        """SHORT 포지션 조회 성공"""
+        """SHORT position query success"""
         mock_client.get_position_risk.return_value = mock_position_short
 
         position = manager.get_position("BTCUSDT")
@@ -1464,7 +1464,7 @@ class TestQueryMethods:
         assert position.liquidation_price == 55000.0
 
     def test_get_position_no_position(self, manager, mock_client, mock_position_zero):
-        """포지션 없음 (positionAmt=0)"""
+        """No position (positionAmt=0)"""
         mock_client.get_position_risk.return_value = mock_position_zero
 
         position = manager.get_position("BTCUSDT")
@@ -1473,7 +1473,7 @@ class TestQueryMethods:
         mock_client.get_position_risk.assert_called_once_with(symbol="BTCUSDT")
 
     def test_get_position_invalid_symbol(self, manager, mock_client):
-        """잘못된 심볼"""
+        """Invalid symbol"""
         mock_client.get_position_risk.side_effect = ClientError(
             status_code=400, error_code=-1121, error_message="Invalid symbol.", header={}
         )
@@ -1482,7 +1482,7 @@ class TestQueryMethods:
             manager.get_position("INVALID")
 
     def test_get_position_api_error(self, manager, mock_client):
-        """API 인증 오류"""
+        """API Authentication Error"""
         mock_client.get_position_risk.side_effect = ClientError(
             status_code=401, error_code=-2015, error_message="Invalid API-key", header={}
         )
@@ -1493,7 +1493,7 @@ class TestQueryMethods:
     # ========== get_account_balance() Tests ==========
 
     def test_get_account_balance_success(self, manager, mock_client, mock_account_with_usdt):
-        """USDT 잔액 조회 성공"""
+        """USDT balance fetch success"""
         mock_client.account.return_value = mock_account_with_usdt
 
         balance = manager.get_account_balance()
@@ -1504,7 +1504,7 @@ class TestQueryMethods:
     def test_get_account_balance_usdt_not_found(
         self, manager, mock_client, mock_account_without_usdt
     ):
-        """USDT가 assets에 없음"""
+        """USDT not in assets"""
         mock_client.account.return_value = mock_account_without_usdt
 
         balance = manager.get_account_balance()
@@ -1513,7 +1513,7 @@ class TestQueryMethods:
         mock_client.account.assert_called_once()
 
     def test_get_account_balance_api_error(self, manager, mock_client):
-        """API 인증 오류"""
+        """API Authentication Error"""
         mock_client.account.side_effect = ClientError(
             status_code=401, error_code=-2015, error_message="Invalid API-key", header={}
         )
@@ -1526,7 +1526,7 @@ class TestQueryMethods:
     def test_cancel_all_orders_success_with_orders(
         self, manager, mock_client, mock_cancel_with_orders
     ):
-        """주문 취소 성공 (2개 주문 취소)"""
+        """Order cancellation success (2 orders cancelled)"""
         # First check for open orders (Issue #65), then cancel
         mock_client.get_orders.return_value = [
             {"orderId": 123456, "symbol": "BTCUSDT", "status": "NEW"},
@@ -1563,7 +1563,7 @@ class TestQueryMethods:
         mock_client.cancel_open_orders.assert_called_once_with(symbol="BTCUSDT")
 
     def test_cancel_all_orders_invalid_symbol(self, manager, mock_client):
-        """잘못된 심볼"""
+        """Invalid symbol"""
         # get_open_orders returns orders to trigger cancel API call
         mock_client.get_orders.return_value = [{"orderId": 1}]
         mock_client.cancel_open_orders.side_effect = ClientError(
@@ -1574,7 +1574,7 @@ class TestQueryMethods:
             manager.cancel_all_orders("INVALID")
 
     def test_cancel_all_orders_api_error(self, manager, mock_client):
-        """API 오류"""
+        """API Error"""
         # get_open_orders returns orders to trigger cancel API call
         mock_client.get_orders.return_value = [{"orderId": 1}]
         mock_client.cancel_open_orders.side_effect = ClientError(

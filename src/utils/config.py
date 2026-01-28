@@ -15,6 +15,8 @@ import yaml
 
 from src.core.exceptions import ConfigurationError
 
+# Imports for type hinting only; prevents circular dependency at runtime
+# Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.config.symbol_config import TradingConfigHierarchical
 

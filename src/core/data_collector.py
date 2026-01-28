@@ -18,6 +18,8 @@ from src.models.candle import Candle
 from src.core.public_market_streamer import PublicMarketStreamer
 from src.core.private_user_streamer import PrivateUserStreamer
 
+# Imports for type hinting only; prevents circular dependency at runtime
+# Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.core.binance_service import BinanceServiceClient
     from src.core.event_handler import EventBus

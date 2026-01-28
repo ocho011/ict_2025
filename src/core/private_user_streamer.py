@@ -15,6 +15,8 @@ from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClie
 from src.core.streamer_protocol import IDataStreamer
 from src.core.user_data_stream import UserDataStreamManager
 
+# Imports for type hinting only; prevents circular dependency at runtime
+# Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.core.binance_service import BinanceServiceClient
     from src.core.event_handler import EventBus
