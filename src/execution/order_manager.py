@@ -1714,14 +1714,32 @@ class OrderExecutionManager:
         if not symbol or not isinstance(symbol, str):
             raise ValidationError(f"Invalid symbol: {symbol}")
 
-        # 2. Log API call
-        self.logger.info(f"Cancelling all orders for {symbol}")
+        # 2. Check for open orders first to avoid unnecessary API calls (Issue #65)
+        try:
+            open_orders = self.get_open_orders(symbol)
+            if not open_orders:
+                self.logger.debug(
+                    f"No open orders for {symbol}, skipping cancel API call"
+                )
+                return 0
+        except Exception as e:
+            # If we can't check, proceed with cancel attempt as fallback
+            self.logger.warning(
+                f"Failed to check open orders for {symbol}: {e}, "
+                f"proceeding with cancel attempt"
+            )
+            open_orders = None  # Unknown state, proceed with cancel
+
+        # 3. Log API call (only when orders exist)
+        self.logger.info(
+            f"Cancelling {len(open_orders) if open_orders else 'all'} orders for {symbol}"
+        )
 
         try:
-            # 3. Call Binance API (bulk cancel)
+            # 4. Call Binance API (bulk cancel)
             response = self.client.cancel_open_orders(symbol=symbol)
 
-            # 4. Parse response (now already unwrapped by BinanceServiceClient)
+            # 5. Parse response (now already unwrapped by BinanceServiceClient)
             unwrapped = response
 
             if isinstance(unwrapped, list):
@@ -1739,7 +1757,7 @@ class OrderExecutionManager:
                 self.logger.warning(f"Unexpected response format: {response}")
                 cancelled_count = 0
 
-            # 5. Verification loop (if enabled)
+            # 6. Verification loop (if enabled)
             if verify:
                 for attempt in range(max_retries):
                     try:

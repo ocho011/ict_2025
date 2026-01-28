@@ -1527,24 +1527,45 @@ class TestQueryMethods:
         self, manager, mock_client, mock_cancel_with_orders
     ):
         """주문 취소 성공 (2개 주문 취소)"""
+        # First check for open orders (Issue #65), then cancel
+        mock_client.get_orders.return_value = [
+            {"orderId": 123456, "symbol": "BTCUSDT", "status": "NEW"},
+            {"orderId": 123457, "symbol": "BTCUSDT", "status": "NEW"},
+        ]
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
 
-        cancelled_count = manager.cancel_all_orders("BTCUSDT")
+        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=False)
 
         assert cancelled_count == 2
         mock_client.cancel_open_orders.assert_called_once_with(symbol="BTCUSDT")
 
-    def test_cancel_all_orders_success_no_orders(self, manager, mock_client, mock_cancel_no_orders):
-        """취소할 주문 없음"""
-        mock_client.cancel_open_orders.return_value = mock_cancel_no_orders
+    def test_cancel_all_orders_skips_api_when_no_orders(self, manager, mock_client):
+        """Issue #65: Skip cancel API call when no open orders exist"""
+        # get_open_orders returns empty list
+        mock_client.get_orders.return_value = []
 
         cancelled_count = manager.cancel_all_orders("BTCUSDT")
 
         assert cancelled_count == 0
+        # cancel_open_orders should NOT be called - this is the Issue #65 fix
+        mock_client.cancel_open_orders.assert_not_called()
+
+    def test_cancel_all_orders_proceeds_when_get_orders_fails(self, manager, mock_client, mock_cancel_with_orders):
+        """Fallback: proceed with cancel when get_open_orders fails"""
+        # get_open_orders fails
+        mock_client.get_orders.side_effect = Exception("Failed to query")
+        mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
+
+        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=False)
+
+        # Should still proceed with cancel as fallback
+        assert cancelled_count == 2
         mock_client.cancel_open_orders.assert_called_once_with(symbol="BTCUSDT")
 
     def test_cancel_all_orders_invalid_symbol(self, manager, mock_client):
         """잘못된 심볼"""
+        # get_open_orders returns orders to trigger cancel API call
+        mock_client.get_orders.return_value = [{"orderId": 1}]
         mock_client.cancel_open_orders.side_effect = ClientError(
             status_code=400, error_code=-1121, error_message="Invalid symbol.", header={}
         )
@@ -1554,6 +1575,8 @@ class TestQueryMethods:
 
     def test_cancel_all_orders_api_error(self, manager, mock_client):
         """API 오류"""
+        # get_open_orders returns orders to trigger cancel API call
+        mock_client.get_orders.return_value = [{"orderId": 1}]
         mock_client.cancel_open_orders.side_effect = ClientError(
             status_code=500, error_code=-1000, error_message="Internal server error", header={}
         )
@@ -1669,25 +1692,35 @@ class TestQueryMethods:
 
     def test_cancel_all_orders_with_verify_success(self, manager, mock_client, mock_cancel_with_orders):
         """Verification passes on first try"""
+        # Initial check returns orders (Issue #65)
+        initial_orders = [
+            {"orderId": 123456, "symbol": "BTCUSDT", "status": "NEW"},
+            {"orderId": 123457, "symbol": "BTCUSDT", "status": "NEW"},
+        ]
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
-        mock_client.get_orders.return_value = []  # No remaining orders
+        # First call: initial check (has orders), subsequent: verification (empty)
+        mock_client.get_orders.side_effect = [initial_orders, [], []]
 
         cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True)
 
         assert cancelled_count == 2
         mock_client.cancel_open_orders.assert_called_once()
-        # get_orders called twice: once in verification loop, once in final check
-        assert mock_client.get_orders.call_count >= 1
+        # get_orders called: once for initial check + verification loop + final check
+        assert mock_client.get_orders.call_count >= 2
 
     def test_cancel_all_orders_with_verify_retry_needed(self, manager, mock_client, mock_cancel_with_orders):
         """Orders remain, retry succeeds"""
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
 
-        # First get_orders returns remaining orders, second returns empty
+        # Initial check returns orders, first verify returns remaining, second verify returns empty
+        initial_orders = [
+            {"orderId": 123456, "symbol": "BTCUSDT", "status": "NEW"},
+            {"orderId": 123457, "symbol": "BTCUSDT", "status": "NEW"},
+        ]
         remaining_orders = [
             {"orderId": 123458, "symbol": "BTCUSDT", "status": "NEW"}
         ]
-        mock_client.get_orders.side_effect = [remaining_orders, []]
+        mock_client.get_orders.side_effect = [initial_orders, remaining_orders, [], []]
         mock_client.cancel_order.return_value = {"status": "CANCELED"}
 
         cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=3)
@@ -1699,11 +1732,15 @@ class TestQueryMethods:
         """Orders remain after max retries (logs error)"""
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
 
-        # Always return remaining orders
+        # Initial check returns orders, then always return remaining orders
+        initial_orders = [
+            {"orderId": 123456, "symbol": "BTCUSDT", "status": "NEW"},
+            {"orderId": 123457, "symbol": "BTCUSDT", "status": "NEW"},
+        ]
         remaining_orders = [
             {"orderId": 123458, "symbol": "BTCUSDT", "status": "NEW"}
         ]
-        mock_client.get_orders.return_value = remaining_orders
+        mock_client.get_orders.side_effect = [initial_orders] + [remaining_orders] * 10
         mock_client.cancel_order.return_value = {"status": "NEW"}  # Failed to cancel
 
         with caplog.at_level(logging.ERROR):
@@ -1712,24 +1749,37 @@ class TestQueryMethods:
         # Should log error about remaining orders
         assert "CRITICAL" in caplog.text or "remain" in caplog.text.lower()
 
-    def test_cancel_all_orders_verify_false_skips_check(self, manager, mock_client, mock_cancel_with_orders):
-        """verify=False preserves old behavior (no verification)"""
+    def test_cancel_all_orders_verify_false_with_orders(self, manager, mock_client, mock_cancel_with_orders):
+        """verify=False still checks for open orders first (Issue #65)"""
+        # Initial check returns orders
+        initial_orders = [
+            {"orderId": 123456, "symbol": "BTCUSDT", "status": "NEW"},
+            {"orderId": 123457, "symbol": "BTCUSDT", "status": "NEW"},
+        ]
+        mock_client.get_orders.return_value = initial_orders
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
 
         cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=False)
 
         assert cancelled_count == 2
         mock_client.cancel_open_orders.assert_called_once()
-        mock_client.get_orders.assert_not_called()  # No verification check
+        # get_orders called once for initial check only (no verification check)
+        mock_client.get_orders.assert_called_once()
 
-    def test_cancel_all_orders_default_verify_true(self, manager, mock_client, mock_cancel_no_orders):
-        """Default verify=True behavior"""
-        mock_client.cancel_open_orders.return_value = mock_cancel_no_orders
-        mock_client.get_orders.return_value = []
+    def test_cancel_all_orders_default_verify_true_with_orders(self, manager, mock_client, mock_cancel_with_orders):
+        """Default verify=True behavior with open orders"""
+        # Initial check returns orders
+        initial_orders = [
+            {"orderId": 123456, "symbol": "BTCUSDT", "status": "NEW"},
+            {"orderId": 123457, "symbol": "BTCUSDT", "status": "NEW"},
+        ]
+        mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
+        mock_client.get_orders.side_effect = [initial_orders, [], []]
 
         manager.cancel_all_orders("BTCUSDT")  # Default verify=True
 
-        mock_client.get_orders.assert_called()  # Verification was performed
+        # get_orders called multiple times: initial check + verification
+        assert mock_client.get_orders.call_count >= 2
 
 
 # ==================== Price Formatting Tests (Task 6.5) ====================
