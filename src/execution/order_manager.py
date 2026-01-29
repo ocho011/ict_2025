@@ -686,11 +686,21 @@ class OrderExecutionManager:
                 order_type = OrderType[order_type_str]
 
             # Extract stop price for STOP/TP orders
-            # Regular API uses "stopPrice", Algo API uses "triggerPrice"
+            # Regular API uses "stopPrice", Algo API uses "triggerPrice" or "activatePrice" (for Trailing Stop)
             stop_price = None
-            stop_price_str = order_data.get("stopPrice") or order_data.get("triggerPrice")
+            stop_price_str = (
+                order_data.get("stopPrice")
+                or order_data.get("triggerPrice")
+                or order_data.get("activatePrice")
+            )
             if stop_price_str:
                 stop_price = float(stop_price_str)
+
+            # Extract callbackRate for TRAILING_STOP_MARKET
+            callback_rate = None
+            callback_rate_str = order_data.get("callbackRate")
+            if callback_rate_str:
+                callback_rate = float(callback_rate_str)
 
             # Create Order object
             return Order(
@@ -700,6 +710,7 @@ class OrderExecutionManager:
                 quantity=quantity,
                 price=avg_price if avg_price > 0 else None,
                 stop_price=stop_price,
+                callback_rate=callback_rate,
                 order_id=order_id,
                 client_order_id=order_data.get("clientOrderId"),
                 status=status,
@@ -813,50 +824,6 @@ class OrderExecutionManager:
 
         except ClientError as e:
             # Binance API error (4xx) - log but don't raise
-            self.logger.error(
-                f"SL order rejected: code={e.error_code}, msg={e.error_message}"
-            )
-
-            # Audit log: SL order rejected
-            try:
-                self.audit_logger.log_order_rejected(
-                    symbol=signal.symbol,
-                    order_data={
-                        "order_type": "STOP_MARKET",
-                        "side": side.value,
-                        "stop_price": signal.stop_loss,
-                    },
-                    error={
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                    },
-                )
-            except Exception:
-                pass  # Don't double-log
-
-            return None
-
-        except Exception as e:
-            # Unexpected error - log but don't raise
-            self.logger.error(f"SL order placement failed: {type(e).__name__}: {e}")
-
-            # Audit log: API error during SL order placement
-            try:
-                from src.core.audit_logger import AuditEventType
-
-                self.audit_logger.log_event(
-                    event_type=AuditEventType.API_ERROR,
-                    operation="place_sl_order",
-                    symbol=signal.symbol,
-                    error={"error_type": type(e).__name__, "error_message": str(e)},
-                )
-            except Exception:
-                pass  # Don't double-log
-
-            return None
-
-        except ClientError as e:
-            # Binance API error - log but don't raise
             self.logger.error(
                 f"SL order rejected: code={e.error_code}, msg={e.error_message}"
             )
@@ -1030,31 +997,6 @@ class OrderExecutionManager:
                     operation="place_tp_order",
                     symbol=signal.symbol,
                     error={"error_type": type(e).__name__, "error_message": str(e)},
-                )
-            except Exception:
-                pass  # Don't double-log
-
-            return None
-
-        except ClientError as e:
-            # Binance API error - log but don't raise
-            self.logger.error(
-                f"TP order rejected: code={e.error_code}, msg={e.error_message}"
-            )
-
-            # Audit log: TP order rejected
-            try:
-                self.audit_logger.log_order_rejected(
-                    symbol=signal.symbol,
-                    order_data={
-                        "order_type": "TAKE_PROFIT_MARKET",
-                        "side": side.value,
-                        "stop_price": signal.take_profit,
-                    },
-                    error={
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                    },
                 )
             except Exception:
                 pass  # Don't double-log
@@ -1611,7 +1553,9 @@ class OrderExecutionManager:
                 self.logger.debug(f"Found {len(response)} open orders for {symbol}")
                 return response
             else:
-                self.logger.warning(f"Unexpected response format for open orders: {response}")
+                self.logger.warning(
+                    f"Unexpected response format for open orders: {response}"
+                )
                 return []
 
         except ClientError as e:

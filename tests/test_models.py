@@ -34,7 +34,8 @@ class TestCandle:
             low=49500.0,
             close=50800.0,
             volume=100.5,
-            close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
+            close_time=datetime(2025, 1, 1, 0, 5),
+            is_closed=True,
         )
 
         assert candle.is_bullish is True
@@ -75,7 +76,8 @@ class TestCandle:
                 low=48000.0,
                 close=50000.0,
                 volume=100.0,
-                close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
+                close_time=datetime(2025, 1, 1, 0, 5),
+                is_closed=True,
             )
 
     def test_invalid_low_raises_error(self):
@@ -90,7 +92,8 @@ class TestCandle:
                 low=51000.0,  # Invalid: low > open
                 close=50500.0,
                 volume=100.0,
-                close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
+                close_time=datetime(2025, 1, 1, 0, 5),
+                is_closed=True,
             )
 
     def test_negative_volume_raises_error(self):
@@ -175,7 +178,9 @@ class TestSignal:
 
     def test_invalid_short_tp_raises_error(self):
         """Test that invalid SHORT take_profit raises ValueError"""
-        with pytest.raises(ValueError, match="SHORT: take_profit must be < entry_price"):
+        with pytest.raises(
+            ValueError, match="SHORT: take_profit must be < entry_price"
+        ):
             Signal(
                 signal_type=SignalType.SHORT_ENTRY,
                 symbol="BTCUSDT",
@@ -216,13 +221,50 @@ class TestOrder:
 
     def test_limit_order_without_price_raises_error(self):
         """Test that LIMIT order without price raises ValueError"""
-        with pytest.raises(ValueError, match="LIMIT orders require price"):
+        with pytest.raises(ValueError, match="LIMIT requires price"):
             Order(
                 symbol="BTCUSDT",
                 side=OrderSide.BUY,
                 order_type=OrderType.LIMIT,
                 quantity=0.001,
                 # Missing price
+            )
+
+    def test_trailing_stop_market_without_callback_rate_raises_error(self):
+        """Test that TRAILING_STOP_MARKET without callback_rate raises ValueError"""
+        with pytest.raises(
+            ValueError, match="TRAILING_STOP_MARKET requires callback_rate"
+        ):
+            Order(
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.TRAILING_STOP_MARKET,
+                quantity=0.001,
+                # Missing callback_rate
+            )
+
+    def test_stop_limit_order_without_price_raises_error(self):
+        """Test that STOP (limit) order without price raises ValueError"""
+        with pytest.raises(ValueError, match="STOP requires price"):
+            Order(
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.STOP,
+                quantity=0.001,
+                stop_price=50000.0,
+                # Missing price
+            )
+
+    def test_stop_limit_order_without_stop_price_raises_error(self):
+        """Test that STOP (limit) order without stop_price raises ValueError"""
+        with pytest.raises(ValueError, match="STOP requires stop_price"):
+            Order(
+                symbol="BTCUSDT",
+                side=OrderSide.BUY,
+                order_type=OrderType.STOP,
+                quantity=0.001,
+                price=49000.0,
+                # Missing stop_price
             )
 
     def test_stop_market_without_stop_price_raises_error(self):
@@ -333,7 +375,8 @@ class TestEvent:
             low=49000.0,
             close=50500.0,
             volume=100.0,
-            close_time=datetime(2025, 1, 1, 0, 5), is_closed=True,
+            close_time=datetime(2025, 1, 1, 0, 5),
+            is_closed=True,
         )
 
         event = Event(

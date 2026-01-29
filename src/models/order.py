@@ -15,6 +15,9 @@ class OrderType(Enum):
     LIMIT = "LIMIT"
     STOP_MARKET = "STOP_MARKET"
     TAKE_PROFIT_MARKET = "TAKE_PROFIT_MARKET"
+    STOP = "STOP"
+    TAKE_PROFIT = "TAKE_PROFIT"
+    TRAILING_STOP_MARKET = "TRAILING_STOP_MARKET"
 
 
 class OrderSide(Enum):
@@ -59,6 +62,7 @@ class Order:
     quantity: float
     price: Optional[float] = None
     stop_price: Optional[float] = None
+    callback_rate: Optional[float] = None
     order_id: Optional[str] = None
     client_order_id: Optional[str] = None
     status: OrderStatus = OrderStatus.NEW
@@ -68,16 +72,29 @@ class Order:
         """Validate order parameters."""
         # For TP/SL orders with closePosition=True, quantity can be 0
         # since Binance manages the position closure automatically
-        is_tpsl_order = self.order_type in (OrderType.STOP_MARKET, OrderType.TAKE_PROFIT_MARKET)
+        is_tpsl_order = self.order_type in (
+            OrderType.STOP_MARKET,
+            OrderType.TAKE_PROFIT_MARKET,
+            OrderType.STOP,
+            OrderType.TAKE_PROFIT,
+            OrderType.TRAILING_STOP_MARKET,
+        )
 
         if not is_tpsl_order and self.quantity <= 0:
             raise ValueError(f"Quantity must be > 0, got {self.quantity}")
 
-        # LIMIT orders require price
-        if self.order_type == OrderType.LIMIT and self.price is None:
-            raise ValueError("LIMIT orders require price")
+        # LIMIT orders and Algo Limit orders require price
+        if self.order_type in (OrderType.LIMIT, OrderType.STOP, OrderType.TAKE_PROFIT):
+            if self.price is None:
+                raise ValueError(f"{self.order_type.value} requires price")
 
         # STOP orders require stop_price
-        if is_tpsl_order:
+        # TRAILING_STOP_MARKET uses activationPrice (mapped to stop_price) or callbackRate
+        if is_tpsl_order and self.order_type != OrderType.TRAILING_STOP_MARKET:
             if self.stop_price is None:
                 raise ValueError(f"{self.order_type.value} requires stop_price")
+
+        # TRAILING_STOP_MARKET validation
+        if self.order_type == OrderType.TRAILING_STOP_MARKET:
+            if self.callback_rate is None:
+                raise ValueError("TRAILING_STOP_MARKET requires callback_rate")
