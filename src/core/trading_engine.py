@@ -1059,9 +1059,12 @@ class TradingEngine:
                 if position.entry_time:
                     from datetime import datetime, timezone
 
-                    duration = datetime.now(timezone.utc) - position.entry_time.replace(
-                        tzinfo=timezone.utc
-                    ) if position.entry_time.tzinfo is None else datetime.now(timezone.utc) - position.entry_time
+                    duration = (
+                        datetime.now(timezone.utc)
+                        - position.entry_time.replace(tzinfo=timezone.utc)
+                        if position.entry_time.tzinfo is None
+                        else datetime.now(timezone.utc) - position.entry_time
+                    )
                     duration_seconds = duration.total_seconds()
 
                 self.logger.info(
@@ -1191,7 +1194,13 @@ class TradingEngine:
         # Step 3: Handle TP/SL fills - cancel remaining orders (Issue #9)
         from src.models.order import OrderType
 
-        if order.order_type in (OrderType.STOP_MARKET, OrderType.TAKE_PROFIT_MARKET):
+        if order.order_type in (
+            OrderType.STOP_MARKET,
+            OrderType.TAKE_PROFIT_MARKET,
+            OrderType.STOP,
+            OrderType.TAKE_PROFIT,
+            OrderType.TRAILING_STOP_MARKET,
+        ):
             # TP or SL was hit - position is closed
             # Cancel any remaining orders (the other TP/SL) to prevent orphaned orders
             self.logger.info(
@@ -1442,7 +1451,7 @@ class TradingEngine:
                     self.logger.error(
                         f"Failed to start User Data Stream: {e}. "
                         f"TP/SL orphan prevention will NOT work.",
-                        exc_info=True
+                        exc_info=True,
                     )
 
             # Run until interrupted

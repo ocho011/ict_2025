@@ -141,7 +141,9 @@ class PrivateUserStreamer(IDataStreamer):
 
             # Determine WebSocket URL based on environment
             base_url = (
-                self.TESTNET_USER_WS_URL if self.is_testnet else self.MAINNET_USER_WS_URL
+                self.TESTNET_USER_WS_URL
+                if self.is_testnet
+                else self.MAINNET_USER_WS_URL
             )
             ws_url = f"{base_url}/{listen_key}"
 
@@ -247,9 +249,7 @@ class PrivateUserStreamer(IDataStreamer):
         except json.JSONDecodeError as e:
             self.logger.error(f"Invalid JSON in user data message: {e}")
         except Exception as e:
-            self.logger.error(
-                f"Error handling user data message: {e}", exc_info=True
-            )
+            self.logger.error(f"Error handling user data message: {e}", exc_info=True)
 
     def _handle_order_trade_update(self, data: dict) -> None:
         """
@@ -276,6 +276,9 @@ class PrivateUserStreamer(IDataStreamer):
         if order_status == "FILLED" and order_type in (
             "TAKE_PROFIT_MARKET",
             "STOP_MARKET",
+            "STOP",
+            "TAKE_PROFIT",
+            "TRAILING_STOP_MARKET",
         ):
             from src.models.event import Event, EventType, QueueType
             from src.models.order import Order, OrderType, OrderStatus, OrderSide
