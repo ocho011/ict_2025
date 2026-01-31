@@ -1,0 +1,98 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-opencode/master/assets/oh-my-opencode.schema.json",
+  "comment": "프로젝트 지역 설정 - Zen 무료 모델 우선 적용",
+  "comment2": "이 설정은 전역 설정(~/.config/opencode/oh-my-opencode.json)보다 우선순위가 높습니다.",
+  "comment3": "전역 설정이 없으면 이 설정을 사용하고, 전역 설정이 있으면 이 설정이 전역보다 우선합니다.",
+  "agents": {
+    "Sisyphus": {
+      "model": "zen/glm-4.7-free",
+      "comment": "메인 오케스트레이터 - GLM 4.7 Free (무료, 제한 있음)"
+    },
+    "oracle": {
+      "model": "zen/glm-4.7-free",
+      "comment": "오라클 - 복잡한 디버깅/아키텍처 (GLM 4.7 Free)"
+    },
+    "librarian": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "라이브러리언 - 연구/문서 검색 (Kimi K2.5 Free)"
+    },
+    "explore": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "익스플로어 - 빠른 코드베이스 탐색 (Kimi K2.5 Free)"
+    },
+    "frontend-ui-ux": {
+      "model": "zen/glm-4.7-free",
+      "comment": "프론트엔드 엔지니어 - GLM 4.7 Free"
+    },
+    "designer": {
+      "model": "zen/glm-4.7-free",
+      "comment": "디자이너 - GLM 4.7 Free"
+    },
+    "prometheus": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "플래너 - 계획 및 분석 (Kimi K2.5 Free)"
+    },
+    "atlas": {
+      "model": "zen/glm-4.7-free",
+      "comment": "아틀라스 훅 - 멀티모달 지원 (GLM 4.7 Free)"
+    },
+    "metis": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "메티스 - 플랜 컨설턴트 (Kimi K2.5 Free)"
+    },
+    "momus": {
+      "model": "zen/glm-4.7-free",
+      "comment": "모무스 - 플랜 리뷰어 (GLM 4.7 Free)"
+    },
+    "multimodal-looker": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "멀티모달 룩커 - 시각/추론 (Kimi K2.5 Free)"
+    },
+    "sisyphus": {
+      "model": "zen/glm-4.7-free",
+      "comment": "시시푸스 - 오케스트레이터 (GLM 4.7 Free)"
+    },
+    "build": {
+      "model": "zen/glm-4.7-free",
+      "comment": "빌드 에이전트 - 기본 코딩 작업 (GLM 4.7 Free)"
+    },
+    "plan": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "플랜 에이전트 - 계획 및 분석 (Kimi K2.5 Free)"
+    }
+  },
+  "categories": {
+    "visual-engineering": {
+      "model": "zen/glm-4.7-free",
+      "comment": "UI/UX 작업용 카테고리 (GLM 4.7 Free)"
+    },
+    "ultrabrain": {
+      "model": "zen/glm-4.7-free",
+      "comment": "복잡한 추론/아키텍처용 카테고리 (GLM 4.7 Free)"
+    },
+    "artistry": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "창의적 해결책용 카테고리 (Kimi K2.5 Free)"
+    },
+    "quick": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "빠르고 간단한 작업용 카테고리 (Kimi K2.5 Free)"
+    },
+    "unspecified-low": {
+      "model": "zen/glm-4.7-free",
+      "comment": "저노력 범용 작업용 카테고리 (GLM 4.7 Free)"
+    },
+    "unspecified-high": {
+      "model": "zen/glm-4.7-free",
+      "comment": "고노력 범용 작업용 카테고리 (GLM 4.7 Free)"
+    },
+    "writing": {
+      "model": "zen/kimi-k2.5-free",
+      "comment": "문서화/글쓰기용 카테고리 (Kimi K2.5 Free)"
+    },
+    "deep": {
+      "model": "zen/glm-4.7-free",
+      "comment": "깊은 탐색/문제 해결용 카테고리 (GLM 4.7 Free)"
+    }
+  }
+}

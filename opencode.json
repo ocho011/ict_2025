@@ -1,0 +1,23 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "Sisyphus": {
+      "model": "zen/glm-4.7-free"
+    },
+    "Prometheus": {
+      "model": "zen/kimi-k2.5-free"
+    },
+    "Atlas": {
+      "model": "zen/glm-4.7-free"
+    },
+    "oracle": {
+      "model": "zen/glm-4.7-free"
+    },
+    "librarian": {
+      "model": "zen/kimi-k2.5-free"
+    },
+    "explore": {
+      "model": "zen/glm-4.7-free"
+    }
+  }
+}
