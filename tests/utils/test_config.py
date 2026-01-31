@@ -42,8 +42,8 @@ class TestMultiSymbolValidation:
         assert len(config.symbols) == 3
 
     def test_max_symbols_limit_enforced(self):
-        """Test that MAX_SYMBOLS=10 limit is enforced."""
-        # 11 symbols should fail
+        """Test that max_symbols=10 limit is enforced (configurable from ini)."""
+        # 11 symbols should fail when max_symbols=10 (default)
         symbols = [f"SYM{i}USDT" for i in range(11)]
 
         with pytest.raises(ConfigurationError) as exc_info:
@@ -55,6 +55,7 @@ class TestMultiSymbolValidation:
                 max_risk_per_trade=0.01,
                 take_profit_ratio=2.0,
                 stop_loss_percent=0.02,
+                max_symbols=10,  # Default value
             )
 
         assert "Maximum 10 symbols allowed" in str(exc_info.value)

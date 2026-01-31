@@ -130,7 +130,6 @@ class ExitConfig:
             raise ConfigurationError("timed strategy requires timeout_enabled=True")
 
 
-
 @dataclass
 class TradingConfig:
     """
@@ -158,6 +157,9 @@ class TradingConfig:
     margin_type: str = "ISOLATED"  # Default to ISOLATED margin (safer than CROSSED)
     ict_config: Optional[Dict[str, Any]] = None  # ICT strategy specific configuration
     exit_config: Optional[ExitConfig] = None  # Dynamic exit configuration (Issue #43)
+    max_symbols: int = (
+        10  # Maximum symbols allowed (Issue #69: configurable MAX_SYMBOLS)
+    )
 
     def __post_init__(self):
         # Validation
@@ -196,12 +198,12 @@ class TradingConfig:
             )
 
         # Validate symbols (Issue #8: Multi-coin support)
-        MAX_SYMBOLS = 10
+
         if len(self.symbols) == 0:
             raise ConfigurationError("At least one symbol is required")
-        if len(self.symbols) > MAX_SYMBOLS:
+        if len(self.symbols) > self.max_symbols:
             raise ConfigurationError(
-                f"Maximum {MAX_SYMBOLS} symbols allowed, got {len(self.symbols)}"
+                f"Maximum {self.max_symbols} symbols allowed, got {len(self.symbols)}"
             )
 
         # Validate each symbol format
@@ -688,7 +690,24 @@ class ConfigManager:
             margin_type=trading.get("margin_type", "ISOLATED"),
             ict_config=ict_config,
             exit_config=exit_config,
+            max_symbols=trading.getint("max_symbols", 10),
         )
+
+        # Validate max_symbols range (Issue #69)
+        max_symbols_value = trading.getint("max_symbols", 10)
+        if not (1 <= max_symbols_value <= 20):
+            raise ConfigurationError(
+                f"max_symbols must be between 1-20, got {max_symbols_value}"
+            )
+
+        # Add resource warning for high symbol counts (>=15)
+        if max_symbols_value >= 15:
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"⚠️  HIGH RESOURCE USAGE: {max_symbols_value} symbols configured. "
+                f"Memory usage: ~{max_symbols_value * 5}MB per symbol per interval. "
+                f"Consider reducing for better performance."
+            )
 
     def validate(self) -> bool:
         """
@@ -808,7 +827,22 @@ class ConfigManager:
         )
 
     @property
-    def liquidation_config(self) -> LiquidationConfig:
+    def api_config(self) -> "APIConfig":
+        """Get API configuration"""
+        return self._api_config
+
+    @property
+    def trading_config(self) -> "TradingConfig":
+        """Get trading configuration"""
+        return self._trading_config
+
+    @property
+    def logging_config(self) -> "LoggingConfig":
+        """Get logging configuration"""
+        return self._logging_config
+
+    @property
+    def liquidation_config(self) -> "LiquidationConfig":
         """Get liquidation configuration"""
         return self._liquidation_config
 
