@@ -1,7 +1,7 @@
 """
 Integration tests for Multi-coin trading support (Issue #8 Phase 4).
 
-Tests symbol isolation, unknown symbol validation, MAX_SYMBOLS enforcement,
+Tests symbol isolation, unknown symbol validation, max_symbols enforcement,
 and multi-strategy management in realistic scenarios with TradingEngine integration.
 """
 
@@ -121,7 +121,9 @@ class TestMultiSymbolIsolation:
             assert btc_strategy.buffers[interval] is not eth_strategy.buffers[interval]
 
     @pytest.mark.asyncio
-    async def test_candles_route_to_correct_symbol_buffer(self, trading_engine_multi_coin):
+    async def test_candles_route_to_correct_symbol_buffer(
+        self, trading_engine_multi_coin
+    ):
         """Test that candles are routed to the correct symbol's buffer."""
         engine = trading_engine_multi_coin
 
@@ -237,7 +239,7 @@ class TestUnknownSymbolValidation:
 
 
 class TestMaxSymbolsEnforcement:
-    """Test MAX_SYMBOLS=10 limit enforcement."""
+    """Test max_symbols limit enforcement (configurable, default=10)."""
 
     def test_rejects_more_than_10_symbols(self):
         """Test that >10 symbols raises ConfigurationError."""
@@ -255,9 +257,9 @@ class TestMaxSymbolsEnforcement:
                 max_risk_per_trade=0.01,
                 take_profit_ratio=2.0,
                 stop_loss_percent=0.02,
+                max_symbols=10,  # Default value
             )
 
-        # Verify error message
         assert "Maximum 10 symbols allowed" in str(exc_info.value)
         assert "got 11" in str(exc_info.value)
 
@@ -276,6 +278,7 @@ class TestMaxSymbolsEnforcement:
             max_risk_per_trade=0.01,
             take_profit_ratio=2.0,
             stop_loss_percent=0.02,
+            max_symbols=10,  # Default value
         )
 
         assert len(config.symbols) == 10
@@ -412,8 +415,12 @@ class TestMultiCoinBackfillScenario:
         assert all(c.symbol == "ETHUSDT" for c in eth_strategy.buffers["5m"])
 
         # Verify buffer independence (no cross-contamination)
-        assert btc_strategy.buffers["5m"][0].close != eth_strategy.buffers["5m"][0].close
-        assert btc_strategy.buffers["5m"][0].symbol != eth_strategy.buffers["5m"][0].symbol
+        assert (
+            btc_strategy.buffers["5m"][0].close != eth_strategy.buffers["5m"][0].close
+        )
+        assert (
+            btc_strategy.buffers["5m"][0].symbol != eth_strategy.buffers["5m"][0].symbol
+        )
 
 
 class TestMultiCoinEventRouting:

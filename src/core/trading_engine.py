@@ -287,13 +287,8 @@ class TradingEngine:
             )
 
         # Step 4.5: Create strategy instances per symbol (Issue #8 Phase 2)
-        MAX_SYMBOLS = 10
-        if len(trading_config.symbols) > MAX_SYMBOLS:
-            from src.core.exceptions import ConfigurationError
-
-            raise ConfigurationError(
-                f"Maximum {MAX_SYMBOLS} symbols allowed, got {len(trading_config.symbols)}"
-            )
+        # max_symbols validation handled in ConfigManager._load_trading_config() (Issue #69)
+        # This prevents resource exhaustion by centralizing configuration validation
 
         self.logger.info(
             f"Creating {len(trading_config.symbols)} strategy instances..."
