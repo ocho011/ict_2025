@@ -35,6 +35,12 @@ class PrivateUserStreamer(IDataStreamer):
         - User data WebSocket connection
         - ORDER_TRADE_UPDATE event parsing
         - ORDER_FILLED event publishing to EventBus
+        - Automatic WebSocket reconnection on listen key rotation
+
+    Listen Key Auto-Recovery:
+        - Automatically reconnects when listen key expires (error -1125)
+        - Minimizes data loss during reconnection
+        - Logs all rotation events for monitoring
 
     Example:
         >>> streamer = PrivateUserStreamer(
@@ -89,6 +95,9 @@ class PrivateUserStreamer(IDataStreamer):
             f"environment={'TESTNET' if is_testnet else 'MAINNET'}"
         )
 
+        # Listen key rotation state
+        self._reconnecting = False
+
     @property
     def is_connected(self) -> bool:
         """
@@ -133,7 +142,11 @@ class PrivateUserStreamer(IDataStreamer):
         self._event_loop = asyncio.get_running_loop()
 
         # Initialize UserDataStreamManager for listen key lifecycle
-        self.user_stream_manager = UserDataStreamManager(self.binance_service)
+        # Register callback for listen key rotation (auto-recovery)
+        self.user_stream_manager = UserDataStreamManager(
+            self.binance_service,
+            listen_key_changed_callback=self._on_listen_key_changed,
+        )
 
         try:
             # Create listen key (also starts keep-alive loop)
@@ -191,6 +204,7 @@ class PrivateUserStreamer(IDataStreamer):
         # Update state
         self._running = False
         self._is_connected = False
+        self._reconnecting = False
 
         # Stop WebSocket client
         if self._user_ws_client:
@@ -211,6 +225,81 @@ class PrivateUserStreamer(IDataStreamer):
         self._event_loop = None
 
         self.logger.info("PrivateUserStreamer shutdown complete")
+
+    def _on_listen_key_changed(self, old_key: str, new_key: str) -> None:
+        """
+        Handle listen key rotation notification from UserDataStreamManager.
+
+        Called when the listen key expires and a new one is created.
+        Reconnects the WebSocket with the new listen key.
+
+        Args:
+            old_key: The expired listen key
+            new_key: The new listen key
+        """
+        if self._reconnecting:
+            self.logger.warning(
+                "Already reconnecting, ignoring duplicate rotation event"
+            )
+            return
+
+        self.logger.info(f"Listen key rotated: {old_key[:16]}... -> {new_key[:16]}...")
+        self.logger.info("Reconnecting User Data Stream WebSocket...")
+
+        # Mark reconnecting state to prevent duplicate reconnections
+        self._reconnecting = True
+
+        # Schedule reconnection in the event loop (this callback runs in keep-alive thread)
+        if self._event_loop:
+            asyncio.run_coroutine_threadsafe(
+                self._reconnect_websocket(new_key), self._event_loop
+            )
+        else:
+            self.logger.error("Cannot reconnect: event loop not available")
+
+    async def _reconnect_websocket(self, new_listen_key: str) -> None:
+        """
+        Reconnect WebSocket with new listen key.
+
+        Stops the old WebSocket connection and creates a new one with
+        the updated listen key.
+
+        Args:
+            new_listen_key: The new listen key to use for connection
+        """
+        try:
+            # Step 1: Stop old WebSocket connection
+            if self._user_ws_client:
+                try:
+                    self._user_ws_client.stop()
+                    self.logger.debug("Old WebSocket connection stopped")
+                except Exception as e:
+                    self.logger.warning(f"Error stopping old WebSocket: {e}")
+
+            # Step 2: Determine WebSocket URL with new listen key
+            base_url = (
+                self.TESTNET_USER_WS_URL
+                if self.is_testnet
+                else self.MAINNET_USER_WS_URL
+            )
+            ws_url = f"{base_url}/{new_listen_key}"
+
+            # Step 3: Create new WebSocket client with new listen key
+            self._user_ws_client = UMFuturesWebsocketClient(
+                stream_url=ws_url,
+                on_message=self._handle_user_data_message,
+            )
+
+            self._is_connected = True
+            self.logger.info(f"WebSocket reconnected successfully: {ws_url[:60]}...")
+
+        except Exception as e:
+            self.logger.error(f"Failed to reconnect WebSocket: {e}", exc_info=True)
+            # Mark as disconnected on failure
+            self._is_connected = False
+        finally:
+            # Reset reconnecting flag regardless of outcome
+            self._reconnecting = False
 
     def _handle_user_data_message(self, _, message) -> None:
         """
