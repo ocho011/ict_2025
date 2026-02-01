@@ -828,6 +828,26 @@ class OrderExecutionManager:
             return order
 
         except ClientError as e:
+            # Handle -4130: Duplicate TP/SL order with closePosition exists
+            if e.error_code == -4130:
+                self.logger.warning(
+                    f"SL order rejected (-4130): existing algo order with closePosition "
+                    f"detected for {signal.symbol}. Attempting to cancel existing algo orders..."
+                )
+                try:
+                    # Cancel existing algo orders (TP/SL) for future attempts
+                    algo_results = self.client.cancel_all_algo_orders(signal.symbol)
+                    algo_cancelled = len(algo_results) if algo_results else 0
+                    if algo_cancelled > 0:
+                        self.logger.info(
+                            f"Cancelled {algo_cancelled} existing algo orders for {signal.symbol}. "
+                            f"Next signal should succeed."
+                        )
+                except Exception as cancel_err:
+                    self.logger.warning(
+                        f"Failed to cancel existing algo orders: {cancel_err}"
+                    )
+
             # Binance API error (4xx) - log but don't raise
             self.logger.error(
                 f"SL order rejected: code={e.error_code}, msg={e.error_message}"
@@ -965,6 +985,26 @@ class OrderExecutionManager:
             return order
 
         except ClientError as e:
+            # Handle -4130: Duplicate TP/SL order with closePosition exists
+            if e.error_code == -4130:
+                self.logger.warning(
+                    f"TP order rejected (-4130): existing algo order with closePosition "
+                    f"detected for {signal.symbol}. Attempting to cancel existing algo orders..."
+                )
+                try:
+                    # Cancel existing algo orders (TP/SL) for future attempts
+                    algo_results = self.client.cancel_all_algo_orders(signal.symbol)
+                    algo_cancelled = len(algo_results) if algo_results else 0
+                    if algo_cancelled > 0:
+                        self.logger.info(
+                            f"Cancelled {algo_cancelled} existing algo orders for {signal.symbol}. "
+                            f"Next signal should succeed."
+                        )
+                except Exception as cancel_err:
+                    self.logger.warning(
+                        f"Failed to cancel existing algo orders: {cancel_err}"
+                    )
+
             # Binance API error (4xx) - log but don't raise
             self.logger.error(
                 f"TP order rejected: code={e.error_code}, msg={e.error_message}"
@@ -1816,6 +1856,20 @@ class OrderExecutionManager:
                 # Unexpected response format
                 self.logger.warning(f"Unexpected response format: {response}")
                 cancelled_count = 0
+
+            # 5.5 Cancel Algo Orders (TP/SL placed via Algo Order API)
+            # Standard cancel_open_orders does NOT cancel algo orders - they use separate API
+            try:
+                algo_results = self.client.cancel_all_algo_orders(symbol)
+                algo_cancelled = len(algo_results) if algo_results else 0
+                if algo_cancelled > 0:
+                    self.logger.info(
+                        f"Cancelled {algo_cancelled} algo orders (TP/SL) for {symbol}"
+                    )
+                    cancelled_count += algo_cancelled
+            except Exception as e:
+                # Log warning but don't fail - algo orders may not exist
+                self.logger.debug(f"Algo order cancellation note: {e}")
 
             # 6. Invalidate cache after cancel API call (Issue #41 rate limit fix)
             self.invalidate_open_orders_cache(symbol)

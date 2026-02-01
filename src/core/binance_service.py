@@ -290,3 +290,92 @@ class BinanceServiceClient:
             payload=payload,
         )
         return self._handle_response(response)
+
+    def query_open_algo_orders(self, symbol: Optional[str] = None) -> list:
+        """
+        Query open algo orders (conditional orders).
+
+        GET /fapi/v1/algoOrder/openOrders
+
+        Args:
+            symbol: Optional trading pair symbol to filter by (e.g., "BTCUSDT")
+                   If not provided, returns all open algo orders
+
+        Returns:
+            List of open algo orders
+
+        Raises:
+            ClientError: If API request fails
+        """
+        payload = {}
+        if symbol:
+            payload["symbol"] = symbol
+
+        response = self.client.sign_request(
+            http_method="GET",
+            url_path="/fapi/v1/algoOrder/openOrders",
+            payload=payload,
+        )
+        return self._handle_response(response)
+
+    def cancel_algo_order(self, symbol: str, algo_id: int) -> Dict[str, Any]:
+        """
+        Cancel a single algo order by algoId.
+
+        DELETE /fapi/v1/algoOrder
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+            algo_id: The algoId of the order to cancel
+
+        Returns:
+            Dict containing cancellation result
+
+        Raises:
+            ClientError: If API request fails
+        """
+        payload = {
+            "symbol": symbol,
+            "algoId": algo_id,
+        }
+
+        response = self.client.sign_request(
+            http_method="DELETE",
+            url_path="/fapi/v1/algoOrder",
+            payload=payload,
+        )
+        return self._handle_response(response)
+
+    def cancel_all_algo_orders(self, symbol: str) -> list:
+        """
+        Cancel all open algo orders for a symbol.
+
+        Queries all open algo orders and cancels them one by one.
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+
+        Returns:
+            List of cancellation results
+
+        Raises:
+            ClientError: If API request fails
+        """
+        # Query open algo orders for the symbol
+        open_orders = self.query_open_algo_orders(symbol)
+
+        if not open_orders:
+            return []
+
+        # Cancel each algo order
+        results = []
+        for order in open_orders:
+            algo_id = order.get("algoId")
+            if algo_id:
+                try:
+                    result = self.cancel_algo_order(symbol, algo_id)
+                    results.append(result)
+                except Exception as e:
+                    self.logger.warning(f"Failed to cancel algo order {algo_id}: {e}")
+
+        return results

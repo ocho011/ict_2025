@@ -4,6 +4,7 @@ Test script to validate implemented fixes.
 """
 
 import asyncio
+import sys
 import time
 
 from unittest.mock import Mock
@@ -57,13 +58,7 @@ def test_api_logging():
     return True
 
 
-    """Test configuration changes."""
-        print("Testing configuration changes...")
-        
-        with open("configs/trading_config.ini", "r") as f:
-            content = f.read()
-            
-        print(f"✅ Configuration test passed")
+def test_configuration_changes():
     """Test configuration changes."""
     print("Testing configuration changes...")
 
