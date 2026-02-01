@@ -170,7 +170,9 @@ class TradingEngine:
         # Cache structure: {symbol: (position, timestamp)}
         # TTL of 60 seconds to reduce API rate limit pressure (Issue #41 rate limit fix)
         self._position_cache: dict[str, tuple[Optional["Position"], float]] = {}
-        self._position_cache_ttl: float = 60.0  # seconds (increased from 5s to prevent rate limit bans)
+        self._position_cache_ttl: float = (
+            60.0  # seconds (increased from 5s to prevent rate limit bans)
+        )
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
@@ -322,6 +324,11 @@ class TradingEngine:
             binance_service=self.binance_service,
             is_testnet=is_testnet,
         )
+
+        # Inject AuditLogger for position closure logging (Issue #87)
+        if self.audit_logger:
+            user_streamer.set_audit_logger(self.audit_logger)
+            self.logger.info("  ✓ AuditLogger injected into PrivateUserStreamer")
 
         # Step 5c: Create BinanceDataCollector facade with injected streamers
         from src.core.data_collector import BinanceDataCollector
