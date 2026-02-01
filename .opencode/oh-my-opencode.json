@@ -14,14 +14,14 @@
       "temperature": 0.3
     },
     "explore": {
-      "model": "opencode/gpt-5-nano",
+      "model": "opencode/big-pickle",
       "temperature": 0.1
     },
     "multimodal-looker": {
       "model": "opencode/big-pickle"
     },
     "prometheus": {
-      "model": "opencode/kimi-k2.5-free",
+      "model": "opencode/glm-4.7-free",
       "temperature": 0.2
     },
     "metis": {
@@ -29,17 +29,17 @@
       "temperature": 0.2
     },
     "momus": {
-      "model": "opencode/gpt-5-nano",
+      "model": "opencode/big-pickle",
       "temperature": 0.1
     },
     "atlas": {
-      "model": "opencode/kimi-k2.5-free",
+      "model": "opencode/glm-4.7-free",
       "temperature": 0.3
     }
   },
   "categories": {
     "visual-engineering": {
-      "model": "opencode/kimi-k2.5-free"
+      "model": "opencode/glm-4.7-free"
     },
     "ultrabrain": {
       "model": "opencode/glm-4.7-free"
@@ -48,19 +48,19 @@
       "model": "opencode/glm-4.7-free"
     },
     "artistry": {
-      "model": "opencode/kimi-k2.5-free"
+      "model": "opencode/glm-4.7-free"
     },
     "quick": {
-      "model": "opencode/gpt-5-nano"
+      "model": "opencode/big-pickle"
     },
     "unspecified-low": {
-      "model": "opencode/gpt-5-nano"
+      "model": "oopencode/big-pickle"
     },
     "unspecified-high": {
       "model": "opencode/glm-4.7-free"
     },
     "writing": {
-      "model": "opencode/kimi-k2.5-free"
+      "model": "opencode/glm-4.7-free"
     }
   }
 }

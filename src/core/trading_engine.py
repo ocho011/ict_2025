@@ -168,9 +168,9 @@ class TradingEngine:
 
         # Position cache for exit signal handling (Issue #25)
         # Cache structure: {symbol: (position, timestamp)}
-        # TTL of 5 seconds to reduce API rate limit pressure
+        # TTL of 60 seconds to reduce API rate limit pressure (Issue #41 rate limit fix)
         self._position_cache: dict[str, tuple[Optional["Position"], float]] = {}
-        self._position_cache_ttl: float = 5.0  # seconds
+        self._position_cache_ttl: float = 60.0  # seconds (increased from 5s to prevent rate limit bans)
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
@@ -637,6 +637,80 @@ class TradingEngine:
         if symbol in self._position_cache:
             del self._position_cache[symbol]
             self.logger.debug(f"Position cache invalidated for {symbol}")
+
+    def _on_position_update_from_websocket(self, position_updates: list) -> None:
+        """
+        Handle position updates from WebSocket ACCOUNT_UPDATE events.
+
+        Updates position cache directly from WebSocket data, eliminating
+        the need for REST API calls and reducing rate limit pressure
+        (Issue #41 rate limit fix).
+
+        Args:
+            position_updates: List of PositionUpdate objects from WebSocket
+        """
+        from src.models.position import Position
+
+        current_time = time.time()
+
+        for update in position_updates:
+            symbol = update.symbol
+
+            # Skip if symbol not in our configured symbols
+            if symbol not in self.strategies:
+                continue
+
+            # Create Position object from WebSocket data
+            if abs(update.position_amt) > 0:
+                # Active position exists
+                position = Position(
+                    symbol=symbol,
+                    side="LONG" if update.position_amt > 0 else "SHORT",
+                    quantity=abs(update.position_amt),
+                    entry_price=update.entry_price,
+                    leverage=self.config_manager.trading_config.leverage,
+                    unrealized_pnl=update.unrealized_pnl,
+                )
+                self._position_cache[symbol] = (position, current_time)
+                self.logger.debug(
+                    f"Position cache updated via WebSocket: {symbol} "
+                    f"{position.side} qty={position.quantity} @ {position.entry_price}"
+                )
+            else:
+                # No position (closed or never opened)
+                self._position_cache[symbol] = (None, current_time)
+                self.logger.debug(
+                    f"Position cache cleared via WebSocket: {symbol} (no position)"
+                )
+
+    def _on_order_update_from_websocket(
+        self, symbol: str, order_id: str, order_status: str, order_data: dict
+    ) -> None:
+        """
+        Handle order updates from WebSocket ORDER_TRADE_UPDATE events.
+
+        Updates order cache in order_manager directly from WebSocket data,
+        eliminating the need for REST API calls and reducing rate limit pressure
+        (Issue #41 rate limit fix).
+
+        Args:
+            symbol: Trading pair
+            order_id: Order ID from WebSocket event
+            order_status: Order status (NEW, FILLED, CANCELED, etc.)
+            order_data: Full order data from WebSocket event
+        """
+        if self.order_manager is None:
+            return
+
+        try:
+            self.order_manager.update_order_cache_from_websocket(
+                symbol=symbol,
+                order_id=order_id,
+                order_status=order_status,
+                order_data=order_data,
+            )
+        except Exception as e:
+            self.logger.warning(f"Failed to update order cache from WebSocket: {e}")
 
     async def _on_candle_closed(self, event: Event) -> None:
         """
@@ -1440,12 +1514,17 @@ class TradingEngine:
                 # Start User Data Stream for real-time order updates (Issue #54)
                 # This enables TP/SL fill detection to prevent orphaned orders
                 # Also enables position closure audit logging (Issue #87)
+                # Also enables real-time position and order cache updates (Issue #41 rate limit fix)
                 try:
                     await self.data_collector.start_user_data_stream(
                         self.event_bus,
                         audit_logger=self.audit_logger,
+                        position_update_callback=self._on_position_update_from_websocket,
+                        order_update_callback=self._on_order_update_from_websocket,
                     )
-                    self.logger.info("User Data Stream enabled for order updates")
+                    self.logger.info(
+                        "User Data Stream enabled for order updates, position cache, and order cache"
+                    )
                 except Exception as e:
                     self.logger.error(
                         f"Failed to start User Data Stream: {e}. "

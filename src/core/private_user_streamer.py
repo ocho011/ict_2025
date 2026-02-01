@@ -10,7 +10,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
 
@@ -33,6 +33,18 @@ class PositionEntryData:
     entry_time: datetime
     quantity: float
     side: str  # "LONG" or "SHORT"
+
+
+@dataclass
+class PositionUpdate:
+    """Position update data from ACCOUNT_UPDATE WebSocket event."""
+
+    symbol: str
+    position_amt: float  # Positive for LONG, negative for SHORT
+    entry_price: float
+    unrealized_pnl: float
+    margin_type: str  # "cross" or "isolated"
+    position_side: str  # "BOTH", "LONG", or "SHORT"
 
 
 class PrivateUserStreamer(IDataStreamer):
@@ -97,6 +109,12 @@ class PrivateUserStreamer(IDataStreamer):
         # Position entry data tracking for PnL and duration calculations
         self._position_entry_data: Dict[str, PositionEntryData] = {}
 
+        # Position update callback for real-time cache updates (Issue #41 rate limit fix)
+        self._position_update_callback: Optional[Callable[[List[PositionUpdate]], None]] = None
+
+        # Order update callback for real-time order cache updates (Issue #41 rate limit fix)
+        self._order_update_callback: Optional[Callable[[str, str, str, Dict], None]] = None
+
         # State management
         self._running = False
         self._is_connected = False
@@ -141,6 +159,36 @@ class PrivateUserStreamer(IDataStreamer):
         """
         self._audit_logger = audit_logger
         self.logger.debug("AuditLogger configured for PrivateUserStreamer")
+
+    def set_position_update_callback(
+        self, callback: Callable[[List[PositionUpdate]], None]
+    ) -> None:
+        """
+        Set callback for position updates from ACCOUNT_UPDATE events.
+
+        This enables real-time position cache updates without REST API calls,
+        reducing rate limit pressure (Issue #41 rate limit fix).
+
+        Args:
+            callback: Function to call with list of PositionUpdate objects
+        """
+        self._position_update_callback = callback
+        self.logger.debug("Position update callback configured for PrivateUserStreamer")
+
+    def set_order_update_callback(
+        self, callback: Callable[[str, str, str, Dict], None]
+    ) -> None:
+        """
+        Set callback for order updates from ORDER_TRADE_UPDATE events.
+
+        This enables real-time order cache updates without REST API calls,
+        reducing rate limit pressure (Issue #41 rate limit fix).
+
+        Args:
+            callback: Function(symbol, order_id, order_status, order_data)
+        """
+        self._order_update_callback = callback
+        self.logger.debug("Order update callback configured for PrivateUserStreamer")
 
     async def start(self) -> None:
         """
@@ -272,15 +320,86 @@ class PrivateUserStreamer(IDataStreamer):
             if event_type == "ORDER_TRADE_UPDATE":
                 self._handle_order_trade_update(data)
             elif event_type == "ACCOUNT_UPDATE":
-                # Log account updates for monitoring
-                update_reason = data.get("a", {}).get("m", "unknown")
-                self.logger.debug(f"Account update received: reason={update_reason}")
+                self._handle_account_update(data)
             # Ignore other event types
 
         except json.JSONDecodeError as e:
             self.logger.error(f"Invalid JSON in user data message: {e}")
         except Exception as e:
             self.logger.error(f"Error handling user data message: {e}", exc_info=True)
+
+    def _handle_account_update(self, data: dict) -> None:
+        """
+        Process ACCOUNT_UPDATE event for real-time position cache updates.
+
+        Parses position data from WebSocket and invokes callback to update
+        TradingEngine's position cache without REST API calls (Issue #41 rate limit fix).
+
+        Args:
+            data: ACCOUNT_UPDATE event data from Binance
+
+        Binance ACCOUNT_UPDATE structure:
+            {
+                "e": "ACCOUNT_UPDATE",
+                "a": {
+                    "m": "ORDER",  // Event reason
+                    "P": [         // Positions array
+                        {
+                            "s": "BTCUSDT",      // Symbol
+                            "pa": "0.001",       // Position amount
+                            "ep": "9000.0",      // Entry price
+                            "up": "0.0",         // Unrealized PnL
+                            "mt": "cross",       // Margin type
+                            "ps": "BOTH"         // Position side
+                        }
+                    ]
+                }
+            }
+        """
+        account_data = data.get("a", {})
+        update_reason = account_data.get("m", "unknown")
+        positions_data = account_data.get("P", [])
+
+        self.logger.debug(
+            f"Account update received: reason={update_reason}, "
+            f"positions_count={len(positions_data)}"
+        )
+
+        if not positions_data:
+            return
+
+        # Parse position updates
+        position_updates: List[PositionUpdate] = []
+        for pos in positions_data:
+            try:
+                position_update = PositionUpdate(
+                    symbol=pos.get("s", ""),
+                    position_amt=float(pos.get("pa", 0)),
+                    entry_price=float(pos.get("ep", 0)),
+                    unrealized_pnl=float(pos.get("up", 0)),
+                    margin_type=pos.get("mt", "cross"),
+                    position_side=pos.get("ps", "BOTH"),
+                )
+                position_updates.append(position_update)
+
+                self.logger.debug(
+                    f"Position update parsed: {position_update.symbol} "
+                    f"amt={position_update.position_amt}, "
+                    f"entry={position_update.entry_price}"
+                )
+            except (ValueError, TypeError) as e:
+                self.logger.warning(f"Failed to parse position data: {e}")
+                continue
+
+        # Invoke callback if configured
+        if position_updates and self._position_update_callback:
+            try:
+                self._position_update_callback(position_updates)
+                self.logger.debug(
+                    f"Position update callback invoked with {len(position_updates)} updates"
+                )
+            except Exception as e:
+                self.logger.error(f"Position update callback failed: {e}", exc_info=True)
 
     def _handle_order_trade_update(self, data: dict) -> None:
         """
@@ -304,6 +423,16 @@ class PrivateUserStreamer(IDataStreamer):
         self.logger.info(
             f"Order update: {symbol} {order_type} -> {order_status} (ID: {order_id})"
         )
+
+        # Invoke order update callback for real-time cache updates (Issue #41 rate limit fix)
+        if self._order_update_callback:
+            try:
+                self._order_update_callback(symbol, order_id, order_status, order_data)
+                self.logger.debug(
+                    f"Order update callback invoked: {symbol} {order_id} -> {order_status}"
+                )
+            except Exception as e:
+                self.logger.error(f"Order update callback failed: {e}", exc_info=True)
 
         # Track position entry data for MARKET/LIMIT fills
         if order_status == "FILLED" and order_type in ("MARKET", "LIMIT"):

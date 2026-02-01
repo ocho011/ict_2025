@@ -414,6 +414,8 @@ class BinanceDataCollector:
         self,
         event_bus: "EventBus",
         audit_logger: Optional["AuditLogger"] = None,
+        position_update_callback: Optional[Callable] = None,
+        order_update_callback: Optional[Callable] = None,
     ) -> None:
         """
         Start User Data Stream WebSocket for real-time order updates.
@@ -423,6 +425,10 @@ class BinanceDataCollector:
         Args:
             event_bus: EventBus instance for publishing ORDER_FILLED events
             audit_logger: Optional AuditLogger for position closure logging (Issue #87)
+            position_update_callback: Optional callback for position updates from
+                ACCOUNT_UPDATE events (Issue #41 rate limit fix)
+            order_update_callback: Optional callback for order updates from
+                ORDER_TRADE_UPDATE events (Issue #41 rate limit fix)
 
         Raises:
             ConnectionError: If WebSocket connection fails
@@ -440,6 +446,14 @@ class BinanceDataCollector:
         # Configure audit logger for position closure logging (Issue #87)
         if audit_logger:
             self.user_streamer.set_audit_logger(audit_logger)
+
+        # Configure position update callback (Issue #41 rate limit fix)
+        if position_update_callback:
+            self.user_streamer.set_position_update_callback(position_update_callback)
+
+        # Configure order update callback (Issue #41 rate limit fix)
+        if order_update_callback:
+            self.user_streamer.set_order_update_callback(order_update_callback)
 
         # Start the streamer
         await self.user_streamer.start()
