@@ -760,24 +760,51 @@ class OrderExecutionManager:
             if adjusted_stop_loss is None:
                 adjusted_stop_loss = signal.stop_loss
 
-            # Add buffer to prevent immediate trigger (code -2021)
+            # Validate and adjust SL to prevent immediate trigger (code -2021)
+            # CRITICAL: Order uses workingType=MARK_PRICE, so validate against mark price
             if adjusted_stop_loss:
-                current_price = (
-                    signal.entry_price if hasattr(signal, "entry_price") else 0.0
-                )
-                min_distance = current_price * 0.001  # 0.1% minimum distance from entry
+                try:
+                    mark_price = self.client.get_mark_price(signal.symbol)
+                except Exception as e:
+                    self.logger.warning(f"Failed to get mark price, using entry: {e}")
+                    mark_price = signal.entry_price if hasattr(signal, "entry_price") else 0.0
+
+                min_buffer = mark_price * 0.002  # 0.2% minimum distance from mark price
                 original_stop_loss = adjusted_stop_loss
 
-                # Adjust stop loss to be at minimum distance from current price
-                if abs(original_stop_loss - current_price) < min_distance:
-                    if original_stop_loss > current_price:
-                        adjusted_stop_loss = current_price + min_distance
-                    else:
-                        adjusted_stop_loss = current_price - min_distance
-                    self.logger.warning(
-                        f"SL price adjusted from original to prevent immediate trigger: "
-                        f"{original_stop_loss} → {adjusted_stop_loss} (min distance: {min_distance})"
-                    )
+                # STOP_MARKET trigger logic:
+                # - SELL side (closing LONG): triggers when mark price <= stopPrice
+                #   → SL must be BELOW mark price
+                # - BUY side (closing SHORT): triggers when mark price >= stopPrice
+                #   → SL must be ABOVE mark price
+                if side == OrderSide.SELL:
+                    # Closing LONG - SL must be below mark price
+                    if adjusted_stop_loss >= mark_price:
+                        adjusted_stop_loss = mark_price - min_buffer
+                        self.logger.warning(
+                            f"SL (SELL) adjusted: {original_stop_loss:.4f} >= mark {mark_price:.4f}, "
+                            f"new SL: {adjusted_stop_loss:.4f}"
+                        )
+                    elif mark_price - adjusted_stop_loss < min_buffer:
+                        adjusted_stop_loss = mark_price - min_buffer
+                        self.logger.warning(
+                            f"SL (SELL) too close to mark price, adjusted: "
+                            f"{original_stop_loss:.4f} → {adjusted_stop_loss:.4f}"
+                        )
+                else:  # OrderSide.BUY
+                    # Closing SHORT - SL must be above mark price
+                    if adjusted_stop_loss <= mark_price:
+                        adjusted_stop_loss = mark_price + min_buffer
+                        self.logger.warning(
+                            f"SL (BUY) adjusted: {original_stop_loss:.4f} <= mark {mark_price:.4f}, "
+                            f"new SL: {adjusted_stop_loss:.4f}"
+                        )
+                    elif adjusted_stop_loss - mark_price < min_buffer:
+                        adjusted_stop_loss = mark_price + min_buffer
+                        self.logger.warning(
+                            f"SL (BUY) too close to mark price, adjusted: "
+                            f"{original_stop_loss:.4f} → {adjusted_stop_loss:.4f}"
+                        )
 
             # Format stop price for API
             stop_price_str = self._format_price(adjusted_stop_loss, signal.symbol)
@@ -916,25 +943,52 @@ class OrderExecutionManager:
                 )
                 return None
 
-            # Add buffer to prevent immediate trigger (code -2021)
-            # Similar to SL order logic to ensure both TP/SL orders have proper buffer
-            current_price = (
-                signal.entry_price if hasattr(signal, "entry_price") else 0.0
-            )
-            min_distance = current_price * 0.001  # 0.1% minimum distance from entry
+            # Validate and adjust TP to prevent immediate trigger (code -2021)
+            # CRITICAL: Order uses workingType=MARK_PRICE, so validate against mark price
             original_take_profit = signal.take_profit
             adjusted_take_profit = original_take_profit
 
-            # Adjust take profit to be at minimum distance from entry
-            if abs(original_take_profit - current_price) < min_distance:
-                if original_take_profit > current_price:
-                    adjusted_take_profit = current_price + min_distance
-                else:
-                    adjusted_take_profit = current_price - min_distance
-                self.logger.warning(
-                    f"TP price adjusted from original to prevent immediate trigger: "
-                    f"{current_price} → {adjusted_take_profit} (min distance: {min_distance})"
-                )
+            try:
+                mark_price = self.client.get_mark_price(signal.symbol)
+            except Exception as e:
+                self.logger.warning(f"Failed to get mark price, using entry: {e}")
+                mark_price = signal.entry_price if hasattr(signal, "entry_price") else 0.0
+
+            min_buffer = mark_price * 0.002  # 0.2% minimum distance from mark price
+
+            # TAKE_PROFIT_MARKET trigger logic:
+            # - SELL side (closing LONG): triggers when mark price >= stopPrice
+            #   → TP must be ABOVE mark price
+            # - BUY side (closing SHORT): triggers when mark price <= stopPrice
+            #   → TP must be BELOW mark price
+            if side == OrderSide.SELL:
+                # Closing LONG - TP must be above mark price
+                if adjusted_take_profit <= mark_price:
+                    adjusted_take_profit = mark_price + min_buffer
+                    self.logger.warning(
+                        f"TP (SELL) adjusted: {original_take_profit:.4f} <= mark {mark_price:.4f}, "
+                        f"new TP: {adjusted_take_profit:.4f}"
+                    )
+                elif adjusted_take_profit - mark_price < min_buffer:
+                    adjusted_take_profit = mark_price + min_buffer
+                    self.logger.warning(
+                        f"TP (SELL) too close to mark price, adjusted: "
+                        f"{original_take_profit:.4f} → {adjusted_take_profit:.4f}"
+                    )
+            else:  # OrderSide.BUY
+                # Closing SHORT - TP must be below mark price
+                if adjusted_take_profit >= mark_price:
+                    adjusted_take_profit = mark_price - min_buffer
+                    self.logger.warning(
+                        f"TP (BUY) adjusted: {original_take_profit:.4f} >= mark {mark_price:.4f}, "
+                        f"new TP: {adjusted_take_profit:.4f}"
+                    )
+                elif mark_price - adjusted_take_profit < min_buffer:
+                    adjusted_take_profit = mark_price - min_buffer
+                    self.logger.warning(
+                        f"TP (BUY) too close to mark price, adjusted: "
+                        f"{original_take_profit:.4f} → {adjusted_take_profit:.4f}"
+                    )
 
             # Format stop price for API
             stop_price_str = self._format_price(adjusted_take_profit, signal.symbol)

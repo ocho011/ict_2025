@@ -291,6 +291,25 @@ class BinanceServiceClient:
         )
         return self._handle_response(response)
 
+    def get_mark_price(self, symbol: str) -> float:
+        """
+        Get current mark price for a symbol.
+
+        GET /fapi/v1/premiumIndex
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+
+        Returns:
+            Current mark price as float
+
+        Raises:
+            ClientError: If API request fails
+        """
+        response = self.client.mark_price(symbol=symbol)
+        data = self._handle_response(response)
+        return float(data.get("markPrice", 0))
+
     def query_open_algo_orders(self, symbol: Optional[str] = None) -> list:
         """
         Query open algo orders (conditional orders).
