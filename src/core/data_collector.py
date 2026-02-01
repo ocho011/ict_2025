@@ -21,6 +21,7 @@ from src.core.private_user_streamer import PrivateUserStreamer
 # Imports for type hinting only; prevents circular dependency at runtime
 # Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
+    from src.core.audit_logger import AuditLogger
     from src.core.binance_service import BinanceServiceClient
     from src.core.event_handler import EventBus
 
@@ -409,7 +410,11 @@ class BinanceDataCollector:
     # User Data Stream Methods (Issue #54, #57)
     # =========================================================================
 
-    async def start_user_data_stream(self, event_bus: "EventBus") -> None:
+    async def start_user_data_stream(
+        self,
+        event_bus: "EventBus",
+        audit_logger: Optional["AuditLogger"] = None,
+    ) -> None:
         """
         Start User Data Stream WebSocket for real-time order updates.
 
@@ -417,6 +422,7 @@ class BinanceDataCollector:
 
         Args:
             event_bus: EventBus instance for publishing ORDER_FILLED events
+            audit_logger: Optional AuditLogger for position closure logging (Issue #87)
 
         Raises:
             ConnectionError: If WebSocket connection fails
@@ -430,6 +436,10 @@ class BinanceDataCollector:
 
         # Configure event bus for publishing
         self.user_streamer.set_event_bus(event_bus)
+
+        # Configure audit logger for position closure logging (Issue #87)
+        if audit_logger:
+            self.user_streamer.set_audit_logger(audit_logger)
 
         # Start the streamer
         await self.user_streamer.start()

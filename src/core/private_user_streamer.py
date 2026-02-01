@@ -8,10 +8,13 @@ order execution events from Binance User Data Stream (Issue #57).
 import asyncio
 import json
 import logging
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass
+from datetime import datetime
+from typing import TYPE_CHECKING, Dict, Optional
 
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
 
+from src.core.audit_logger import AuditEventType, AuditLogger
 from src.core.streamer_protocol import IDataStreamer
 from src.core.user_data_stream import UserDataStreamManager
 
@@ -20,6 +23,16 @@ from src.core.user_data_stream import UserDataStreamManager
 if TYPE_CHECKING:
     from src.core.binance_service import BinanceServiceClient
     from src.core.event_handler import EventBus
+
+
+@dataclass
+class PositionEntryData:
+    """Tracks position entry data for PnL and duration calculations."""
+
+    entry_price: float
+    entry_time: datetime
+    quantity: float
+    side: str  # "LONG" or "SHORT"
 
 
 class PrivateUserStreamer(IDataStreamer):
@@ -78,6 +91,12 @@ class PrivateUserStreamer(IDataStreamer):
         self._event_bus: Optional["EventBus"] = None
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
 
+        # AuditLogger for position closure logging (Issue #87)
+        self._audit_logger: Optional[AuditLogger] = None
+
+        # Position entry data tracking for PnL and duration calculations
+        self._position_entry_data: Dict[str, PositionEntryData] = {}
+
         # State management
         self._running = False
         self._is_connected = False
@@ -110,6 +129,18 @@ class PrivateUserStreamer(IDataStreamer):
         """
         self._event_bus = event_bus
         self.logger.debug("EventBus configured for PrivateUserStreamer")
+
+    def set_audit_logger(self, audit_logger: AuditLogger) -> None:
+        """
+        Set the AuditLogger for position closure logging.
+
+        Must be called before start() if audit logging is required.
+
+        Args:
+            audit_logger: AuditLogger instance for audit trail
+        """
+        self._audit_logger = audit_logger
+        self.logger.debug("AuditLogger configured for PrivateUserStreamer")
 
     async def start(self) -> None:
         """
@@ -255,8 +286,9 @@ class PrivateUserStreamer(IDataStreamer):
         """
         Process ORDER_TRADE_UPDATE event and publish ORDER_FILLED to EventBus.
 
-        Only publishes events for FILLED TP/SL orders to trigger orphaned
-        order cancellation in TradingEngine.
+        Handles two scenarios:
+        1. Position entry (MARKET/LIMIT fills): Track entry data for later PnL calculation
+        2. Position closure (TP/SL fills): Log to audit trail with PnL and duration
 
         Args:
             data: ORDER_TRADE_UPDATE event data from Binance
@@ -267,12 +299,31 @@ class PrivateUserStreamer(IDataStreamer):
         order_type = order_data.get("ot")  # TAKE_PROFIT_MARKET, STOP_MARKET, etc.
         symbol = order_data.get("s")
         order_id = str(order_data.get("i", ""))
+        order_side = order_data.get("S")  # BUY or SELL
 
         self.logger.info(
             f"Order update: {symbol} {order_type} -> {order_status} (ID: {order_id})"
         )
 
-        # Only publish for FILLED TP/SL orders (triggers orphan prevention)
+        # Track position entry data for MARKET/LIMIT fills
+        if order_status == "FILLED" and order_type in ("MARKET", "LIMIT"):
+            entry_price = float(order_data.get("ap", 0))  # Average fill price
+            quantity = float(order_data.get("z", 0))  # Filled quantity
+            # Determine position side: BUY opens LONG, SELL opens SHORT
+            position_side = "LONG" if order_side == "BUY" else "SHORT"
+
+            self._position_entry_data[symbol] = PositionEntryData(
+                entry_price=entry_price,
+                entry_time=datetime.utcnow(),
+                quantity=quantity,
+                side=position_side,
+            )
+            self.logger.info(
+                f"Tracking position entry: {symbol} {position_side} "
+                f"price={entry_price}, qty={quantity}"
+            )
+
+        # Handle TP/SL order fills (position closure)
         if order_status == "FILLED" and order_type in (
             "TAKE_PROFIT_MARKET",
             "STOP_MARKET",
@@ -284,6 +335,11 @@ class PrivateUserStreamer(IDataStreamer):
             from src.models.order import Order, OrderType, OrderStatus, OrderSide
 
             # Create Order object for event payload
+            # Extract callback_rate for TRAILING_STOP_MARKET orders
+            callback_rate = None
+            if order_type == "TRAILING_STOP_MARKET":
+                callback_rate = float(order_data.get("cr", 0)) if order_data.get("cr") else 1.0
+
             order = Order(
                 order_id=order_id,
                 symbol=symbol,
@@ -292,6 +348,7 @@ class PrivateUserStreamer(IDataStreamer):
                 quantity=float(order_data.get("q", 0)),
                 price=float(order_data.get("ap", 0)),  # Average fill price
                 stop_price=float(order_data.get("sp", 0)),  # Stop/trigger price
+                callback_rate=callback_rate,
                 status=OrderStatus.FILLED,
             )
 
@@ -314,3 +371,92 @@ class PrivateUserStreamer(IDataStreamer):
                 self.logger.warning(
                     f"Cannot publish ORDER_FILLED event: EventBus not configured"
                 )
+
+            # Log position closure to audit trail (Issue #87)
+            self._log_position_closure(symbol, order_data, order_type, order_id)
+
+    def _log_position_closure(
+        self,
+        symbol: str,
+        order_data: dict,
+        order_type: str,
+        order_id: str,
+    ) -> None:
+        """
+        Log position closure to audit trail with PnL and duration.
+
+        Args:
+            symbol: Trading symbol
+            order_data: ORDER_TRADE_UPDATE order data
+            order_type: Order type (TAKE_PROFIT_MARKET, STOP_MARKET, etc.)
+            order_id: Order ID
+        """
+        if not self._audit_logger:
+            self.logger.debug("AuditLogger not configured, skipping position closure log")
+            return
+
+        # Map order type to close reason
+        close_reason_map = {
+            "TAKE_PROFIT_MARKET": "TAKE_PROFIT",
+            "TAKE_PROFIT": "TAKE_PROFIT",
+            "STOP_MARKET": "STOP_LOSS",
+            "STOP": "STOP_LOSS",
+            "TRAILING_STOP_MARKET": "TRAILING_STOP",
+        }
+        close_reason = close_reason_map.get(order_type, "UNKNOWN")
+
+        # Extract exit details
+        exit_price = float(order_data.get("ap", 0))  # Average fill price
+        exit_quantity = float(order_data.get("z", 0))  # Filled quantity
+        exit_side = order_data.get("S")  # BUY or SELL
+
+        # Build closure data
+        closure_data = {
+            "close_reason": close_reason,
+            "exit_price": exit_price,
+            "exit_quantity": exit_quantity,
+            "exit_side": exit_side,
+            "order_id": order_id,
+            "order_type": order_type,
+        }
+
+        # Add entry data if available (for PnL and duration)
+        entry_data = self._position_entry_data.get(symbol)
+        if entry_data:
+            closure_data["entry_price"] = entry_data.entry_price
+            closure_data["position_side"] = entry_data.side
+
+            # Calculate holding duration
+            held_duration = datetime.utcnow() - entry_data.entry_time
+            closure_data["held_duration_seconds"] = held_duration.total_seconds()
+
+            # Calculate realized PnL
+            # LONG: profit when exit > entry, SHORT: profit when entry > exit
+            if entry_data.side == "LONG":
+                realized_pnl = (exit_price - entry_data.entry_price) * exit_quantity
+            else:  # SHORT
+                realized_pnl = (entry_data.entry_price - exit_price) * exit_quantity
+            closure_data["realized_pnl"] = realized_pnl
+
+            # Clean up position state
+            del self._position_entry_data[symbol]
+            self.logger.debug(f"Cleaned up position entry data for {symbol}")
+        else:
+            self.logger.warning(
+                f"No entry data found for {symbol}, PnL and duration unavailable"
+            )
+
+        # Log to audit trail
+        try:
+            self._audit_logger.log_event(
+                event_type=AuditEventType.POSITION_CLOSED,
+                operation="tp_sl_order_filled",
+                symbol=symbol,
+                data=closure_data,
+            )
+            self.logger.info(
+                f"Position closed via {close_reason}: {symbol} "
+                f"exit_price={exit_price}, qty={exit_quantity}"
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to log position closure: {e}")

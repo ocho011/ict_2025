@@ -1439,8 +1439,12 @@ class TradingEngine:
 
                 # Start User Data Stream for real-time order updates (Issue #54)
                 # This enables TP/SL fill detection to prevent orphaned orders
+                # Also enables position closure audit logging (Issue #87)
                 try:
-                    await self.data_collector.start_user_data_stream(self.event_bus)
+                    await self.data_collector.start_user_data_stream(
+                        self.event_bus,
+                        audit_logger=self.audit_logger,
+                    )
                     self.logger.info("User Data Stream enabled for order updates")
                 except Exception as e:
                     self.logger.error(
