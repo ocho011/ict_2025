@@ -1,0 +1,15 @@
+{
+  "created_at": "2026-02-01T13:22:40.144Z",
+  "trigger": "auto",
+  "active_modes": {
+    "ecomode": {
+      "original_prompt": "/oh-my-claudecode:ecomode 2026-02-01 22:16:00,855 | ERROR    | src.core.trading_engine:618 | Failed to refresh position cache for BTCUSDT: Position query failed: code=-1003, msg=Way too many requests; IP(15.158.3.22) banned until 1769952044725. Please use the websocket for live updates to avoid bans.. Returning None to indicate uncertain state (Issue #41). => 원인을 찾아줘"
+    }
+  },
+  "todo_summary": {
+    "pending": 0,
+    "in_progress": 0,
+    "completed": 0
+  },
+  "wisdom_exported": false
+}
