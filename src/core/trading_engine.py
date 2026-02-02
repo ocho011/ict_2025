@@ -92,7 +92,7 @@ class TradingEngine:
         - _on_order_filled: Order → Position update (future)
     """
 
-    def __init__(self, audit_logger: "AuditLogger") -> None:
+    def __init__(self, audit_logger: Optional["AuditLogger"] = None) -> None:
         """
         Initialize TradingEngine with minimal setup.
 
@@ -101,7 +101,9 @@ class TradingEngine:
         bootstrap (TradingBot) and execution (TradingEngine).
 
         Args:
-            audit_logger: AuditLogger instance for structured logging
+            audit_logger: Optional AuditLogger instance for structured logging.
+                         If None, uses AuditLogger.get_instance() singleton (default for production).
+                         Explicit injection supported for testing.
 
         Attributes:
             logger: Logger instance for engine events
@@ -120,17 +122,15 @@ class TradingEngine:
 
         Process Flow:
             1. Create logger
-            2. Inject audit logger
+            2. Get audit logger (from parameter or singleton)
             3. Set component placeholders to None
             4. Initialize state machine (CREATED)
             5. Wait for initialize_components() call
 
-        Example:
+        Example (Production - Singleton):
             ```python
-            from src.core.audit_logger import AuditLogger
-
-            audit_logger = AuditLogger(log_dir="logs/audit")
-            engine = TradingEngine(audit_logger=audit_logger)
+            # Uses singleton pattern (no explicit audit_logger needed)
+            engine = TradingEngine()
             engine.initialize_components(
                 config_manager=config_manager,
                 event_bus=event_bus,
@@ -140,11 +140,28 @@ class TradingEngine:
             )
             await engine.run()
             ```
+
+        Example (Testing - Explicit Injection):
+            ```python
+            from src.core.audit_logger import AuditLogger
+
+            # Explicit injection for testing
+            audit_logger = AuditLogger(log_dir="logs/audit")
+            engine = TradingEngine(audit_logger=audit_logger)
+            engine.initialize_components(...)
+            await engine.run()
+            ```
         """
         self.logger = logging.getLogger(__name__)
 
-        # Inject audit logger
-        self.audit_logger = audit_logger
+        # Get audit logger (from parameter or singleton)
+        if audit_logger is None:
+            from src.core.audit_logger import AuditLogger
+            self.audit_logger = AuditLogger.get_instance()
+            self.logger.info("Using AuditLogger singleton instance")
+        else:
+            self.audit_logger = audit_logger
+            self.logger.info("Using injected AuditLogger instance")
 
         # Components (created via initialize_components)
         self.event_bus: Optional[EventBus] = None

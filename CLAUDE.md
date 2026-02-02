@@ -203,3 +203,79 @@ except:
 | 메모리 증가율 | < 10MB/hour | `tracemalloc` |
 | GC Pause | < 10ms | `gc.callbacks` 모니터링 |
 | Lock 대기 시간 | < 100μs | Lock 래퍼로 측정 |
+
+## Logging Architecture
+
+### Overview
+
+The system uses two separate logging systems with distinct purposes:
+
+| Logger | Purpose | Output | Format |
+|--------|---------|--------|--------|
+| TradingLogger | Application logging (debug/operations) | `logs/trading.log` + console | Human-readable, colored |
+| AuditLogger | Compliance/analysis audit trail | `logs/audit/audit_YYYYMMDD.jsonl` | JSON Lines (machine-readable) |
+
+### Usage Guidelines
+
+**1. Component Logger (`self.logger`)**
+- Use for development/debugging information
+- Created via `logging.getLogger(__name__)`
+- Outputs to TradingLogger's handlers (console + file)
+
+```python
+self.logger.debug("Processing candle for %s", symbol)
+self.logger.info("Order placed: %s", order_id)
+self.logger.warning("Rate limit approaching")
+self.logger.error("Connection failed: %s", error)
+```
+
+**2. Audit Logger (`self.audit_logger`)**
+- Use for compliance-critical events that need structured tracking
+- Singleton pattern: `AuditLogger.get_instance()`
+- Events: orders, trades, risk decisions, position changes
+
+```python
+self.audit_logger.log_event(
+    AuditEventType.ORDER_PLACED,
+    operation="place_order",
+    symbol=symbol,
+    order_data={"side": side, "quantity": qty}
+)
+```
+
+### When to Use Each Logger
+
+| Event Type | Logger | Rationale |
+|------------|--------|-----------|
+| Debug traces | `self.logger` | Development only |
+| Order lifecycle | `audit_logger` | Compliance requirement |
+| Risk decisions | `audit_logger` | Audit trail needed |
+| Position changes | `audit_logger` | Compliance requirement |
+| WebSocket events | `self.logger` | Debugging only |
+| API errors | Both | Debug + audit trail |
+| Performance metrics | `self.logger` | Operational monitoring |
+
+### Hot Path Considerations
+
+In performance-critical code paths:
+- Prefer `audit_logger` only (single I/O operation)
+- Avoid duplicate logging to both systems
+- Use DEBUG level sparingly (disabled in production)
+
+### Singleton Pattern (AuditLogger)
+
+AuditLogger uses singleton pattern for resource efficiency:
+
+```python
+# Production: Use singleton
+audit_logger = AuditLogger.get_instance()
+
+# Testing: Reset singleton between tests
+AuditLogger.reset_instance()
+audit_logger = AuditLogger.get_instance(log_dir="test_logs")
+```
+
+Benefits:
+- Single QueueListener thread (vs multiple threads per instance)
+- Consistent log file handling
+- Simplified dependency injection

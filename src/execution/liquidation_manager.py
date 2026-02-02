@@ -122,19 +122,20 @@ class LiquidationManager:
     def __init__(
         self,
         order_manager,  # OrderExecutionManager instance
-        audit_logger: AuditLogger,
-        config: LiquidationConfig,
+        audit_logger: Optional[AuditLogger] = None,
+        config: Optional[LiquidationConfig] = None,
     ):
         """
         Initialize liquidation manager.
 
         Args:
             order_manager: OrderExecutionManager instance for API calls
-            audit_logger: AuditLogger instance for audit trail
+            audit_logger: Optional AuditLogger instance for audit trail.
+                         If None, uses singleton instance from AuditLogger.get_instance()
             config: LiquidationConfig instance with validated configuration
         """
         self.order_manager = order_manager
-        self.audit_logger = audit_logger
+        self.audit_logger = audit_logger or AuditLogger.get_instance()
         self.config = config
         self.logger = logging.getLogger(__name__)
 

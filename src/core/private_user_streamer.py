@@ -520,8 +520,10 @@ class PrivateUserStreamer(IDataStreamer):
             order_type: Order type (TAKE_PROFIT_MARKET, STOP_MARKET, etc.)
             order_id: Order ID
         """
-        if not self._audit_logger:
-            self.logger.debug("AuditLogger not configured, skipping position closure log")
+        # Use singleton pattern if not explicitly set
+        audit_logger = self._audit_logger or AuditLogger.get_instance()
+        if not audit_logger:
+            self.logger.debug("AuditLogger not available, skipping position closure log")
             return
 
         # Map order type to close reason
@@ -577,7 +579,7 @@ class PrivateUserStreamer(IDataStreamer):
 
         # Log to audit trail
         try:
-            self._audit_logger.log_event(
+            audit_logger.log_event(
                 event_type=AuditEventType.POSITION_CLOSED,
                 operation="tp_sl_order_filled",
                 symbol=symbol,
