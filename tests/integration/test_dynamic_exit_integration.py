@@ -112,6 +112,7 @@ class TestDynamicExitIntegration:
         """Test TradingEngine processes dynamic exit signal correctly."""
         # Mock strategy to return exit signal
         mock_strategy = AsyncMock()
+        mock_strategy.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
         exit_signal = Signal(
             signal_type=SignalType.CLOSE_LONG,
             symbol="BTCUSDT",
@@ -139,7 +140,7 @@ class TestDynamicExitIntegration:
         # Mock event bus to capture signal publication
         published_signals = []
 
-        async def capture_signal(event):
+        async def capture_signal(event, queue_type=None):
             published_signals.append(event)
 
         trading_engine.event_bus.publish = capture_signal
@@ -167,6 +168,7 @@ class TestDynamicExitIntegration:
         """Test TradingEngine skips entry analysis when exit is triggered."""
         # Mock strategy to return exit signal
         mock_strategy = AsyncMock()
+        mock_strategy.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
         exit_signal = Signal(
             signal_type=SignalType.CLOSE_LONG,
             symbol="BTCUSDT",
@@ -228,7 +230,9 @@ class TestDynamicExitIntegration:
 
         # Mock strategies for both symbols
         mock_strategy_btc = AsyncMock()
+        mock_strategy_btc.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
         mock_strategy_eth = AsyncMock()
+        mock_strategy_eth.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
 
         btc_exit_signal = Signal(
             signal_type=SignalType.CLOSE_LONG,
@@ -319,7 +323,7 @@ class TestDynamicExitIntegration:
         # Capture published signals
         published_signals = []
 
-        async def capture_signal(event):
+        async def capture_signal(event, queue_type=None):
             published_signals.append(event)
 
         trading_engine.event_bus.publish = capture_signal
@@ -395,6 +399,7 @@ class TestDynamicExitIntegration:
         """Test backward compatibility - dynamic exit works alongside existing TP/SL."""
         # Mock strategy to NOT return exit signal (testing TP/SL path)
         mock_strategy = AsyncMock()
+        mock_strategy.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
         mock_strategy.should_exit.return_value = None
         mock_strategy.analyze.return_value = Signal(
             signal_type=SignalType.LONG_ENTRY,
@@ -456,6 +461,7 @@ class TestDynamicExitIntegration:
         """Test graceful error handling in dynamic exit processing."""
         # Mock strategy to raise exception
         mock_strategy = AsyncMock()
+        mock_strategy.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
         mock_strategy.should_exit.side_effect = Exception("Exit calculation failed")
         mock_strategy.analyze.return_value = None
 
@@ -534,6 +540,7 @@ class TestDynamicExitIntegration:
         # Create mock strategies for all symbols
         for symbol in trading_config.symbols:
             mock_strategy = AsyncMock()
+            mock_strategy.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
             mock_strategy.should_exit.return_value = None
             mock_strategy.analyze.return_value = None
             engine.strategies[symbol] = mock_strategy
@@ -620,6 +627,7 @@ class TestDynamicExitIntegration:
 
         # Create mock strategy
         mock_strategy = AsyncMock()
+        mock_strategy.intervals = ["5m"]  # Required by TradingEngine._on_candle_closed
         mock_strategy.should_exit.return_value = None
         mock_strategy.analyze.return_value = Signal(
             signal_type=SignalType.LONG_ENTRY,

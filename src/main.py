@@ -159,7 +159,7 @@ class TradingBot:
 
         # Step 5: Initialize AuditLogger (shared by all components)
         self.logger.info("Initializing AuditLogger...")
-        self.audit_logger = AuditLogger(log_dir="logs/audit")
+        self.audit_logger = AuditLogger.get_instance(log_dir="logs/audit")
 
         # Step 6: Initialize EventBus
         self.logger.info("Initializing EventBus...")

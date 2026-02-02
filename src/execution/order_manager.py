@@ -57,21 +57,22 @@ class OrderExecutionManager:
 
     def __init__(
         self,
-        audit_logger: AuditLogger,
-        binance_service: BinanceServiceClient,
+        audit_logger: Optional[AuditLogger] = None,
+        binance_service: Optional[BinanceServiceClient] = None,
     ) -> None:
         """
         Initialize OrderExecutionManager.
 
         Args:
-            audit_logger: AuditLogger instance for structured logging
+            audit_logger: Optional AuditLogger instance for structured logging.
+                         If None, uses singleton instance from AuditLogger.get_instance()
             binance_service: Centralized BinanceServiceClient instance
         """
         # Store injected service and components
         self.client = binance_service
         self.binance_service = binance_service
-        self.audit_logger = audit_logger
-        self.weight_tracker = binance_service.weight_tracker
+        self.audit_logger = audit_logger or AuditLogger.get_instance()
+        self.weight_tracker = binance_service.weight_tracker if binance_service else None
 
         # Configure logger
         self.logger = logging.getLogger(__name__)

@@ -26,7 +26,13 @@ class TestAuditLogger:
     @pytest.fixture
     def audit_logger(self, temp_log_dir):
         """Create AuditLogger instance for tests."""
-        return AuditLogger(log_dir=temp_log_dir)
+        # Reset singleton to ensure clean state
+        AuditLogger.reset_instance()
+        logger = AuditLogger(log_dir=temp_log_dir)
+        yield logger
+        # Cleanup
+        logger.stop()
+        AuditLogger.reset_instance()
 
     def test_audit_logger_initialization(self, temp_log_dir):
         """Test audit logger creates log directory and file."""

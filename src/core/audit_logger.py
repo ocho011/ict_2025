@@ -16,7 +16,10 @@ from datetime import datetime
 from enum import Enum
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from typing import ClassVar
 
 
 class AuditEventType(Enum):
@@ -74,6 +77,25 @@ class AuditLogger:
     for easy parsing and analysis with tools like jq, grep, or log
     aggregation systems.
 
+    Singleton Pattern:
+        This class uses the singleton pattern to ensure only one AuditLogger
+        instance exists across the application. This is critical for resource
+        efficiency - we maintain a single QueueListener thread that handles
+        all audit logging I/O in the background, preventing multiple threads
+        from competing for file writes.
+
+        Usage:
+            # Get the singleton instance
+            logger = AuditLogger.get_instance()
+
+            # All calls return the same instance
+            logger1 = AuditLogger.get_instance()
+            logger2 = AuditLogger.get_instance()
+            assert logger1 is logger2  # True
+
+            # For testing: reset singleton
+            AuditLogger.reset_instance()
+
     Example log entry:
         {
             "timestamp": "2025-12-17T10:30:45.123456",
@@ -84,6 +106,8 @@ class AuditLogger:
             "response": {"orderId": 12345, "status": "NEW"}
         }
     """
+
+    _instance: Optional['AuditLogger'] = None
 
     def __init__(self, log_dir: str = "logs/audit"):
         """
@@ -270,6 +294,59 @@ class AuditLogger:
             error=error,
             additional_data={"weight_info": weight_info} if weight_info else None,
         )
+
+    @classmethod
+    def get_instance(cls, log_dir: str = "logs/audit") -> 'AuditLogger':
+        """
+        Get or create the singleton AuditLogger instance.
+
+        This method implements the singleton pattern to ensure only one
+        AuditLogger instance exists. This is critical for resource efficiency:
+        - Single QueueListener thread for all audit logging
+        - No file handle conflicts from multiple instances
+        - Consistent logging configuration across the application
+
+        Args:
+            log_dir: Directory for audit log files (default: logs/audit).
+                    Only used when creating the initial instance.
+                    Subsequent calls ignore this parameter.
+
+        Returns:
+            The singleton AuditLogger instance.
+
+        Example:
+            >>> # First call creates instance
+            >>> logger = AuditLogger.get_instance()
+            >>> # Subsequent calls return same instance
+            >>> same_logger = AuditLogger.get_instance()
+            >>> assert logger is same_logger
+        """
+        if cls._instance is None:
+            cls._instance = cls(log_dir)
+        return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        """
+        Reset the singleton instance.
+
+        This method is primarily intended for testing purposes to allow
+        creating a fresh AuditLogger instance with different configuration.
+
+        WARNING: Should only be called during testing or application shutdown.
+        Calling this while the logger is actively being used will cause
+        subsequent get_instance() calls to create a new instance, potentially
+        leading to resource conflicts.
+
+        Example:
+            >>> # In test setup
+            >>> AuditLogger.reset_instance()
+            >>> logger = AuditLogger.get_instance("test_logs/audit")
+        """
+        if cls._instance is not None:
+            # Clean up existing instance
+            cls._instance.stop()
+            cls._instance = None
 
     def stop(self) -> None:
         """
