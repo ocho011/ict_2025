@@ -187,9 +187,9 @@ class BinanceDataCollector:
             await self.stop()
             raise ConnectionError(f"WebSocket initialization failed: {e}")
 
-    def _parse_rest_kline(self, kline_array: List) -> Candle:
+    def _parse_rest_kline(self, kline: List) -> Candle:
         """
-        Parse REST API kline array into a Candle object.
+        Parse REST API kline into a Candle object.
 
         Binance REST API kline format (array indices):
         [0] open_time (ms), [1] open, [2] high, [3] low, [4] close,
@@ -198,13 +198,13 @@ class BinanceDataCollector:
         [10] taker_buy_quote_asset_volume, [11] ignore
 
         Args:
-            kline_array: Raw kline array from Binance REST API
+            kline: Raw kline from Binance REST API
 
         Returns:
             Candle object with parsed and validated data
 
         Raises:
-            ValueError: If kline_array format is invalid
+            ValueError: If kline format is invalid
             IndexError: If required array indices are missing
         """
         try:
@@ -214,23 +214,23 @@ class BinanceDataCollector:
                 symbol="",  # Will be set by caller
                 interval="",  # Will be set by caller
                 open_time=datetime.fromtimestamp(
-                    int(kline_array[0]) / 1000, tz=timezone.utc
+                    int(kline[0]) / 1000, tz=timezone.utc
                 ).replace(tzinfo=None),
                 close_time=datetime.fromtimestamp(
-                    int(kline_array[6]) / 1000, tz=timezone.utc
+                    int(kline[6]) / 1000, tz=timezone.utc
                 ).replace(tzinfo=None),
-                open=float(kline_array[1]),
-                high=float(kline_array[2]),
-                low=float(kline_array[3]),
-                close=float(kline_array[4]),
-                volume=float(kline_array[5]),
+                open=float(kline[1]),
+                high=float(kline[2]),
+                low=float(kline[3]),
+                close=float(kline[4]),
+                volume=float(kline[5]),
                 is_closed=True,  # Historical candles are always closed
             )
             return candle
 
         except (IndexError, ValueError, TypeError) as e:
             self.logger.error(
-                f"Failed to parse REST kline data: {e} | Data: {kline_array}",
+                f"Failed to parse REST kline data: {e} | Data: {kline}",
                 exc_info=True,
             )
             raise ValueError(f"Invalid kline data format: {e}")
@@ -272,14 +272,14 @@ class BinanceDataCollector:
 
         try:
             # Call Binance REST API
-            klines_data = self.binance_service.klines(
+            klines_list = self.binance_service.klines(
                 symbol=symbol, interval=interval, limit=limit
             )
 
-            # Parse each kline array into Candle object
+            # Parse each kline into Candle object
             candles = []
-            for kline_array in klines_data:
-                candle = self._parse_rest_kline(kline_array)
+            for kline in klines_list:
+                candle = self._parse_rest_kline(kline)
                 # Set symbol and interval from request context
                 candle.symbol = symbol
                 candle.interval = interval

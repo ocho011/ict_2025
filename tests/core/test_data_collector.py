@@ -627,9 +627,9 @@ class TestBinanceDataCollectorHistoricalCandles:
         )
 
     @pytest.fixture
-    def sample_rest_kline_array(self):
+    def sample_rest_kline(self):
         """
-        Sample Binance REST API kline array.
+        Sample Binance REST API kline.
 
         Format: [open_time, open, high, low, close, volume, close_time,
                  quote_volume, trades, taker_buy_base, taker_buy_quote, ignore]
@@ -653,10 +653,10 @@ class TestBinanceDataCollectorHistoricalCandles:
     # _parse_rest_kline() Tests
     # =========================================================================
 
-    def test_parse_rest_kline_valid_data(self, collector, sample_rest_kline_array):
+    def test_parse_rest_kline_valid_data(self, collector, sample_rest_kline):
         """Test parsing valid REST kline array into Candle object."""
         # Act
-        candle = collector._parse_rest_kline(sample_rest_kline_array)
+        candle = collector._parse_rest_kline(sample_rest_kline)
 
         # Assert - Verify all fields parsed correctly
         assert candle.open_time == datetime(2021, 12, 5, 23, 40, 0)
@@ -778,11 +778,11 @@ class TestBinanceDataCollectorHistoricalCandles:
             collector._parse_rest_kline(kline)
 
     def test_parse_rest_kline_is_closed_always_true(
-        self, collector, sample_rest_kline_array
+        self, collector, sample_rest_kline
     ):
         """Test that historical candles are always marked as closed."""
         # Act
-        candle = collector._parse_rest_kline(sample_rest_kline_array)
+        candle = collector._parse_rest_kline(sample_rest_kline)
 
         # Assert
         assert candle.is_closed is True

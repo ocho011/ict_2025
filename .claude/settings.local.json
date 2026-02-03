@@ -1,4 +1,7 @@
 {
+  "env": {
+    "ENABLE_TOOL_SEARCH": "auto:5"
+  },
   "permissions": {
     "allow": [
       "Bash(task-master list:*)",
@@ -47,14 +50,12 @@
       "WebFetch(domain:developers.binance.com)",
       "Bash(pip show:*)",
       "Bash(/opt/homebrew/bin/python3 -m pytest:*)",
-      "Bash(/usr/bin/python3 -m pytest:*)"
+      "Bash(/usr/bin/python3 -m pytest:*)",
+      "mcp__serena__find_file"
     ]
   },
   "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "task-master-ai"
-  ],
-  "env": {
-    "ENABLE_TOOL_SEARCH": "auto:5"
-  }
+  ]
 }
