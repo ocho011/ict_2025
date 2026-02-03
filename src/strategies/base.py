@@ -247,8 +247,9 @@ class BaseStrategy(ABC):
             1. Determines target interval (from parameter, candles, or default)
             2. Clears existing buffer for that interval
             3. Adds most recent buffer_size candles (if more provided)
-            4. Marks interval as initialized
-            5. Logs initialization progress
+            4. Initializes indicator cache (FeatureCache) for the interval
+            5. Marks interval as initialized
+            6. Logs initialization progress
 
         Buffer Management:
             - If len(candles) <= buffer_size: All candles added

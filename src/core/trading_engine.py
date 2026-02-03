@@ -451,7 +451,7 @@ class TradingEngine:
             1. Validates strategy and data_collector are injected
             2. Detects strategy type (MTF vs single-interval)
             3. Fetches historical candles via data_collector.get_historical_candles()
-            4. Initializes strategy buffers with fetched data
+            4. Initializes strategy buffers and indicator caches with fetched data
             5. Logs initialization status
 
         Example:
