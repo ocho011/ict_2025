@@ -39,6 +39,101 @@ class OrderStatus(Enum):
 
 
 @dataclass
+class OrderUpdate:
+    """
+    Order update data from ORDER_TRADE_UPDATE WebSocket event.
+
+    Represents real-time order status changes received via User Data Stream,
+    enabling order cache updates without REST API calls (Issue #41).
+
+    Attributes:
+        symbol: Trading pair (e.g., "BTCUSDT")
+        order_id: Binance order ID
+        client_order_id: Client-defined order ID
+        side: Order side (BUY or SELL)
+        order_type: Order type (MARKET, LIMIT, STOP_MARKET, etc.)
+        order_status: Current status (NEW, FILLED, CANCELED, etc.)
+        price: Order price (for LIMIT orders)
+        average_price: Average fill price
+        quantity: Original order quantity
+        filled_quantity: Executed quantity
+        commission: Trading fee amount
+        commission_asset: Fee currency (e.g., "USDT")
+        trade_id: Trade ID (for fills)
+        realized_pnl: Realized profit/loss (for position-closing fills)
+        event_time: Event timestamp (milliseconds)
+        transaction_time: Transaction timestamp (milliseconds)
+
+    Binance ORDER_TRADE_UPDATE structure:
+        {
+            "s": "BTCUSDT",          // Symbol
+            "i": 123456789,          // Order ID
+            "c": "client_order_id",  // Client order ID
+            "S": "BUY",              // Side
+            "ot": "MARKET",          // Order type (original)
+            "X": "FILLED",           // Order status
+            "p": "0",                // Price
+            "ap": "9000.0",          // Average price
+            "q": "0.001",            // Quantity
+            "z": "0.001",            // Filled quantity
+            "n": "0.01",             // Commission
+            "N": "USDT",             // Commission asset
+            "t": 12345,              // Trade ID
+            "rp": "10.5",            // Realized PnL
+            "E": 1234567890123,      // Event time
+            "T": 1234567890123       // Transaction time
+        }
+    """
+
+    symbol: str
+    order_id: str
+    client_order_id: str
+    side: str  # "BUY" or "SELL"
+    order_type: str  # "MARKET", "LIMIT", "STOP_MARKET", etc.
+    order_status: str  # "NEW", "FILLED", "CANCELED", etc.
+    price: float
+    average_price: float
+    quantity: float
+    filled_quantity: float
+    commission: float = 0.0
+    commission_asset: Optional[str] = None
+    trade_id: Optional[int] = None
+    realized_pnl: float = 0.0
+    event_time: Optional[int] = None
+    transaction_time: Optional[int] = None
+
+    @classmethod
+    def from_websocket_data(cls, data: dict) -> "OrderUpdate":
+        """
+        Create OrderUpdate from raw WebSocket ORDER_TRADE_UPDATE data.
+
+        Args:
+            data: The 'o' object from ORDER_TRADE_UPDATE event
+
+        Returns:
+            OrderUpdate instance
+        """
+        return cls(
+            symbol=data.get("s", ""),
+            order_id=str(data.get("i", "")),
+            client_order_id=data.get("c", ""),
+            side=data.get("S", ""),
+            order_type=data.get("ot", ""),
+            order_status=data.get("X", ""),
+            price=float(data.get("p", 0)),
+            average_price=float(data.get("ap", 0)),
+            quantity=float(data.get("q", 0)),
+            filled_quantity=float(data.get("z", 0)),
+            commission=float(data.get("n", 0)) if data.get("n") else 0.0,
+            commission_asset=data.get("N"),
+            trade_id=int(data.get("t")) if data.get("t") else None,
+            realized_pnl=float(data.get("rp", 0)) if data.get("rp") else 0.0,
+            event_time=int(data.get("E")) if data.get("E") else None,
+            transaction_time=int(data.get("T")) if data.get("T") else None,
+        )
+
+
+@dataclass
 class Order:
     """
     Binance futures order representation.

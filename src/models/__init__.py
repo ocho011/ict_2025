@@ -19,8 +19,9 @@ from .indicators import (
     StructureBreak,
     SwingPoint,
 )
-from .order import Order, OrderSide, OrderStatus, OrderType
-from .position import Position
+from .account import AccountUpdate, BalanceUpdate
+from .order import Order, OrderSide, OrderStatus, OrderType, OrderUpdate
+from .position import Position, PositionEntryData, PositionUpdate
 from .signal import Signal, SignalType
 
 __all__ = [
@@ -32,7 +33,12 @@ __all__ = [
     "OrderType",
     "OrderSide",
     "OrderStatus",
+    "OrderUpdate",
     "Position",
+    "PositionEntryData",
+    "PositionUpdate",
+    "AccountUpdate",
+    "BalanceUpdate",
     "Event",
     "EventType",
     # Feature models (Issue #19)

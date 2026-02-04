@@ -8,8 +8,7 @@ order execution events from Binance User Data Stream (Issue #57).
 import asyncio
 import json
 import logging
-from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Callable, Dict, List, Optional
 
 from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClient
@@ -17,34 +16,13 @@ from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClie
 from src.core.audit_logger import AuditEventType, AuditLogger
 from src.core.streamer_protocol import IDataStreamer
 from src.core.user_data_stream import UserDataStreamManager
+from src.models.position import PositionEntryData, PositionUpdate
 
 # Imports for type hinting only; prevents circular dependency at runtime
 # Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.core.binance_service import BinanceServiceClient
     from src.core.event_handler import EventBus
-
-
-@dataclass
-class PositionEntryData:
-    """Tracks position entry data for PnL and duration calculations."""
-
-    entry_price: float
-    entry_time: datetime
-    quantity: float
-    side: str  # "LONG" or "SHORT"
-
-
-@dataclass
-class PositionUpdate:
-    """Position update data from ACCOUNT_UPDATE WebSocket event."""
-
-    symbol: str
-    position_amt: float  # Positive for LONG, negative for SHORT
-    entry_price: float
-    unrealized_pnl: float
-    margin_type: str  # "cross" or "isolated"
-    position_side: str  # "BOTH", "LONG", or "SHORT"
 
 
 class PrivateUserStreamer(IDataStreamer):
@@ -443,7 +421,7 @@ class PrivateUserStreamer(IDataStreamer):
 
             self._position_entry_data[symbol] = PositionEntryData(
                 entry_price=entry_price,
-                entry_time=datetime.utcnow(),
+                entry_time=datetime.now(timezone.utc),
                 quantity=quantity,
                 side=position_side,
             )
@@ -558,7 +536,7 @@ class PrivateUserStreamer(IDataStreamer):
             closure_data["position_side"] = entry_data.side
 
             # Calculate holding duration
-            held_duration = datetime.utcnow() - entry_data.entry_time
+            held_duration = datetime.now(timezone.utc) - entry_data.entry_time
             closure_data["held_duration_seconds"] = held_duration.total_seconds()
 
             # Calculate realized PnL

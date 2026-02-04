@@ -8,6 +8,63 @@ from typing import Optional
 
 
 @dataclass
+class PositionEntryData:
+    """
+    Tracks position entry data for PnL and duration calculations.
+
+    Used by PrivateUserStreamer to track entry details when a position
+    is opened via MARKET/LIMIT fill, enabling accurate PnL calculation
+    when the position is closed via TP/SL.
+
+    Attributes:
+        entry_price: Average fill price at entry
+        entry_time: Timestamp when position was opened
+        quantity: Position size at entry
+        side: Position direction ("LONG" or "SHORT")
+    """
+
+    entry_price: float
+    entry_time: datetime
+    quantity: float
+    side: str  # "LONG" or "SHORT"
+
+
+@dataclass
+class PositionUpdate:
+    """
+    Position update data from ACCOUNT_UPDATE WebSocket event.
+
+    Represents real-time position changes received via User Data Stream,
+    enabling position cache updates without REST API calls (Issue #41).
+
+    Attributes:
+        symbol: Trading pair (e.g., "BTCUSDT")
+        position_amt: Position amount (positive for LONG, negative for SHORT)
+        entry_price: Average entry price
+        unrealized_pnl: Current unrealized profit/loss
+        margin_type: Margin mode ("cross" or "isolated")
+        position_side: Position side mode ("BOTH", "LONG", or "SHORT")
+
+    Binance ACCOUNT_UPDATE position structure:
+        {
+            "s": "BTCUSDT",      // Symbol
+            "pa": "0.001",       // Position amount
+            "ep": "9000.0",      // Entry price
+            "up": "0.0",         // Unrealized PnL
+            "mt": "cross",       // Margin type
+            "ps": "BOTH"         // Position side
+        }
+    """
+
+    symbol: str
+    position_amt: float  # Positive for LONG, negative for SHORT
+    entry_price: float
+    unrealized_pnl: float
+    margin_type: str  # "cross" or "isolated"
+    position_side: str  # "BOTH", "LONG", or "SHORT"
+
+
+@dataclass
 class Position:
     """
     Active futures position.
