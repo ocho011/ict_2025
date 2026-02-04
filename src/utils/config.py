@@ -22,6 +22,50 @@ if TYPE_CHECKING:
 
 
 @dataclass
+class BinanceConfig:
+    """
+    Binance endpoint configuration (Issue #92).
+
+    Centralizes all Binance REST and WebSocket URLs for flexibility:
+    - Proxy support (custom endpoint URLs)
+    - Easy adaptation to Binance endpoint changes
+    - Environment-specific URL selection (testnet/mainnet)
+
+    Attributes:
+        rest_testnet_url: REST API base URL for testnet
+        rest_mainnet_url: REST API base URL for mainnet
+        ws_testnet_url: Market data WebSocket URL for testnet
+        ws_mainnet_url: Market data WebSocket URL for mainnet
+        user_ws_testnet_url: User data WebSocket URL for testnet
+        user_ws_mainnet_url: User data WebSocket URL for mainnet
+    """
+
+    # REST API endpoints
+    rest_testnet_url: str = "https://testnet.binancefuture.com"
+    rest_mainnet_url: str = "https://fapi.binance.com"
+
+    # Market data WebSocket endpoints (public streams)
+    ws_testnet_url: str = "wss://stream.binancefuture.com"
+    ws_mainnet_url: str = "wss://fstream.binance.com"
+
+    # User data WebSocket endpoints (private streams)
+    user_ws_testnet_url: str = "wss://stream.binancefuture.com/ws"
+    user_ws_mainnet_url: str = "wss://fstream.binance.com/ws"
+
+    def get_rest_url(self, is_testnet: bool) -> str:
+        """Get REST API URL based on environment."""
+        return self.rest_testnet_url if is_testnet else self.rest_mainnet_url
+
+    def get_ws_url(self, is_testnet: bool) -> str:
+        """Get market data WebSocket URL based on environment."""
+        return self.ws_testnet_url if is_testnet else self.ws_mainnet_url
+
+    def get_user_ws_url(self, is_testnet: bool) -> str:
+        """Get user data WebSocket URL based on environment."""
+        return self.user_ws_testnet_url if is_testnet else self.user_ws_mainnet_url
+
+
+@dataclass
 class APIConfig:
     """Binance API configuration"""
 
@@ -512,6 +556,7 @@ class ConfigManager:
         self._trading_config = None
         self._logging_config = None
         self._liquidation_config = None
+        self._binance_config = None
         self._hierarchical_config: Optional["TradingConfigHierarchical"] = None
 
         # Load configurations
@@ -530,6 +575,7 @@ class ConfigManager:
         - trading_config.ini: Legacy flat format (fallback)
         """
         self._api_config = self._load_api_config()
+        self._binance_config = self._load_binance_config()
         self._hierarchical_config = self._load_hierarchical_config()
         self._trading_config = self._load_trading_config()
         self._logging_config = self._load_logging_config()
@@ -845,6 +891,57 @@ class ConfigManager:
     def liquidation_config(self) -> "LiquidationConfig":
         """Get liquidation configuration"""
         return self._liquidation_config
+
+    def _load_binance_config(self) -> BinanceConfig:
+        """
+        Load Binance endpoint configuration from INI file (Issue #92).
+
+        Configuration Section: [binance]
+        Default Values: Official Binance endpoints
+
+        Returns:
+            BinanceConfig: Validated Binance endpoint configuration
+        """
+        config_file = self.config_dir / "trading_config.ini"
+
+        if not config_file.exists():
+            # If config file doesn't exist, use default endpoints
+            return BinanceConfig()
+
+        config = ConfigParser()
+        config.read(config_file)
+
+        if "binance" not in config:
+            # If [binance] section doesn't exist, use default endpoints
+            return BinanceConfig()
+
+        binance_section = config["binance"]
+
+        return BinanceConfig(
+            rest_testnet_url=binance_section.get(
+                "rest_testnet_url", "https://testnet.binancefuture.com"
+            ),
+            rest_mainnet_url=binance_section.get(
+                "rest_mainnet_url", "https://fapi.binance.com"
+            ),
+            ws_testnet_url=binance_section.get(
+                "ws_testnet_url", "wss://stream.binancefuture.com"
+            ),
+            ws_mainnet_url=binance_section.get(
+                "ws_mainnet_url", "wss://fstream.binance.com"
+            ),
+            user_ws_testnet_url=binance_section.get(
+                "user_ws_testnet_url", "wss://stream.binancefuture.com/ws"
+            ),
+            user_ws_mainnet_url=binance_section.get(
+                "user_ws_mainnet_url", "wss://fstream.binance.com/ws"
+            ),
+        )
+
+    @property
+    def binance_config(self) -> BinanceConfig:
+        """Get Binance endpoint configuration (Issue #92)"""
+        return self._binance_config
 
     def _load_hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
         """

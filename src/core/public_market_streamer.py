@@ -48,9 +48,9 @@ class PublicMarketStreamer(IDataStreamer):
         MAINNET_WS_URL: Binance Futures mainnet WebSocket endpoint
     """
 
-    # WebSocket URLs
-    TESTNET_WS_URL = "wss://stream.binancefuture.com"
-    MAINNET_WS_URL = "wss://fstream.binance.com"
+    # Default WebSocket URLs for fallback when no config provided (Issue #92)
+    DEFAULT_TESTNET_WS_URL = "wss://stream.binancefuture.com"
+    DEFAULT_MAINNET_WS_URL = "wss://fstream.binance.com"
 
     def __init__(
         self,
@@ -58,6 +58,7 @@ class PublicMarketStreamer(IDataStreamer):
         intervals: List[str],
         is_testnet: bool = True,
         on_candle_callback: Optional[Callable[[Candle], None]] = None,
+        ws_url: Optional[str] = None,
     ) -> None:
         """
         Initialize PublicMarketStreamer.
@@ -68,6 +69,8 @@ class PublicMarketStreamer(IDataStreamer):
             is_testnet: Whether to use testnet (default: True)
             on_candle_callback: Optional callback invoked on each candle update.
                                Signature: callback(candle: Candle) -> None
+            ws_url: Optional custom WebSocket URL (Issue #92).
+                    If None, uses default Binance endpoints.
         """
         # Validate inputs
         if not symbols:
@@ -79,6 +82,14 @@ class PublicMarketStreamer(IDataStreamer):
         self.intervals = intervals
         self.is_testnet = is_testnet
         self.on_candle_callback = on_candle_callback
+
+        # Use provided URL or fall back to defaults (Issue #92)
+        if ws_url:
+            self._ws_url = ws_url
+        else:
+            self._ws_url = (
+                self.DEFAULT_TESTNET_WS_URL if is_testnet else self.DEFAULT_MAINNET_WS_URL
+            )
 
         # WebSocket clients (one per symbol)
         self.ws_clients: dict[str, UMFuturesWebsocketClient] = {}
@@ -200,7 +211,7 @@ class PublicMarketStreamer(IDataStreamer):
             return
 
         try:
-            stream_url = self.TESTNET_WS_URL if self.is_testnet else self.MAINNET_WS_URL
+            stream_url = self._ws_url
 
             self.logger.info(
                 f"Initializing {len(self.symbols)} WebSocket connections to {stream_url}"

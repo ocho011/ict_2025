@@ -88,7 +88,17 @@ class BinanceServiceClient:
     - Automatic response unwrapping when show_limit_usage=True
     """
 
-    def __init__(self, api_key: str, api_secret: str, is_testnet: bool = True) -> None:
+    # Default URL constants for fallback when no config provided (Issue #92)
+    DEFAULT_TESTNET_URL = "https://testnet.binancefuture.com"
+    DEFAULT_MAINNET_URL = "https://fapi.binance.com"
+
+    def __init__(
+        self,
+        api_key: str,
+        api_secret: str,
+        is_testnet: bool = True,
+        base_url: Optional[str] = None,
+    ) -> None:
         """
         Initialize Binance service.
 
@@ -96,15 +106,20 @@ class BinanceServiceClient:
             api_key: Binance API key
             api_secret: Binance API secret
             is_testnet: Whether to use testnet (default: True)
+            base_url: Optional custom REST API base URL (Issue #92).
+                      If None, uses default Binance endpoints.
         """
         self.api_key = api_key
         self.api_secret = api_secret
         self.is_testnet = is_testnet
-        self.base_url = (
-            "https://testnet.binancefuture.com"
-            if is_testnet
-            else "https://fapi.binance.com"
-        )
+
+        # Use provided URL or fall back to defaults (Issue #92)
+        if base_url:
+            self.base_url = base_url
+        else:
+            self.base_url = (
+                self.DEFAULT_TESTNET_URL if is_testnet else self.DEFAULT_MAINNET_URL
+            )
 
         # Initialize underlying UMFutures client
         # show_limit_usage=True ensures weight information is returned in headers

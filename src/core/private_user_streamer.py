@@ -54,14 +54,15 @@ class PrivateUserStreamer(IDataStreamer):
         MAINNET_USER_WS_URL: Binance Futures mainnet user data WebSocket endpoint
     """
 
-    # User Data Stream WebSocket URLs
-    TESTNET_USER_WS_URL = "wss://stream.binancefuture.com/ws"
-    MAINNET_USER_WS_URL = "wss://fstream.binance.com/ws"
+    # Default User Data Stream WebSocket URLs for fallback (Issue #92)
+    DEFAULT_TESTNET_USER_WS_URL = "wss://stream.binancefuture.com/ws"
+    DEFAULT_MAINNET_USER_WS_URL = "wss://fstream.binance.com/ws"
 
     def __init__(
         self,
         binance_service: "BinanceServiceClient",
         is_testnet: bool = True,
+        user_ws_url: Optional[str] = None,
     ) -> None:
         """
         Initialize PrivateUserStreamer.
@@ -69,9 +70,21 @@ class PrivateUserStreamer(IDataStreamer):
         Args:
             binance_service: BinanceServiceClient instance for REST API calls
             is_testnet: Whether to use testnet (default: True)
+            user_ws_url: Optional custom User Data WebSocket URL (Issue #92).
+                         If None, uses default Binance endpoints.
         """
         self.binance_service = binance_service
         self.is_testnet = is_testnet
+
+        # Use provided URL or fall back to defaults (Issue #92)
+        if user_ws_url:
+            self._user_ws_url = user_ws_url
+        else:
+            self._user_ws_url = (
+                self.DEFAULT_TESTNET_USER_WS_URL
+                if is_testnet
+                else self.DEFAULT_MAINNET_USER_WS_URL
+            )
 
         # User Data Stream components
         self.user_stream_manager: Optional[UserDataStreamManager] = None
@@ -196,12 +209,9 @@ class PrivateUserStreamer(IDataStreamer):
             # Create listen key (also starts keep-alive loop)
             listen_key = await self.user_stream_manager.start()
 
-            # Determine WebSocket URL based on environment
-            base_url = (
-                self.TESTNET_USER_WS_URL
-                if self.is_testnet
-                else self.MAINNET_USER_WS_URL
-            )
+            # Determine WebSocket URL based on environment (Issue #92)
+            # Use configured URL, append listen key
+            base_url = self._user_ws_url.rstrip("/")
             ws_url = f"{base_url}/{listen_key}"
 
             # Create WebSocket client for user data stream
