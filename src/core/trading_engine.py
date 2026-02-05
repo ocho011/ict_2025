@@ -27,6 +27,7 @@ from src.execution.order_manager import OrderExecutionManager
 from src.models.candle import Candle
 from src.models.event import Event, EventType, QueueType
 from src.models.order import Order
+from src.models.position import PositionEntryData
 from src.models.signal import Signal
 from src.risk.manager import RiskManager
 from src.strategies.base import BaseStrategy
@@ -89,7 +90,8 @@ class TradingEngine:
     Event Handlers:
         - _on_candle_closed: Candle → Strategy → Signal
         - _on_signal: Signal → OrderManager → Order
-        - _on_order_filled: Order → Position update (future)
+        - _on_order_filled: Order → Position update, orphan order cleanup
+        - _on_order_partially_filled: Partial fill tracking and position size adjustment
     """
 
     def __init__(self, audit_logger: Optional["AuditLogger"] = None) -> None:
@@ -190,6 +192,10 @@ class TradingEngine:
         self._position_cache_ttl: float = (
             60.0  # seconds (increased from 5s to prevent rate limit bans)
         )
+
+        # Position entry data tracking for PnL and duration calculations (Issue #96)
+        # Moved from PrivateUserStreamer for proper responsibility separation
+        self._position_entry_data: Dict[str, PositionEntryData] = {}
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
@@ -342,10 +348,9 @@ class TradingEngine:
             is_testnet=is_testnet,
         )
 
-        # Inject AuditLogger for position closure logging (Issue #87)
-        if self.audit_logger:
-            user_streamer.set_audit_logger(self.audit_logger)
-            self.logger.info("  ✓ AuditLogger injected into PrivateUserStreamer")
+        # Note: AuditLogger injection removed (Issue #96)
+        # Position closure logging now handled by TradingEngine._on_order_filled
+        # PrivateUserStreamer is now a pure data relay
 
         # Step 5c: Create BinanceDataCollector facade with injected streamers
         from src.core.data_collector import BinanceDataCollector
@@ -582,7 +587,8 @@ class TradingEngine:
         Subscribes handlers to EventBus for:
         - CANDLE_CLOSED → _on_candle_closed: Trigger strategy analysis
         - SIGNAL_GENERATED → _on_signal_generated: Risk validation and order execution
-        - ORDER_FILLED → _on_order_filled: Position tracking
+        - ORDER_FILLED → _on_order_filled: Position tracking and orphan order cleanup
+        - ORDER_PARTIALLY_FILLED → _on_order_partially_filled: Partial fill tracking
 
         Handler Routing:
             - All handlers are async methods
@@ -601,15 +607,18 @@ class TradingEngine:
             SIGNAL_GENERATED → _on_signal_generated → RiskManager → OrderManager
                              ↓
             ORDER_FILLED → _on_order_filled → Position
+            ORDER_PARTIALLY_FILLED → _on_order_partially_filled → Position (partial)
         """
         self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)
         self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal_generated)
         self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)
+        self.event_bus.subscribe(EventType.ORDER_PARTIALLY_FILLED, self._on_order_partially_filled)
 
         self.logger.info("✅ Event handlers registered:")
         self.logger.info("  - CANDLE_CLOSED → _on_candle_closed")
         self.logger.info("  - SIGNAL_GENERATED → _on_signal_generated")
         self.logger.info("  - ORDER_FILLED → _on_order_filled")
+        self.logger.info("  - ORDER_PARTIALLY_FILLED → _on_order_partially_filled")
 
     def _get_cached_position(self, symbol: str) -> Optional["Position"]:
         """
@@ -1052,9 +1061,8 @@ class TradingEngine:
             except Exception as e:
                 self.logger.warning(f"Audit logging failed: {e}")
 
-            # Step 8: Publish ORDER_FILLED event
-            order_event = Event(EventType.ORDER_FILLED, entry_order)
-            await self.event_bus.publish(order_event, queue_type=QueueType.ORDER)
+            # Note: ORDER_FILLED event will be published by PrivateUserStreamer
+            # when WebSocket confirms the fill (Issue #97 - removed optimistic fill)
 
         except Exception as e:
             # Step 9: Catch and log execution errors without crashing
@@ -1284,6 +1292,23 @@ class TradingEngine:
         except Exception as e:
             self.logger.warning(f"Audit logging failed: {e}")
 
+        # Track position entry data for MARKET/LIMIT fills (Issue #96)
+        # Entry data is used later for PnL and duration calculation when position closes
+        from src.models.order import OrderType as OT
+        if order.order_type in (OT.MARKET, OT.LIMIT):
+            from datetime import datetime, timezone
+            position_side = "LONG" if order.side.value == "BUY" else "SHORT"
+            self._position_entry_data[order.symbol] = PositionEntryData(
+                entry_price=order.price,
+                entry_time=datetime.now(timezone.utc),
+                quantity=order.quantity,
+                side=position_side,
+            )
+            self.logger.info(
+                f"Tracking position entry: {order.symbol} {position_side} "
+                f"price={order.price}, qty={order.quantity}"
+            )
+
         # Step 3: Handle TP/SL fills - cancel remaining orders (Issue #9)
         from src.models.order import OrderType
 
@@ -1319,9 +1344,151 @@ class TradingEngine:
                     f"Manual cleanup may be required for {order.symbol}."
                 )
 
-        # Step 4: Update position tracking (future enhancement)
-        # For now, OrderManager.get_position() queries Binance API
-        # Future: Maintain local position state for faster access
+            # Log position closure to audit trail (Issue #96 - moved from PrivateUserStreamer)
+            self._log_position_closure(order)
+
+    def _log_position_closure(self, order: Order) -> None:
+        """
+        Log position closure to audit trail with PnL and duration.
+
+        Moved from PrivateUserStreamer for proper responsibility separation (Issue #96).
+        TradingEngine owns business logic; streamer is pure data relay.
+
+        Args:
+            order: The filled TP/SL order that closed the position
+        """
+        from src.core.audit_logger import AuditEventType
+        from datetime import datetime, timezone
+
+        # Map order type to close reason
+        close_reason_map = {
+            "TAKE_PROFIT_MARKET": "TAKE_PROFIT",
+            "TAKE_PROFIT": "TAKE_PROFIT",
+            "STOP_MARKET": "STOP_LOSS",
+            "STOP": "STOP_LOSS",
+            "TRAILING_STOP_MARKET": "TRAILING_STOP",
+        }
+        close_reason = close_reason_map.get(order.order_type.value, "UNKNOWN")
+
+        # Build closure data
+        closure_data = {
+            "close_reason": close_reason,
+            "exit_price": order.price,
+            "exit_quantity": order.quantity,
+            "exit_side": order.side.value,
+            "order_id": order.order_id,
+            "order_type": order.order_type.value,
+        }
+
+        # Add entry data if available (for PnL and duration)
+        entry_data = self._position_entry_data.pop(order.symbol, None)
+        if entry_data:
+            closure_data["entry_price"] = entry_data.entry_price
+            closure_data["position_side"] = entry_data.side
+
+            # Calculate holding duration
+            held_duration = datetime.now(timezone.utc) - entry_data.entry_time
+            closure_data["held_duration_seconds"] = held_duration.total_seconds()
+
+            # Calculate realized PnL
+            # LONG: profit when exit > entry, SHORT: profit when entry > exit
+            if entry_data.side == "LONG":
+                realized_pnl = (order.price - entry_data.entry_price) * order.quantity
+            else:  # SHORT
+                realized_pnl = (entry_data.entry_price - order.price) * order.quantity
+            closure_data["realized_pnl"] = realized_pnl
+
+            self.logger.debug(f"Cleaned up position entry data for {order.symbol}")
+        else:
+            self.logger.warning(
+                f"No entry data found for {order.symbol}, PnL and duration unavailable"
+            )
+
+        # Log to audit trail
+        try:
+            self.audit_logger.log_event(
+                event_type=AuditEventType.POSITION_CLOSED,
+                operation="tp_sl_order_filled",
+                symbol=order.symbol,
+                data=closure_data,
+            )
+            self.logger.info(
+                f"Position closed via {close_reason}: {order.symbol} "
+                f"exit_price={order.price}, qty={order.quantity}"
+            )
+        except Exception as e:
+            self.logger.error(f"Failed to log position closure: {e}")
+
+    async def _on_order_partially_filled(self, event: Event) -> None:
+        """
+        Handle partial fill notification (Issue #97).
+
+        Tracks partial fills for position size adjustments. Entry orders with partial
+        fills may need TP/SL quantity adjustments. Exit orders with partial fills
+        indicate the position footprint has decreased.
+
+        Args:
+            event: Event containing Order data with filled_quantity
+        """
+        order: Order = event.data
+
+        self.logger.info(
+            f"Order partially filled: ID={order.order_id}, "
+            f"Symbol={order.symbol}, "
+            f"Type={order.order_type.value}, "
+            f"Filled={order.filled_quantity}/{order.quantity}"
+        )
+
+        # Audit log: partial fill
+        try:
+            from src.core.audit_logger import AuditEventType
+
+            self.audit_logger.log_event(
+                event_type=AuditEventType.ORDER_PLACED,  # Reuse existing event type
+                operation="partial_fill",
+                symbol=order.symbol,
+                response={
+                    "order_id": order.order_id,
+                    "side": order.side.value,
+                    "filled_quantity": order.filled_quantity,
+                    "total_quantity": order.quantity,
+                    "fill_ratio": order.filled_quantity / order.quantity if order.quantity else 0,
+                    "order_type": order.order_type.value,
+                },
+            )
+        except Exception as e:
+            self.logger.warning(f"Audit logging failed: {e}")
+
+        # Track partial entry fills for position tracking (Issue #97)
+        # When entry order is partially filled, update position entry data
+        from src.models.order import OrderType as OT
+        if order.order_type in (OT.MARKET, OT.LIMIT):
+            from datetime import datetime, timezone
+            position_side = "LONG" if order.side.value == "BUY" else "SHORT"
+
+            # Update or create position entry data with partial fill info
+            existing = self._position_entry_data.get(order.symbol)
+            if existing:
+                # Update existing entry with new filled quantity
+                self._position_entry_data[order.symbol] = PositionEntryData(
+                    entry_price=order.price,  # Use average fill price
+                    entry_time=existing.entry_time,  # Keep original entry time
+                    quantity=order.filled_quantity,  # Update to actual filled qty
+                    side=position_side,
+                )
+            else:
+                # First partial fill - create new entry
+                self._position_entry_data[order.symbol] = PositionEntryData(
+                    entry_price=order.price,
+                    entry_time=datetime.now(timezone.utc),
+                    quantity=order.filled_quantity,
+                    side=position_side,
+                )
+
+            self.logger.info(
+                f"Updated position entry (partial): {order.symbol} {position_side} "
+                f"price={order.price}, filled_qty={order.filled_quantity}"
+            )
 
     async def wait_until_ready(self, timeout: float = 5.0) -> bool:
         """
@@ -1537,12 +1704,11 @@ class TradingEngine:
 
                 # Start User Data Stream for real-time order updates (Issue #54)
                 # This enables TP/SL fill detection to prevent orphaned orders
-                # Also enables position closure audit logging (Issue #87)
+                # Position closure audit logging handled by _on_order_filled (Issue #96)
                 # Also enables real-time position and order cache updates (Issue #41 rate limit fix)
                 try:
-                    await self.data_collector.start_user_data_stream(
+                    await self.data_collector.start_listen_key_service(
                         self.event_bus,
-                        audit_logger=self.audit_logger,
                         position_update_callback=self._on_position_update_from_websocket,
                         order_update_callback=self._on_order_update_from_websocket,
                     )

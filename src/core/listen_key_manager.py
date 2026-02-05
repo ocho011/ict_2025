@@ -1,7 +1,7 @@
 """
-User Data Stream management for Binance Futures User Data Stream WebSocket.
+Listen Key management for Binance Futures User Data Stream WebSocket.
 
-This module provides the UserDataStreamManager class for managing listen keys
+This module provides the ListenKeyManager class for managing listen keys
 and receiving real-time order execution events from Binance User Data Stream.
 """
 
@@ -12,7 +12,7 @@ from typing import Optional
 from binance.error import ClientError
 
 
-class UserDataStreamManager:
+class ListenKeyManager:
     """
     Manages listen key lifecycle for Binance User Data Stream.
 
@@ -47,7 +47,7 @@ class UserDataStreamManager:
         binance_service,
     ):
         """
-        Initialize UserDataStreamManager.
+        Initialize ListenKeyManager.
 
         Args:
             binance_service: BinanceServiceClient instance for REST API calls
@@ -79,13 +79,13 @@ class UserDataStreamManager:
             str: The created listen key
 
         Example:
-            >>> manager = UserDataStreamManager(binance_service)
+            >>> manager = ListenKeyManager(binance_service)
             >>> listen_key = await manager.start()
             >>> print(f"Listen key: {listen_key}")
         """
         if self._running:
             self.logger.warning(
-                "UserDataStreamManager already running, ignoring start request"
+                "ListenKeyManager already running, ignoring start request"
             )
             return self.listen_key
 
@@ -107,7 +107,7 @@ class UserDataStreamManager:
             self._keep_alive_task = asyncio.create_task(self._keep_alive_loop())
 
             self.logger.info(
-                f"UserDataStreamManager started (keep-alive interval: "
+                f"ListenKeyManager started (keep-alive interval: "
                 f"{self.KEEP_ALIVE_INTERVAL_SECONDS}s)"
             )
 
@@ -173,15 +173,15 @@ class UserDataStreamManager:
 
         Example:
             >>> await manager.stop()
-            >>> print("UserDataStreamManager stopped")
+            >>> print("ListenKeyManager stopped")
         """
         if not self._running:
             self.logger.debug(
-                "UserDataStreamManager already stopped, ignoring stop request"
+                "ListenKeyManager already stopped, ignoring stop request"
             )
             return
 
-        self.logger.info("Stopping UserDataStreamManager...")
+        self.logger.info("Stopping ListenKeyManager...")
 
         # Step 1: Stop keep-alive loop
         self._running = False
@@ -214,4 +214,4 @@ class UserDataStreamManager:
         self.listen_key = None
         self._keep_alive_task = None
 
-        self.logger.info("UserDataStreamManager stopped")
+        self.logger.info("ListenKeyManager stopped")

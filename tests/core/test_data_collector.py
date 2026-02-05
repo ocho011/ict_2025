@@ -475,14 +475,14 @@ class TestBinanceDataCollectorConnectionStatus:
 # =============================================================================
 
 
-class TestBinanceDataCollectorUserDataStream:
-    """Test suite for User Data Stream methods."""
+class TestBinanceDataCollectorListenKeyService:
+    """Test suite for listen key service methods."""
 
     @pytest.mark.asyncio
-    async def test_start_user_data_stream_delegates(
+    async def test_start_listen_key_service_delegates(
         self, mock_binance_service, mock_market_streamer, mock_user_streamer
     ):
-        """Test that start_user_data_stream() delegates to user_streamer."""
+        """Test that start_listen_key_service() delegates to user_streamer."""
         # Arrange
         mock_event_bus = Mock()
 
@@ -493,17 +493,17 @@ class TestBinanceDataCollectorUserDataStream:
         )
 
         # Act
-        await collector.start_user_data_stream(mock_event_bus)
+        await collector.start_listen_key_service(mock_event_bus)
 
         # Assert
         mock_user_streamer.set_event_bus.assert_called_once_with(mock_event_bus)
         mock_user_streamer.start.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_start_user_data_stream_without_user_streamer(
+    async def test_start_listen_key_service_without_user_streamer(
         self, mock_binance_service, mock_market_streamer, caplog
     ):
-        """Test that start_user_data_stream() logs warning when user_streamer is None."""
+        """Test that start_listen_key_service() logs warning when user_streamer is None."""
         # Arrange
         mock_event_bus = Mock()
 
@@ -515,16 +515,16 @@ class TestBinanceDataCollectorUserDataStream:
 
         # Act
         with caplog.at_level(logging.WARNING):
-            await collector.start_user_data_stream(mock_event_bus)
+            await collector.start_listen_key_service(mock_event_bus)
 
         # Assert
         assert "PrivateUserStreamer not configured" in caplog.text
 
     @pytest.mark.asyncio
-    async def test_stop_user_data_stream_delegates(
+    async def test_stop_listen_key_service_delegates(
         self, mock_binance_service, mock_market_streamer, mock_user_streamer
     ):
-        """Test that stop_user_data_stream() delegates to user_streamer."""
+        """Test that stop_listen_key_service() delegates to user_streamer."""
         # Arrange
         collector = BinanceDataCollector(
             binance_service=mock_binance_service,
@@ -533,7 +533,7 @@ class TestBinanceDataCollectorUserDataStream:
         )
 
         # Act
-        await collector.stop_user_data_stream()
+        await collector.stop_listen_key_service()
 
         # Assert
         mock_user_streamer.stop.assert_called_once()

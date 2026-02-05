@@ -16,6 +16,7 @@ class EventType(Enum):
     SIGNAL_GENERATED = "signal_generated"
     ORDER_PLACED = "order_placed"
     ORDER_FILLED = "order_filled"
+    ORDER_PARTIALLY_FILLED = "order_partially_filled"  # Partial fill from exchange
     ORDER_UPDATE = "order_update"  # User Data Stream order update events
     POSITION_OPENED = "position_opened"
     POSITION_CLOSED = "position_closed"

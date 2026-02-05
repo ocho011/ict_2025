@@ -12,9 +12,9 @@ class PositionEntryData:
     """
     Tracks position entry data for PnL and duration calculations.
 
-    Used by PrivateUserStreamer to track entry details when a position
+    Used by TradingEngine to track entry details when a position
     is opened via MARKET/LIMIT fill, enabling accurate PnL calculation
-    when the position is closed via TP/SL.
+    when the position is closed via TP/SL (Issue #96).
 
     Attributes:
         entry_price: Average fill price at entry
