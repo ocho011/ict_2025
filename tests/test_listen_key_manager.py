@@ -467,7 +467,13 @@ class TestPrivateUserStreamerOrderHandling:
 
 
 class TestPositionClosureAuditLogging:
-    """Test PrivateUserStreamer position closure audit logging (Issue #87)."""
+    """
+    Test PrivateUserStreamer data relay behavior (Issue #87, #96).
+
+    Note: Position closure audit logging was moved from PrivateUserStreamer
+    to TradingEngine in Issue #96. These tests verify that PrivateUserStreamer
+    correctly relays data WITHOUT performing business logic.
+    """
 
     @pytest.fixture
     def binance_service(self):
@@ -486,256 +492,22 @@ class TestPositionClosureAuditLogging:
         )
 
     @pytest.fixture
-    def audit_logger(self):
-        """Create mock AuditLogger."""
-        logger = MagicMock()
-        logger.log_event = MagicMock()
-        return logger
-
-    @pytest.fixture
     def event_bus(self):
         """Create mock EventBus."""
         bus = MagicMock()
         bus.publish = AsyncMock()
         return bus
 
-    def test_tp_order_fill_logs_position_closed(self, user_streamer, event_bus, audit_logger):
-        """Test that TP order fill triggers POSITION_CLOSED audit log."""
-        from src.core.audit_logger import AuditEventType
+    def test_tp_sl_fill_publishes_event_without_audit_logging(self, user_streamer, event_bus):
+        """
+        Test that TP/SL fills publish ORDER_FILLED event without audit logging.
 
+        Issue #96: PrivateUserStreamer is now a pure data relay.
+        Audit logging is handled by TradingEngine._on_order_filled.
+        """
         loop = asyncio.new_event_loop()
         user_streamer._event_bus = event_bus
         user_streamer._event_loop = loop
-        user_streamer._audit_logger = audit_logger
-
-        # Simulate ORDER_TRADE_UPDATE for TAKE_PROFIT_MARKET fill
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "BTCUSDT",
-                "i": 123456789,
-                "S": "SELL",
-                "ot": "TAKE_PROFIT_MARKET",
-                "q": "0.001",
-                "z": "0.001",  # Filled quantity
-                "ap": "51000",
-                "sp": "51000",
-                "X": "FILLED",
-            },
-        }
-
-        user_streamer._handle_order_trade_update(order_data)
-
-        # Verify audit log was called
-        audit_logger.log_event.assert_called_once()
-        call_args = audit_logger.log_event.call_args
-        assert call_args.kwargs["event_type"] == AuditEventType.POSITION_CLOSED
-        assert call_args.kwargs["operation"] == "tp_sl_order_filled"
-        assert call_args.kwargs["symbol"] == "BTCUSDT"
-        assert call_args.kwargs["data"]["close_reason"] == "TAKE_PROFIT"
-        assert call_args.kwargs["data"]["exit_price"] == 51000.0
-
-        loop.close()
-
-    def test_sl_order_fill_logs_position_closed(self, user_streamer, event_bus, audit_logger):
-        """Test that SL order fill triggers POSITION_CLOSED audit log."""
-        from src.core.audit_logger import AuditEventType
-
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
-        user_streamer._audit_logger = audit_logger
-
-        # Simulate ORDER_TRADE_UPDATE for STOP_MARKET fill
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "ETHUSDT",
-                "i": 987654321,
-                "S": "SELL",
-                "ot": "STOP_MARKET",
-                "q": "0.1",
-                "z": "0.1",
-                "ap": "1800",
-                "sp": "1800",
-                "X": "FILLED",
-            },
-        }
-
-        user_streamer._handle_order_trade_update(order_data)
-
-        # Verify audit log was called with STOP_LOSS reason
-        audit_logger.log_event.assert_called_once()
-        call_args = audit_logger.log_event.call_args
-        assert call_args.kwargs["event_type"] == AuditEventType.POSITION_CLOSED
-        assert call_args.kwargs["data"]["close_reason"] == "STOP_LOSS"
-
-        loop.close()
-
-    def test_trailing_stop_fill_logs_position_closed(self, user_streamer, event_bus, audit_logger):
-        """Test that trailing stop fill triggers POSITION_CLOSED audit log."""
-        from src.core.audit_logger import AuditEventType
-
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
-        user_streamer._audit_logger = audit_logger
-
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "BTCUSDT",
-                "i": 555666777,
-                "S": "SELL",
-                "ot": "TRAILING_STOP_MARKET",
-                "q": "0.01",
-                "z": "0.01",
-                "ap": "52000",
-                "sp": "52000",
-                "cr": "1.0",  # callback_rate required for trailing stop
-                "X": "FILLED",
-            },
-        }
-
-        user_streamer._handle_order_trade_update(order_data)
-
-        # Verify TRAILING_STOP reason
-        call_args = audit_logger.log_event.call_args
-        assert call_args.kwargs["data"]["close_reason"] == "TRAILING_STOP"
-
-        loop.close()
-
-    def test_position_entry_data_tracked(self, user_streamer):
-        """Test that MARKET order fills track entry data."""
-        from datetime import datetime
-
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "BTCUSDT",
-                "i": 111222333,
-                "S": "BUY",
-                "ot": "MARKET",
-                "q": "0.001",
-                "z": "0.001",
-                "ap": "50000",
-                "X": "FILLED",
-            },
-        }
-
-        user_streamer._handle_order_trade_update(order_data)
-
-        # Verify entry data was tracked
-        assert "BTCUSDT" in user_streamer._position_entry_data
-        entry_data = user_streamer._position_entry_data["BTCUSDT"]
-        assert entry_data.entry_price == 50000.0
-        assert entry_data.quantity == 0.001
-        assert entry_data.side == "LONG"
-        assert isinstance(entry_data.entry_time, datetime)
-
-    def test_realized_pnl_calculation_long(self, user_streamer, event_bus, audit_logger):
-        """Test realized PnL calculation for LONG positions."""
-        from src.core.private_user_streamer import PositionEntryData
-        from datetime import datetime
-
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
-        user_streamer._audit_logger = audit_logger
-
-        # Pre-populate entry data (simulating position open)
-        user_streamer._position_entry_data["BTCUSDT"] = PositionEntryData(
-            entry_price=50000.0,
-            entry_time=datetime.utcnow(),
-            quantity=0.001,
-            side="LONG",
-        )
-
-        # TP fill at higher price (profit)
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "BTCUSDT",
-                "i": 123456789,
-                "S": "SELL",
-                "ot": "TAKE_PROFIT_MARKET",
-                "q": "0.001",
-                "z": "0.001",
-                "ap": "51000",  # Exit price
-                "sp": "51000",
-                "X": "FILLED",
-            },
-        }
-
-        user_streamer._handle_order_trade_update(order_data)
-
-        # Verify PnL: (51000 - 50000) * 0.001 = 1.0
-        call_args = audit_logger.log_event.call_args
-        assert call_args.kwargs["data"]["realized_pnl"] == 1.0
-        assert call_args.kwargs["data"]["entry_price"] == 50000.0
-
-        loop.close()
-
-    def test_realized_pnl_calculation_short(self, user_streamer, event_bus, audit_logger):
-        """Test realized PnL calculation for SHORT positions."""
-        from src.core.private_user_streamer import PositionEntryData
-        from datetime import datetime
-
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
-        user_streamer._audit_logger = audit_logger
-
-        # Pre-populate entry data for SHORT position
-        user_streamer._position_entry_data["ETHUSDT"] = PositionEntryData(
-            entry_price=2000.0,
-            entry_time=datetime.utcnow(),
-            quantity=0.1,
-            side="SHORT",
-        )
-
-        # TP fill at lower price (profit for short)
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "ETHUSDT",
-                "i": 987654321,
-                "S": "BUY",
-                "ot": "TAKE_PROFIT_MARKET",
-                "q": "0.1",
-                "z": "0.1",
-                "ap": "1900",  # Exit price lower = profit
-                "sp": "1900",
-                "X": "FILLED",
-            },
-        }
-
-        user_streamer._handle_order_trade_update(order_data)
-
-        # Verify PnL: (2000 - 1900) * 0.1 = 10.0
-        call_args = audit_logger.log_event.call_args
-        assert call_args.kwargs["data"]["realized_pnl"] == 10.0
-
-        loop.close()
-
-    def test_holding_duration_calculation(self, user_streamer, event_bus, audit_logger):
-        """Test holding duration is calculated correctly."""
-        from src.core.private_user_streamer import PositionEntryData
-        from datetime import datetime, timedelta
-
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
-        user_streamer._audit_logger = audit_logger
-
-        # Pre-populate entry data with past timestamp
-        entry_time = datetime.utcnow() - timedelta(seconds=300)  # 5 minutes ago
-        user_streamer._position_entry_data["BTCUSDT"] = PositionEntryData(
-            entry_price=50000.0,
-            entry_time=entry_time,
-            quantity=0.001,
-            side="LONG",
-        )
 
         order_data = {
             "e": "ORDER_TRADE_UPDATE",
@@ -752,81 +524,11 @@ class TestPositionClosureAuditLogging:
             },
         }
 
+        # Should not raise any errors - just relays data
         user_streamer._handle_order_trade_update(order_data)
 
-        # Verify duration is approximately 300 seconds
-        call_args = audit_logger.log_event.call_args
-        duration = call_args.kwargs["data"]["held_duration_seconds"]
-        assert 299 <= duration <= 302  # Allow small tolerance
-
-        loop.close()
-
-    def test_position_state_cleanup_after_closure(self, user_streamer, event_bus, audit_logger):
-        """Test position entry data is cleaned up after closure."""
-        from src.core.private_user_streamer import PositionEntryData
-        from datetime import datetime
-
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
-        user_streamer._audit_logger = audit_logger
-
-        # Pre-populate entry data
-        user_streamer._position_entry_data["BTCUSDT"] = PositionEntryData(
-            entry_price=50000.0,
-            entry_time=datetime.utcnow(),
-            quantity=0.001,
-            side="LONG",
-        )
-
-        assert "BTCUSDT" in user_streamer._position_entry_data
-
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "BTCUSDT",
-                "i": 123456789,
-                "S": "SELL",
-                "ot": "TAKE_PROFIT_MARKET",
-                "q": "0.001",
-                "z": "0.001",
-                "ap": "51000",
-                "sp": "51000",
-                "X": "FILLED",
-            },
-        }
-
-        user_streamer._handle_order_trade_update(order_data)
-
-        # Verify entry data was cleaned up
-        assert "BTCUSDT" not in user_streamer._position_entry_data
-
-        loop.close()
-
-    def test_no_audit_log_without_audit_logger(self, user_streamer, event_bus):
-        """Test that no error occurs when audit_logger is not configured."""
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
-        # Note: _audit_logger is None by default
-
-        order_data = {
-            "e": "ORDER_TRADE_UPDATE",
-            "o": {
-                "s": "BTCUSDT",
-                "i": 123456789,
-                "S": "SELL",
-                "ot": "TAKE_PROFIT_MARKET",
-                "q": "0.001",
-                "z": "0.001",
-                "ap": "51000",
-                "sp": "51000",
-                "X": "FILLED",
-            },
-        }
-
-        # Should not raise
-        user_streamer._handle_order_trade_update(order_data)
+        # Verify ORDER_FILLED event was published to EventBus
+        event_bus.publish.assert_called_once()
 
         loop.close()
 

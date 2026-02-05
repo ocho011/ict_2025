@@ -413,7 +413,6 @@ class BinanceDataCollector:
     async def start_listen_key_service(
         self,
         event_bus: "EventBus",
-        audit_logger: Optional["AuditLogger"] = None,
         position_update_callback: Optional[Callable] = None,
         order_update_callback: Optional[Callable] = None,
     ) -> None:
@@ -422,9 +421,11 @@ class BinanceDataCollector:
 
         Delegates to PrivateUserStreamer for actual WebSocket management.
 
+        Note: Position closure audit logging is now handled by TradingEngine._on_order_filled
+        (Issue #96 - PrivateUserStreamer is a pure data relay).
+
         Args:
             event_bus: EventBus instance for publishing ORDER_FILLED events
-            audit_logger: Optional AuditLogger for position closure logging (Issue #87)
             position_update_callback: Optional callback for position updates from
                 ACCOUNT_UPDATE events (Issue #41 rate limit fix)
             order_update_callback: Optional callback for order updates from
@@ -443,9 +444,8 @@ class BinanceDataCollector:
         # Configure event bus for publishing
         self.user_streamer.set_event_bus(event_bus)
 
-        # Configure audit logger for position closure logging (Issue #87)
-        if audit_logger:
-            self.user_streamer.set_audit_logger(audit_logger)
+        # Note: AuditLogger injection removed (Issue #96)
+        # Position closure logging now handled by TradingEngine._on_order_filled
 
         # Configure position update callback (Issue #41 rate limit fix)
         if position_update_callback:
