@@ -281,7 +281,7 @@ class PrivateUserStreamer(IDataStreamer):
         - Other events: Ignored
 
         Args:
-            _: Unused WebSocket client parameter
+            _: Unused WebSocket client parameter (Library passes two arguments: client, message)
             message: Raw message (str or dict) from Binance
 
         Note:
@@ -384,11 +384,12 @@ class PrivateUserStreamer(IDataStreamer):
 
     def _handle_order_trade_update(self, data: dict) -> None:
         """
-        Process official ORDER_TRADE_UPDATE event and publish ORDER_FILLED to EventBus.
+        Process official ORDER_TRADE_UPDATE event and publish order events to EventBus.
 
         Parses order status and execution data from the official exchange event message
-        and relays it downstream. Publishes ORDER_FILLED events to EventBus for
-        TP/SL fills and invokes the order update callback for cache synchronisation.
+        and relays it downstream.  Publishes ORDER_FILLED for any fully-filled order and
+        ORDER_PARTIALLY_FILLED for partial fills, regardless of order type.  Also invokes
+        the order update callback for cache synchronisation.
 
         Args:
             data: ORDER_TRADE_UPDATE event data from Binance
@@ -414,22 +415,17 @@ class PrivateUserStreamer(IDataStreamer):
             except Exception as e:
                 self.logger.error(f"Order update callback failed: {e}", exc_info=True)
 
-        # Handle TP/SL order fills (position closure)
-        if order_status == "FILLED" and order_type in (
-            "TAKE_PROFIT_MARKET",
-            "STOP_MARKET",
-            "STOP",
-            "TAKE_PROFIT",
-            "TRAILING_STOP_MARKET",
-        ):
+        # Publish ORDER_FILLED / ORDER_PARTIALLY_FILLED events for all order types
+        if order_status in ("FILLED", "PARTIALLY_FILLED"):
             from src.models.event import Event, EventType, QueueType
             from src.models.order import Order, OrderType, OrderStatus, OrderSide
 
-            # Create Order object for event payload
             # Extract callback_rate for TRAILING_STOP_MARKET orders
             callback_rate = None
             if order_type == "TRAILING_STOP_MARKET":
                 callback_rate = float(order_data.get("cr", 0)) if order_data.get("cr") else 1.0
+
+            is_filled = order_status == "FILLED"
 
             order = Order(
                 order_id=order_id,
@@ -438,13 +434,14 @@ class PrivateUserStreamer(IDataStreamer):
                 order_type=OrderType(order_type),
                 quantity=float(order_data.get("q", 0)),
                 price=float(order_data.get("ap", 0)),  # Average fill price
-                stop_price=float(order_data.get("sp", 0)),  # Stop/trigger price
+                stop_price=float(order_data.get("sp", 0)) if order_data.get("sp") else None,
                 callback_rate=callback_rate,
-                status=OrderStatus.FILLED,
+                status=OrderStatus.FILLED if is_filled else OrderStatus.PARTIALLY_FILLED,
+                filled_quantity=float(order_data.get("z", 0)),  # Cumulative filled qty
             )
 
             event = Event(
-                event_type=EventType.ORDER_FILLED,
+                event_type=EventType.ORDER_FILLED if is_filled else EventType.ORDER_PARTIALLY_FILLED,
                 data=order,
                 source="user_data_stream",
             )
@@ -456,10 +453,13 @@ class PrivateUserStreamer(IDataStreamer):
                     self._event_loop,
                 )
                 self.logger.info(
-                    f"Published ORDER_FILLED event for {symbol} {order_type}"
+                    f"Published {event.event_type.value.upper()} event for "
+                    f"{symbol} {order_type} "
+                    f"(filled: {order.filled_quantity}/{order.quantity})"
                 )
             else:
                 self.logger.warning(
-                    f"Cannot publish ORDER_FILLED event: EventBus not configured"
+                    f"Cannot publish {event.event_type.value.upper()} event: "
+                    f"EventBus not configured"
                 )
 

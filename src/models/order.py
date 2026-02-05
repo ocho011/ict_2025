@@ -148,6 +148,8 @@ class Order:
         order_id: Binance order ID (set after submission)
         client_order_id: Client-defined ID (optional)
         status: Current order status
+        filled_quantity: Cumulative filled quantity from exchange (set on FILLED /
+            PARTIALLY_FILLED events via User Data Stream field "z")
         timestamp: Order creation/update time
     """
 
@@ -161,6 +163,7 @@ class Order:
     order_id: Optional[str] = None
     client_order_id: Optional[str] = None
     status: OrderStatus = OrderStatus.NEW
+    filled_quantity: Optional[float] = None
     timestamp: Optional[datetime] = None
 
     def __post_init__(self) -> None:

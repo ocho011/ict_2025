@@ -90,7 +90,8 @@ class TradingEngine:
     Event Handlers:
         - _on_candle_closed: Candle → Strategy → Signal
         - _on_signal: Signal → OrderManager → Order
-        - _on_order_filled: Order → Position update (future)
+        - _on_order_filled: Order → Position update, orphan order cleanup
+        - _on_order_partially_filled: Partial fill tracking and position size adjustment
     """
 
     def __init__(self, audit_logger: Optional["AuditLogger"] = None) -> None:
@@ -586,7 +587,8 @@ class TradingEngine:
         Subscribes handlers to EventBus for:
         - CANDLE_CLOSED → _on_candle_closed: Trigger strategy analysis
         - SIGNAL_GENERATED → _on_signal_generated: Risk validation and order execution
-        - ORDER_FILLED → _on_order_filled: Position tracking
+        - ORDER_FILLED → _on_order_filled: Position tracking and orphan order cleanup
+        - ORDER_PARTIALLY_FILLED → _on_order_partially_filled: Partial fill tracking
 
         Handler Routing:
             - All handlers are async methods
@@ -605,15 +607,18 @@ class TradingEngine:
             SIGNAL_GENERATED → _on_signal_generated → RiskManager → OrderManager
                              ↓
             ORDER_FILLED → _on_order_filled → Position
+            ORDER_PARTIALLY_FILLED → _on_order_partially_filled → Position (partial)
         """
         self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)
         self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal_generated)
         self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)
+        self.event_bus.subscribe(EventType.ORDER_PARTIALLY_FILLED, self._on_order_partially_filled)
 
         self.logger.info("✅ Event handlers registered:")
         self.logger.info("  - CANDLE_CLOSED → _on_candle_closed")
         self.logger.info("  - SIGNAL_GENERATED → _on_signal_generated")
         self.logger.info("  - ORDER_FILLED → _on_order_filled")
+        self.logger.info("  - ORDER_PARTIALLY_FILLED → _on_order_partially_filled")
 
     def _get_cached_position(self, symbol: str) -> Optional["Position"]:
         """
@@ -1056,9 +1061,8 @@ class TradingEngine:
             except Exception as e:
                 self.logger.warning(f"Audit logging failed: {e}")
 
-            # Step 8: Publish ORDER_FILLED event
-            order_event = Event(EventType.ORDER_FILLED, entry_order)
-            await self.event_bus.publish(order_event, queue_type=QueueType.ORDER)
+            # Note: ORDER_FILLED event will be published by PrivateUserStreamer
+            # when WebSocket confirms the fill (Issue #97 - removed optimistic fill)
 
         except Exception as e:
             # Step 9: Catch and log execution errors without crashing
@@ -1414,6 +1418,77 @@ class TradingEngine:
             )
         except Exception as e:
             self.logger.error(f"Failed to log position closure: {e}")
+
+    async def _on_order_partially_filled(self, event: Event) -> None:
+        """
+        Handle partial fill notification (Issue #97).
+
+        Tracks partial fills for position size adjustments. Entry orders with partial
+        fills may need TP/SL quantity adjustments. Exit orders with partial fills
+        indicate the position footprint has decreased.
+
+        Args:
+            event: Event containing Order data with filled_quantity
+        """
+        order: Order = event.data
+
+        self.logger.info(
+            f"Order partially filled: ID={order.order_id}, "
+            f"Symbol={order.symbol}, "
+            f"Type={order.order_type.value}, "
+            f"Filled={order.filled_quantity}/{order.quantity}"
+        )
+
+        # Audit log: partial fill
+        try:
+            from src.core.audit_logger import AuditEventType
+
+            self.audit_logger.log_event(
+                event_type=AuditEventType.ORDER_PLACED,  # Reuse existing event type
+                operation="partial_fill",
+                symbol=order.symbol,
+                response={
+                    "order_id": order.order_id,
+                    "side": order.side.value,
+                    "filled_quantity": order.filled_quantity,
+                    "total_quantity": order.quantity,
+                    "fill_ratio": order.filled_quantity / order.quantity if order.quantity else 0,
+                    "order_type": order.order_type.value,
+                },
+            )
+        except Exception as e:
+            self.logger.warning(f"Audit logging failed: {e}")
+
+        # Track partial entry fills for position tracking (Issue #97)
+        # When entry order is partially filled, update position entry data
+        from src.models.order import OrderType as OT
+        if order.order_type in (OT.MARKET, OT.LIMIT):
+            from datetime import datetime, timezone
+            position_side = "LONG" if order.side.value == "BUY" else "SHORT"
+
+            # Update or create position entry data with partial fill info
+            existing = self._position_entry_data.get(order.symbol)
+            if existing:
+                # Update existing entry with new filled quantity
+                self._position_entry_data[order.symbol] = PositionEntryData(
+                    entry_price=order.price,  # Use average fill price
+                    entry_time=existing.entry_time,  # Keep original entry time
+                    quantity=order.filled_quantity,  # Update to actual filled qty
+                    side=position_side,
+                )
+            else:
+                # First partial fill - create new entry
+                self._position_entry_data[order.symbol] = PositionEntryData(
+                    entry_price=order.price,
+                    entry_time=datetime.now(timezone.utc),
+                    quantity=order.filled_quantity,
+                    side=position_side,
+                )
+
+            self.logger.info(
+                f"Updated position entry (partial): {order.symbol} {position_side} "
+                f"price={order.price}, filled_qty={order.filled_quantity}"
+            )
 
     async def wait_until_ready(self, timeout: float = 5.0) -> bool:
         """

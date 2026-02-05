@@ -152,8 +152,9 @@ class TestTradingEngineInit:
         assert engine.data_collector is mock_collector
         assert engine.strategies["BTCUSDT"] is mock_strategy
 
-        # Verify handlers registered
-        assert mock_event_bus.subscribe.call_count == 3
+        # Verify handlers registered (4 handlers: CANDLE_CLOSED, SIGNAL_GENERATED,
+        # ORDER_FILLED, ORDER_PARTIALLY_FILLED - Issue #97)
+        assert mock_event_bus.subscribe.call_count == 4
 
         # Verify API configuration calls
         mock_order_manager.set_leverage.assert_called_with("BTCUSDT", 10)
@@ -336,6 +337,38 @@ class TestEventHandlers:
         assert trading_engine.logger.info.called
 
     @pytest.mark.asyncio
+    async def test_on_order_partially_filled_tracks_entry_data(self, trading_engine):
+        """Test that partial fill handler updates position entry data (Issue #97)."""
+        from src.models.order import Order, OrderType, OrderSide, OrderStatus
+
+        # Create a partial fill order
+        partial_order = Order(
+            order_id="123456",
+            symbol="BTCUSDT",
+            side=OrderSide.BUY,
+            order_type=OrderType.MARKET,
+            quantity=1.0,
+            filled_quantity=0.5,  # Half filled
+            price=50000.0,
+            status=OrderStatus.PARTIALLY_FILLED,
+        )
+
+        event = Event(
+            event_type=EventType.ORDER_PARTIALLY_FILLED,
+            data=partial_order,
+        )
+
+        # Process the partial fill event
+        await trading_engine._on_order_partially_filled(event)
+
+        # Verify position entry data was tracked
+        assert "BTCUSDT" in trading_engine._position_entry_data
+        entry_data = trading_engine._position_entry_data["BTCUSDT"]
+        assert entry_data.entry_price == 50000.0
+        assert entry_data.quantity == 0.5  # Should use filled_quantity, not total
+        assert entry_data.side == "LONG"  # BUY = LONG
+
+    @pytest.mark.asyncio
     async def test_handler_errors_isolated(self, trading_engine):
         """Verify handler exceptions don't crash engine."""
         # Mock strategy that raises exception
@@ -479,12 +512,12 @@ class TestIntegration:
         # Process signal → order
         await trading_engine._on_signal_generated(signal_event)
 
-        # Verify order published
-        assert len(published_events) == 2
-        order_event, queue_type = published_events[1]
-        assert order_event.event_type == EventType.ORDER_FILLED
-        assert order_event.data == mock_order
-        assert queue_type == QueueType.ORDER
+        # After Issue #97: ORDER_FILLED events come from WebSocket confirmation,
+        # not from signal processing. Only SIGNAL_GENERATED is published here.
+        # Verify only signal published
+        assert len(published_events) == 1
+        # Note: ORDER_FILLED is now published by PrivateUserStreamer via WebSocket
+        # confirmation, not optimistically at signal processing time (Issue #97)
 
         # Verify strategy was called
         trading_engine.strategy.analyze.assert_called_once_with(candle)
