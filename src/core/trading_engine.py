@@ -1540,7 +1540,7 @@ class TradingEngine:
                 # Also enables position closure audit logging (Issue #87)
                 # Also enables real-time position and order cache updates (Issue #41 rate limit fix)
                 try:
-                    await self.data_collector.start_user_data_stream(
+                    await self.data_collector.start_listen_key_service(
                         self.event_bus,
                         audit_logger=self.audit_logger,
                         position_update_callback=self._on_position_update_from_websocket,

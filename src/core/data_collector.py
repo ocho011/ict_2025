@@ -60,7 +60,7 @@ class BinanceDataCollector:
         ...     user_streamer=user_streamer
         ... )
         >>> await collector.start_streaming()
-        >>> await collector.start_user_data_stream(event_bus)
+        >>> await collector.start_listen_key_service(event_bus)
         >>> # ... data collection active ...
         >>> await collector.stop()
 
@@ -407,10 +407,10 @@ class BinanceDataCollector:
         # Don't re-raise - best effort cleanup
 
     # =========================================================================
-    # User Data Stream Methods (Issue #54, #57)
+    # Listen Key Service Methods (Issue #54, #57)
     # =========================================================================
 
-    async def start_user_data_stream(
+    async def start_listen_key_service(
         self,
         event_bus: "EventBus",
         audit_logger: Optional["AuditLogger"] = None,
@@ -418,7 +418,7 @@ class BinanceDataCollector:
         order_update_callback: Optional[Callable] = None,
     ) -> None:
         """
-        Start User Data Stream WebSocket for real-time order updates.
+        Start listen key service WebSocket for real-time order updates.
 
         Delegates to PrivateUserStreamer for actual WebSocket management.
 
@@ -458,9 +458,9 @@ class BinanceDataCollector:
         # Start the streamer
         await self.user_streamer.start()
 
-    async def stop_user_data_stream(self) -> None:
+    async def stop_listen_key_service(self) -> None:
         """
-        Stop User Data Stream and cleanup resources.
+        Stop listen key service and cleanup resources.
 
         Delegates to PrivateUserStreamer for cleanup.
 

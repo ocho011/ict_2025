@@ -13,7 +13,7 @@ Updated for Issue #57: Uses new composition pattern with injected streamers.
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from src.core.user_data_stream import UserDataStreamManager
+from src.core.listen_key_manager import ListenKeyManager
 from src.core.binance_service import BinanceServiceClient
 from src.core.data_collector import BinanceDataCollector
 from src.core.public_market_streamer import PublicMarketStreamer
@@ -21,8 +21,8 @@ from src.core.private_user_streamer import PrivateUserStreamer
 from src.models.event import EventType
 
 
-class TestUserDataStreamManager:
-    """Test suite for UserDataStreamManager class."""
+class TestListenKeyManager:
+    """Test suite for ListenKeyManager class."""
 
     @pytest.fixture
     def binance_service(self):
@@ -36,148 +36,148 @@ class TestUserDataStreamManager:
         return client
 
     @pytest.fixture
-    def user_data_stream_manager(self, binance_service):
+    def listen_key_manager(self, binance_service):
         """
-        Create UserDataStreamManager with mocked BinanceService.
+        Create ListenKeyManager with mocked BinanceService.
         """
-        return UserDataStreamManager(binance_service)
+        return ListenKeyManager(binance_service)
 
     @pytest.mark.asyncio
-    async def test_listen_key_creation_success(self, user_data_stream_manager):
+    async def test_listen_key_creation_success(self, listen_key_manager):
         """
         Test successful listen key creation.
 
         Should:
-        - Call binance_service.new_listen_key() via UserDataStreamManager
+        - Call binance_service.new_listen_key() via ListenKeyManager
         - Return listen key
         - Start keep-alive loop
         """
         # Call start method
-        result = await user_data_stream_manager.start()
+        result = await listen_key_manager.start()
 
         assert result == "test_listen_key_123", f"Expected listen key: test_listen_key_123"
-        assert user_data_stream_manager.binance_service.new_listen_key.called
-        assert user_data_stream_manager._running is True
-        assert user_data_stream_manager._keep_alive_task is not None
+        assert listen_key_manager.binance_service.new_listen_key.called
+        assert listen_key_manager._running is True
+        assert listen_key_manager._keep_alive_task is not None
 
         # Cleanup
-        await user_data_stream_manager.stop()
+        await listen_key_manager.stop()
 
     @pytest.mark.asyncio
-    async def test_listen_key_already_running(self, user_data_stream_manager):
+    async def test_listen_key_already_running(self, listen_key_manager):
         """
         Test that starting when already running returns existing key.
         """
         # Start first time
-        first_key = await user_data_stream_manager.start()
+        first_key = await listen_key_manager.start()
 
         # Try to start again
-        second_key = await user_data_stream_manager.start()
+        second_key = await listen_key_manager.start()
 
         assert first_key == second_key
         # Should only have called new_listen_key once
-        assert user_data_stream_manager.binance_service.new_listen_key.call_count == 1
+        assert listen_key_manager.binance_service.new_listen_key.call_count == 1
 
         # Cleanup
-        await user_data_stream_manager.stop()
+        await listen_key_manager.stop()
 
     @pytest.mark.asyncio
-    async def test_keep_alive_ping_interval(self, user_data_stream_manager):
+    async def test_keep_alive_ping_interval(self, listen_key_manager):
         """
         Test that keep-alive task is created with correct interval.
         """
         # Start manager to initialize keep-alive task
-        await user_data_stream_manager.start()
+        await listen_key_manager.start()
 
         # Verify task was created
-        assert user_data_stream_manager._keep_alive_task is not None
-        assert not user_data_stream_manager._keep_alive_task.done()
+        assert listen_key_manager._keep_alive_task is not None
+        assert not listen_key_manager._keep_alive_task.done()
 
         # Verify interval constant is set correctly (30 minutes)
-        assert user_data_stream_manager.KEEP_ALIVE_INTERVAL_SECONDS == 1800
+        assert listen_key_manager.KEEP_ALIVE_INTERVAL_SECONDS == 1800
 
         # Cleanup - cancel the task first
-        user_data_stream_manager._keep_alive_task.cancel()
+        listen_key_manager._keep_alive_task.cancel()
         try:
-            await user_data_stream_manager._keep_alive_task
+            await listen_key_manager._keep_alive_task
         except asyncio.CancelledError:
             pass
 
-        await user_data_stream_manager.stop()
+        await listen_key_manager.stop()
 
     @pytest.mark.asyncio
-    async def test_stop_cleans_listen_key(self, user_data_stream_manager):
+    async def test_stop_cleans_listen_key(self, listen_key_manager):
         """
         Test graceful shutdown with listen key cleanup.
         """
         # Start manager to initialize
-        await user_data_stream_manager.start()
+        await listen_key_manager.start()
 
         # Stop manager which should:
         # 1. Stop keep-alive loop
         # 2. Close listen key via Binance API
         # 3. Clear state
-        await user_data_stream_manager.stop()
+        await listen_key_manager.stop()
 
         # Verify cleanup
-        assert user_data_stream_manager._keep_alive_task is None
-        assert user_data_stream_manager.listen_key is None
-        assert user_data_stream_manager._running is False
-        assert user_data_stream_manager.binance_service.close_listen_key.called
+        assert listen_key_manager._keep_alive_task is None
+        assert listen_key_manager.listen_key is None
+        assert listen_key_manager._running is False
+        assert listen_key_manager.binance_service.close_listen_key.called
 
     @pytest.mark.asyncio
-    async def test_stop_idempotent(self, user_data_stream_manager):
+    async def test_stop_idempotent(self, listen_key_manager):
         """
         Test that stop() can be called multiple times (idempotent).
         """
         # Start
-        await user_data_stream_manager.start()
+        await listen_key_manager.start()
 
         # Stop multiple times - should not raise
-        await user_data_stream_manager.stop()
-        await user_data_stream_manager.stop()
-        await user_data_stream_manager.stop()
+        await listen_key_manager.stop()
+        await listen_key_manager.stop()
+        await listen_key_manager.stop()
 
         # Verify cleanup happened only once
-        assert user_data_stream_manager.binance_service.close_listen_key.call_count == 1
+        assert listen_key_manager.binance_service.close_listen_key.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_start_stop_restart(self, user_data_stream_manager):
+    async def test_start_stop_restart(self, listen_key_manager):
         """
         Test that manager can be restarted after stop.
         """
         # First start
-        await user_data_stream_manager.start()
-        assert user_data_stream_manager.listen_key == "test_listen_key_123"
+        await listen_key_manager.start()
+        assert listen_key_manager.listen_key == "test_listen_key_123"
 
         # Stop
-        await user_data_stream_manager.stop()
-        assert user_data_stream_manager.listen_key is None
+        await listen_key_manager.stop()
+        assert listen_key_manager.listen_key is None
 
         # Second start
-        await user_data_stream_manager.start()
-        assert user_data_stream_manager.listen_key == "test_listen_key_123"
-        assert user_data_stream_manager._running is True
+        await listen_key_manager.start()
+        assert listen_key_manager.listen_key == "test_listen_key_123"
+        assert listen_key_manager._running is True
 
         # Cleanup
-        await user_data_stream_manager.stop()
+        await listen_key_manager.stop()
 
     @pytest.mark.asyncio
-    async def test_exception_on_listen_key_creation(self, user_data_stream_manager):
+    async def test_exception_on_listen_key_creation(self, listen_key_manager):
         """
         Test exception handling when listen key creation fails.
         """
         # Make new_listen_key raise an exception
-        user_data_stream_manager.binance_service.new_listen_key.side_effect = Exception(
+        listen_key_manager.binance_service.new_listen_key.side_effect = Exception(
             "API error"
         )
 
         with pytest.raises(Exception) as exc_info:
-            await user_data_stream_manager.start()
+            await listen_key_manager.start()
 
         assert "API error" in str(exc_info.value)
-        assert user_data_stream_manager._running is False
-        assert user_data_stream_manager.listen_key is None
+        assert listen_key_manager._running is False
+        assert listen_key_manager.listen_key is None
 
 
 class TestBinanceServiceListenKey:
@@ -282,30 +282,30 @@ class TestDataCollectorUserDataStream:
         return bus
 
     @pytest.mark.asyncio
-    async def test_start_user_data_stream(self, data_collector, mock_user_streamer, event_bus):
-        """Test starting User Data Stream via facade."""
-        await data_collector.start_user_data_stream(event_bus)
+    async def test_start_listen_key_service(self, data_collector, mock_user_streamer, event_bus):
+        """Test starting listen key service via facade."""
+        await data_collector.start_listen_key_service(event_bus)
 
         # Verify facade delegates to user_streamer
         mock_user_streamer.set_event_bus.assert_called_once_with(event_bus)
         mock_user_streamer.start.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stop_user_data_stream(self, data_collector, mock_user_streamer, event_bus):
-        """Test stopping User Data Stream via facade."""
-        await data_collector.start_user_data_stream(event_bus)
+    async def test_stop_listen_key_service(self, data_collector, mock_user_streamer, event_bus):
+        """Test stopping listen key service via facade."""
+        await data_collector.start_listen_key_service(event_bus)
 
         # Stop the stream
-        await data_collector.stop_user_data_stream()
+        await data_collector.stop_listen_key_service()
 
         # Verify facade delegates to user_streamer
         mock_user_streamer.stop.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_start_user_data_stream_without_user_streamer(
+    async def test_start_listen_key_service_without_user_streamer(
         self, binance_service, mock_market_streamer, event_bus, caplog
     ):
-        """Test that start_user_data_stream logs warning when user_streamer is None."""
+        """Test that start_listen_key_service() logs warning when user_streamer is None."""
         import logging
 
         data_collector = BinanceDataCollector(
@@ -315,7 +315,7 @@ class TestDataCollectorUserDataStream:
         )
 
         with caplog.at_level(logging.WARNING):
-            await data_collector.start_user_data_stream(event_bus)
+            await data_collector.start_listen_key_service(event_bus)
 
         assert "PrivateUserStreamer not configured" in caplog.text
 

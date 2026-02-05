@@ -15,7 +15,7 @@ from binance.websocket.um_futures.websocket_client import UMFuturesWebsocketClie
 
 from src.core.audit_logger import AuditEventType, AuditLogger
 from src.core.streamer_protocol import IDataStreamer
-from src.core.user_data_stream import UserDataStreamManager
+from src.core.listen_key_manager import ListenKeyManager
 from src.models.position import PositionEntryData, PositionUpdate
 
 # Imports for type hinting only; prevents circular dependency at runtime
@@ -34,7 +34,7 @@ class PrivateUserStreamer(IDataStreamer):
     Used for detecting TP/SL fills to prevent orphaned orders.
 
     Responsibilities:
-        - Listen key lifecycle management (via UserDataStreamManager)
+        - Listen key lifecycle management (via ListenKeyManager)
         - User data WebSocket connection
         - ORDER_TRADE_UPDATE event parsing
         - ORDER_FILLED event publishing to EventBus
@@ -87,7 +87,7 @@ class PrivateUserStreamer(IDataStreamer):
             )
 
         # User Data Stream components
-        self.user_stream_manager: Optional[UserDataStreamManager] = None
+        self.listen_key_manager: Optional[ListenKeyManager] = None
         self._user_ws_client: Optional[UMFuturesWebsocketClient] = None
 
         # EventBus for publishing ORDER_FILLED events
@@ -202,12 +202,12 @@ class PrivateUserStreamer(IDataStreamer):
         # Capture event loop for thread-safe publishing
         self._event_loop = asyncio.get_running_loop()
 
-        # Initialize UserDataStreamManager for listen key lifecycle
-        self.user_stream_manager = UserDataStreamManager(self.binance_service)
+        # Initialize ListenKeyManager for listen key lifecycle
+        self.listen_key_manager = ListenKeyManager(self.binance_service)
 
         try:
             # Create listen key (also starts keep-alive loop)
-            listen_key = await self.user_stream_manager.start()
+            listen_key = await self.listen_key_manager.start()
 
             # Determine WebSocket URL based on environment (Issue #92)
             # Use configured URL, append listen key
@@ -232,16 +232,16 @@ class PrivateUserStreamer(IDataStreamer):
         except Exception as e:
             self.logger.error(f"Failed to start User Data Stream: {e}", exc_info=True)
             # Cleanup on failure
-            if self.user_stream_manager:
-                await self.user_stream_manager.stop()
-                self.user_stream_manager = None
+            if self.listen_key_manager:
+                await self.listen_key_manager.stop()
+                self.listen_key_manager = None
             raise
 
     async def stop(self, timeout: float = 5.0) -> None:
         """
         Stop User Data Stream and cleanup resources.
 
-        Gracefully shuts down WebSocket client and UserDataStreamManager.
+        Gracefully shuts down WebSocket client and ListenKeyManager.
 
         Args:
             timeout: Maximum time in seconds to wait for cleanup (default: 5.0)
@@ -268,10 +268,10 @@ class PrivateUserStreamer(IDataStreamer):
                 self.logger.warning(f"Error stopping user WebSocket: {e}")
             self._user_ws_client = None
 
-        # Stop UserDataStreamManager (closes listen key)
-        if self.user_stream_manager:
-            await self.user_stream_manager.stop()
-            self.user_stream_manager = None
+        # Stop ListenKeyManager (closes listen key)
+        if self.listen_key_manager:
+            await self.listen_key_manager.stop()
+            self.listen_key_manager = None
 
         # Clear references
         self._event_bus = None
