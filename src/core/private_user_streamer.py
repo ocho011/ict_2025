@@ -303,6 +303,7 @@ class PrivateUserStreamer(IDataStreamer):
             else:
                 data = message
 
+            # Identify official exchange event type from the parsed message
             event_type = data.get("e")
 
             if event_type == "ORDER_TRADE_UPDATE":
@@ -318,10 +319,10 @@ class PrivateUserStreamer(IDataStreamer):
 
     def _handle_account_update(self, data: dict) -> None:
         """
-        Process ACCOUNT_UPDATE event for real-time position cache updates.
+        Process official ACCOUNT_UPDATE event for real-time position cache updates.
 
-        Parses position data from WebSocket and invokes callback to update
-        TradingEngine's position cache without REST API calls (Issue #41 rate limit fix).
+        Parses position data from the official exchange event message and invokes
+        callback to update TradingEngine's position cache (Issue #41).
 
         Args:
             data: ACCOUNT_UPDATE event data from Binance
@@ -391,8 +392,9 @@ class PrivateUserStreamer(IDataStreamer):
 
     def _handle_order_trade_update(self, data: dict) -> None:
         """
-        Process ORDER_TRADE_UPDATE event and publish ORDER_FILLED to EventBus.
+        Process official ORDER_TRADE_UPDATE event and publish ORDER_FILLED to EventBus.
 
+        Parses order status and execution data from the official exchange event message.
         Handles two scenarios:
         1. Position entry (MARKET/LIMIT fills): Track entry data for later PnL calculation
         2. Position closure (TP/SL fills): Log to audit trail with PnL and duration
