@@ -194,6 +194,10 @@ class ICTStrategy(BaseStrategy):
             "signals_generated": 0,
         }
 
+        # Trailing stop level persistence across candles (Issue #99)
+        # Key: symbol+side, Value: current trailing stop level
+        self._trailing_levels: dict[str, float] = {}
+
         # Initialize indicator cache for pre-computed indicators (Issue #19)
         # This enables O(f+k) incremental updates vs O(n) full recalculation
         use_indicator_cache = config.get("use_indicator_cache", True)
@@ -873,66 +877,14 @@ class ICTStrategy(BaseStrategy):
             )
             return None
 
-        self.update_buffer(candle)
-        self._update_feature_cache(candle)
-
-        if not self.is_ready():
-            return None
-
-        exit_config = getattr(self.config, "exit_config", None)
-        if not exit_config or not exit_config.dynamic_exit_enabled:
-            return None
-
-        buffer = self.buffers.get(candle.interval)
-        if not buffer or len(buffer) < self.min_periods:
-            return None
-
-        if exit_config.exit_strategy == "trailing_stop":
-            return self._check_trailing_stop_exit(position, candle, exit_config)
-        elif exit_config.exit_strategy == "breakeven":
-            return self._check_breakeven_exit(position, candle, exit_config)
-        elif exit_config.exit_strategy == "timed":
-            return self._check_timed_exit(position, candle, exit_config)
-        elif exit_config.exit_strategy == "indicator_based":
-            return self._check_indicator_based_exit(position, candle, exit_config)
-        else:
-            self.logger.warning(
-                f"[{self.symbol}] Unknown exit strategy: {exit_config.exit_strategy}"
-            )
-            return None
-
-        # Get exit configuration from strategy
-        exit_config = getattr(self.config, "exit_config", None)
-        if not exit_config or not exit_config.dynamic_exit_enabled:
-            return None  # Dynamic exit disabled
-
-        buffer = self.buffers.get(candle.interval)
-        if not buffer or len(buffer) < self.min_periods:
-            return None
-
-        # Route to appropriate exit strategy
-        if exit_config.exit_strategy == "trailing_stop":
-            return self._check_trailing_stop_exit(position, candle, exit_config)
-        elif exit_config.exit_strategy == "breakeven":
-            return self._check_breakeven_exit(position, candle, exit_config)
-        elif exit_config.exit_strategy == "timed":
-            return self._check_timed_exit(position, candle, exit_config)
-        elif exit_config.exit_strategy == "indicator_based":
-            return self._check_indicator_based_exit(position, candle, exit_config)
-        else:
-            self.logger.warning(
-                f"[{self.symbol}] Unknown exit strategy: {exit_config.exit_strategy}"
-            )
-            return None
-
     def _check_trailing_stop_exit(
         self, position: "Position", candle: "Candle", exit_config
     ) -> Optional["Signal"]:
         """
-        Check trailing stop exit conditions.
+        Check trailing stop exit conditions with persistent state (Issue #99).
 
-        Uses trailing_distance from entry price and trailing_activation threshold
-        to protect profits while allowing room for normal fluctuations.
+        Trailing stop levels are persisted in self._trailing_levels across candles,
+        so the stop only ever ratchets in the profitable direction.
 
         Args:
             position: Current open position
@@ -943,22 +895,28 @@ class ICTStrategy(BaseStrategy):
             CLOSE signal if trailing stop triggered, None otherwise
         """
         try:
-            # Calculate trailing stop level
+            trail_key = f"{self.symbol}_{position.side}"
+
             if position.side == "LONG":
-                # For long: stop below entry, moves up as price rises
-                trailing_stop = position.entry_price * (
+                # Initial trailing stop from entry price
+                initial_stop = position.entry_price * (
                     1 - exit_config.trailing_distance
                 )
 
-                # Move stop up if price is higher than activation threshold
+                # Retrieve persisted level or use initial
+                trailing_stop = self._trailing_levels.get(trail_key, initial_stop)
+
+                # Ratchet up if price exceeds activation threshold
                 activation_price = position.entry_price * (
                     1 + exit_config.trailing_activation
                 )
                 if candle.close > activation_price:
-                    # Update trailing stop to lock in profits
                     new_stop = candle.close * (1 - exit_config.trailing_distance)
                     if new_stop > trailing_stop:
                         trailing_stop = new_stop
+
+                # Persist the (possibly updated) trailing level
+                self._trailing_levels[trail_key] = trailing_stop
 
                 # Check if current price hit trailing stop
                 if candle.close <= trailing_stop:
@@ -967,6 +925,8 @@ class ICTStrategy(BaseStrategy):
                         f"entry={position.entry_price:.2f}, current={candle.close:.2f}, "
                         f"stop={trailing_stop:.2f}"
                     )
+                    # Clean up persisted state on exit
+                    self._trailing_levels.pop(trail_key, None)
                     return Signal(
                         signal_type=SignalType.CLOSE_LONG,
                         symbol=self.symbol,
@@ -977,20 +937,25 @@ class ICTStrategy(BaseStrategy):
                     )
 
             else:  # SHORT position
-                # For short: stop above entry, moves down as price falls
-                trailing_stop = position.entry_price * (
+                # Initial trailing stop from entry price
+                initial_stop = position.entry_price * (
                     1 + exit_config.trailing_distance
                 )
 
-                # Move stop down if price is lower than activation threshold
+                # Retrieve persisted level or use initial
+                trailing_stop = self._trailing_levels.get(trail_key, initial_stop)
+
+                # Ratchet down if price falls below activation threshold
                 activation_price = position.entry_price * (
                     1 - exit_config.trailing_activation
                 )
                 if candle.close < activation_price:
-                    # Update trailing stop to lock in profits
                     new_stop = candle.close * (1 + exit_config.trailing_distance)
                     if new_stop < trailing_stop:
                         trailing_stop = new_stop
+
+                # Persist the (possibly updated) trailing level
+                self._trailing_levels[trail_key] = trailing_stop
 
                 # Check if current price hit trailing stop
                 if candle.close >= trailing_stop:
@@ -999,6 +964,8 @@ class ICTStrategy(BaseStrategy):
                         f"entry={position.entry_price:.2f}, current={candle.close:.2f}, "
                         f"stop={trailing_stop:.2f}"
                     )
+                    # Clean up persisted state on exit
+                    self._trailing_levels.pop(trail_key, None)
                     return Signal(
                         signal_type=SignalType.CLOSE_SHORT,
                         symbol=self.symbol,
