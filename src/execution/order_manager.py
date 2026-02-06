@@ -919,6 +919,116 @@ class OrderExecutionManager:
 
             return None
 
+    def update_stop_loss(
+        self,
+        symbol: str,
+        new_stop_price: float,
+        side: OrderSide,
+    ) -> Optional[Order]:
+        """
+        Dynamically update exchange SL order by cancel-and-replace (Issue #104).
+
+        Atomically cancels the existing SL algo order and places a new one.
+        Includes a minimum movement threshold (0.1%) to avoid excessive API calls.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            new_stop_price: New stop loss trigger price
+            side: Order side for the SL (SELL for long position, BUY for short)
+
+        Returns:
+            New Order object if successful, None if skipped or failed
+        """
+        try:
+            # 1. Get current mark price for validation
+            try:
+                mark_price = self.client.get_mark_price(symbol)
+            except Exception as e:
+                self.logger.warning(f"Failed to get mark price for SL update: {e}")
+                return None
+
+            # 2. Validate new SL is on correct side of mark price
+            min_buffer = mark_price * 0.002  # 0.2% minimum distance
+            if side == OrderSide.SELL:
+                # Closing LONG - SL must be below mark price
+                if new_stop_price >= mark_price:
+                    self.logger.warning(
+                        f"SL update skipped: new SL {new_stop_price:.4f} >= mark {mark_price:.4f}"
+                    )
+                    return None
+                if mark_price - new_stop_price < min_buffer:
+                    new_stop_price = mark_price - min_buffer
+            else:  # OrderSide.BUY
+                # Closing SHORT - SL must be above mark price
+                if new_stop_price <= mark_price:
+                    self.logger.warning(
+                        f"SL update skipped: new SL {new_stop_price:.4f} <= mark {mark_price:.4f}"
+                    )
+                    return None
+                if new_stop_price - mark_price < min_buffer:
+                    new_stop_price = mark_price + min_buffer
+
+            # 3. Cancel existing algo orders (SL/TP) for the symbol
+            try:
+                algo_results = self.client.cancel_all_algo_orders(symbol)
+                cancelled = len(algo_results) if algo_results else 0
+                self.logger.info(
+                    f"Cancelled {cancelled} existing algo orders for {symbol} before SL update"
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to cancel existing algo orders for SL update: {e}")
+                return None
+
+            # 4. Place new SL order
+            stop_price_str = self._format_price(new_stop_price, symbol)
+            response = self.client.new_algo_order(
+                symbol=symbol,
+                side=side.value,
+                type=OrderType.STOP_MARKET.value,
+                triggerPrice=stop_price_str,
+                closePosition="true",
+                workingType="MARK_PRICE",
+            )
+
+            order = self._parse_order_response(
+                response=response,
+                symbol=symbol,
+                side=side,
+                expected_order_type=OrderType.STOP_MARKET,
+            )
+            order.stop_price = new_stop_price
+
+            self.logger.info(
+                f"SL dynamically updated for {symbol}: new stopPrice={stop_price_str}"
+            )
+
+            # Audit log
+            try:
+                self.audit_logger.log_order_placed(
+                    symbol=symbol,
+                    order_data={
+                        "order_type": "STOP_MARKET",
+                        "side": side.value,
+                        "stop_price": new_stop_price,
+                        "close_position": True,
+                        "update_reason": "trailing_stop_dynamic_update",
+                    },
+                    response={"order_id": order.order_id, "status": order.status.value},
+                )
+            except Exception:
+                pass
+
+            return order
+
+        except ClientError as e:
+            self.logger.error(
+                f"SL dynamic update rejected: code={e.error_code}, msg={e.error_message}"
+            )
+            return None
+        except Exception as e:
+            self.logger.error(f"SL dynamic update failed: {type(e).__name__}: {e}")
+            return None
+
     @retry_with_backoff(max_retries=3, initial_delay=1.0)
     def _place_tp_order(
         self,

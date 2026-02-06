@@ -197,6 +197,11 @@ class TradingEngine:
         # Moved from PrivateUserStreamer for proper responsibility separation
         self._position_entry_data: Dict[str, PositionEntryData] = {}
 
+        # Signal cooldown to prevent multi-interval duplicate entries (Issue #101)
+        # Key: symbol, Value: timestamp of last signal generation
+        self._last_signal_time: Dict[str, float] = {}
+        self._signal_cooldown: float = 300.0  # 5 minutes cooldown between signals per symbol
+
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
     def initialize_components(
@@ -670,6 +675,10 @@ class TradingEngine:
         if symbol in self._position_cache:
             del self._position_cache[symbol]
             self.logger.debug(f"Position cache invalidated for {symbol}")
+        # Clear signal cooldown so new entries are possible after position close (Issue #101)
+        if symbol in self._last_signal_time:
+            del self._last_signal_time[symbol]
+            self.logger.debug(f"Signal cooldown cleared for {symbol}")
 
     def _on_position_update_from_websocket(self, position_updates: list) -> None:
         """
@@ -913,6 +922,9 @@ class TradingEngine:
             )
             return True
 
+        # Dynamic SL update: sync exchange SL with strategy trailing level (Issue #104)
+        await self._maybe_update_exchange_sl(candle, strategy, position)
+
         self.logger.debug(
             f"No exit signal for {candle.symbol}, position still open - skipping entry analysis"
         )
@@ -924,6 +936,19 @@ class TradingEngine:
         """
         Check new entry conditions (Issue #42).
         """
+        # Signal cooldown check to prevent multi-interval duplicate entries (Issue #101)
+        import time
+
+        symbol = candle.symbol
+        now = time.time()
+        last_signal = self._last_signal_time.get(symbol, 0.0)
+        if now - last_signal < self._signal_cooldown:
+            remaining = self._signal_cooldown - (now - last_signal)
+            self.logger.debug(
+                f"Signal cooldown active for {symbol}: {remaining:.1f}s remaining"
+            )
+            return
+
         try:
             signal = await strategy.analyze(candle)
         except Exception as e:
@@ -935,6 +960,8 @@ class TradingEngine:
 
         # If signal exists, publish SIGNAL_GENERATED event
         if signal is not None:
+            # Record signal time for cooldown (Issue #101)
+            self._last_signal_time[symbol] = now
             await self._publish_signal_with_audit(
                 signal=signal, candle=candle, operation="candle_analysis"
             )
@@ -942,6 +969,57 @@ class TradingEngine:
             # Info log for no signal (shows strategy is working)
             self.logger.info(
                 f"✓ No signal: {candle.symbol} {candle.interval} (strategy conditions not met)"
+            )
+
+    async def _maybe_update_exchange_sl(
+        self, candle: Candle, strategy: BaseStrategy, position: "Position"
+    ) -> None:
+        """
+        Sync exchange SL with strategy's trailing stop level (Issue #104).
+
+        If the strategy has a persisted trailing level that differs from the
+        original SL by more than 0.1%, update the exchange SL order.
+        """
+        try:
+            # Only applies to strategies with trailing level persistence
+            trailing_levels = getattr(strategy, "_trailing_levels", None)
+            if not trailing_levels:
+                return
+
+            trail_key = f"{candle.symbol}_{position.side}"
+            current_trailing = trailing_levels.get(trail_key)
+            if current_trailing is None:
+                return
+
+            # Minimum movement threshold: only update if SL moved by >0.1%
+            if not hasattr(self, "_last_exchange_sl"):
+                self._last_exchange_sl: Dict[str, float] = {}
+
+            last_sl = self._last_exchange_sl.get(candle.symbol)
+            if last_sl is not None:
+                movement = abs(current_trailing - last_sl) / last_sl
+                if movement < 0.001:  # 0.1% threshold
+                    return
+
+            # Determine SL order side (opposite of position)
+            from src.models.order import OrderSide
+
+            sl_side = OrderSide.SELL if position.side == "LONG" else OrderSide.BUY
+
+            # Update exchange SL
+            result = self.order_manager.update_stop_loss(
+                symbol=candle.symbol,
+                new_stop_price=current_trailing,
+                side=sl_side,
+            )
+            if result:
+                self._last_exchange_sl[candle.symbol] = current_trailing
+                self.logger.info(
+                    f"Exchange SL updated for {candle.symbol}: {current_trailing:.4f}"
+                )
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to update exchange SL for {candle.symbol}: {e}"
             )
 
     async def _publish_signal_with_audit(

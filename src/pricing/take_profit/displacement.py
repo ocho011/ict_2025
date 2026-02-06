@@ -16,11 +16,18 @@ class DisplacementTakeProfit(TakeProfitDeterminer):
     fallback_risk_percent: float = 0.02  # 2% fallback
 
     def calculate_take_profit(self, context: PriceContext, stop_loss: float) -> float:
-        # Use displacement size if available, else fallback to entry percentage
+        # Calculate actual SL distance as the true risk measure (Issue #102)
+        sl_distance = abs(context.entry_price - stop_loss)
+
+        # Use displacement size if available
         if context.displacement_size and context.displacement_size > 0:
-            risk_amount = context.displacement_size
+            displacement_risk = context.displacement_size
         else:
-            risk_amount = context.entry_price * self.fallback_risk_percent
+            displacement_risk = context.entry_price * self.fallback_risk_percent
+
+        # Use the more conservative (larger) risk for consistent R:R (Issue #102)
+        # This ensures TP is never closer than what the actual SL distance warrants
+        risk_amount = max(sl_distance, displacement_risk) if sl_distance > 0 else displacement_risk
 
         reward_amount = risk_amount * self.risk_reward_ratio
 
