@@ -368,6 +368,97 @@ class TestEventHandlers:
         assert entry_data.quantity == 0.5  # Should use filled_quantity, not total
         assert entry_data.side == "LONG"  # BUY = LONG
 
+    def test_on_order_fill_from_websocket_publishes_filled_event(self, trading_engine):
+        """Verify _on_order_fill_from_websocket() creates Order/Event and publishes to EventBus (Issue #107)."""
+        import asyncio
+        from src.models.order import Order, OrderType, OrderSide, OrderStatus
+
+        # Setup event loop mock
+        mock_loop = Mock()
+        mock_future = Mock()
+        mock_loop.call_soon_threadsafe = Mock()
+        trading_engine._event_loop = mock_loop
+
+        # Raw order data as received from Binance WebSocket
+        order_data = {
+            "s": "BTCUSDT",
+            "i": 123456789,
+            "S": "BUY",
+            "ot": "TAKE_PROFIT_MARKET",
+            "q": "1.0",
+            "ap": "50000.0",
+            "sp": "49500.0",
+            "X": "FILLED",
+            "z": "1.0",
+        }
+
+        # Mock asyncio.run_coroutine_threadsafe
+        with patch("src.core.trading_engine.asyncio.run_coroutine_threadsafe", return_value=mock_future) as mock_rcts:
+            trading_engine._on_order_fill_from_websocket(order_data)
+
+            # Verify run_coroutine_threadsafe was called
+            mock_rcts.assert_called_once()
+            call_args = mock_rcts.call_args
+
+            # Verify it was called with the mock event loop
+            assert call_args[0][1] is mock_loop
+
+        # Verify logger info was called
+        trading_engine.logger.info.assert_called()
+        log_message = str(trading_engine.logger.info.call_args)
+        assert "ORDER_FILLED" in log_message
+        assert "BTCUSDT" in log_message
+
+    def test_on_order_fill_from_websocket_handles_partial_fill(self, trading_engine):
+        """Verify _on_order_fill_from_websocket() handles PARTIALLY_FILLED status (Issue #107)."""
+        import asyncio
+
+        mock_loop = Mock()
+        trading_engine._event_loop = mock_loop
+
+        order_data = {
+            "s": "ETHUSDT",
+            "i": 987654321,
+            "S": "SELL",
+            "ot": "MARKET",
+            "q": "10.0",
+            "ap": "3000.0",
+            "sp": "0",
+            "X": "PARTIALLY_FILLED",
+            "z": "5.0",
+        }
+
+        with patch("src.core.trading_engine.asyncio.run_coroutine_threadsafe") as mock_rcts:
+            trading_engine._on_order_fill_from_websocket(order_data)
+            mock_rcts.assert_called_once()
+
+        log_message = str(trading_engine.logger.info.call_args)
+        assert "ORDER_PARTIALLY_FILLED" in log_message
+        assert "ETHUSDT" in log_message
+
+    def test_on_order_fill_from_websocket_no_event_loop(self, trading_engine):
+        """Verify _on_order_fill_from_websocket() warns when event loop not available (Issue #107)."""
+        trading_engine._event_loop = None
+
+        order_data = {
+            "s": "BTCUSDT",
+            "i": 123456789,
+            "S": "BUY",
+            "ot": "MARKET",
+            "q": "1.0",
+            "ap": "50000.0",
+            "sp": "0",
+            "X": "FILLED",
+            "z": "1.0",
+        }
+
+        trading_engine._on_order_fill_from_websocket(order_data)
+
+        # Verify warning was logged
+        trading_engine.logger.warning.assert_called()
+        warning_message = str(trading_engine.logger.warning.call_args)
+        assert "Event loop not available" in warning_message
+
     @pytest.mark.asyncio
     async def test_handler_errors_isolated(self, trading_engine):
         """Verify handler exceptions don't crash engine."""

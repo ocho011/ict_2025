@@ -21,9 +21,7 @@ from src.core.private_user_streamer import PrivateUserStreamer
 # Imports for type hinting only; prevents circular dependency at runtime
 # Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
-    from src.core.audit_logger import AuditLogger
     from src.core.binance_service import BinanceServiceClient
-    from src.core.event_handler import EventBus
 
 
 class BinanceDataCollector:
@@ -60,7 +58,7 @@ class BinanceDataCollector:
         ...     user_streamer=user_streamer
         ... )
         >>> await collector.start_streaming()
-        >>> await collector.start_listen_key_service(event_bus)
+        >>> await collector.start_listen_key_service(order_fill_callback=on_fill)
         >>> # ... data collection active ...
         >>> await collector.stop()
 
@@ -412,24 +410,25 @@ class BinanceDataCollector:
 
     async def start_listen_key_service(
         self,
-        event_bus: "EventBus",
         position_update_callback: Optional[Callable] = None,
         order_update_callback: Optional[Callable] = None,
+        order_fill_callback: Optional[Callable] = None,
     ) -> None:
         """
         Start listen key service WebSocket for real-time order updates.
 
         Delegates to PrivateUserStreamer for actual WebSocket management.
 
-        Note: Position closure audit logging is now handled by TradingEngine._on_order_filled
-        (Issue #96 - PrivateUserStreamer is a pure data relay).
+        Note: Event creation and publishing is handled by TradingEngine via callbacks.
+        PrivateUserStreamer is a pure data relay (Issue #96, #107).
 
         Args:
-            event_bus: EventBus instance for publishing ORDER_FILLED events
             position_update_callback: Optional callback for position updates from
                 ACCOUNT_UPDATE events (Issue #41 rate limit fix)
             order_update_callback: Optional callback for order updates from
                 ORDER_TRADE_UPDATE events (Issue #41 rate limit fix)
+            order_fill_callback: Optional callback for order fill events from
+                ORDER_TRADE_UPDATE events (Issue #107 - callback pattern alignment)
 
         Raises:
             ConnectionError: If WebSocket connection fails
@@ -441,12 +440,6 @@ class BinanceDataCollector:
             )
             return
 
-        # Configure event bus for publishing
-        self.user_streamer.set_event_bus(event_bus)
-
-        # Note: AuditLogger injection removed (Issue #96)
-        # Position closure logging now handled by TradingEngine._on_order_filled
-
         # Configure position update callback (Issue #41 rate limit fix)
         if position_update_callback:
             self.user_streamer.set_position_update_callback(position_update_callback)
@@ -454,6 +447,10 @@ class BinanceDataCollector:
         # Configure order update callback (Issue #41 rate limit fix)
         if order_update_callback:
             self.user_streamer.set_order_update_callback(order_update_callback)
+
+        # Configure order fill callback (Issue #107 - callback pattern alignment)
+        if order_fill_callback:
+            self.user_streamer.set_order_fill_callback(order_fill_callback)
 
         # Start the streamer
         await self.user_streamer.start()

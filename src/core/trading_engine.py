@@ -745,6 +745,71 @@ class TradingEngine:
         except Exception as e:
             self.logger.warning(f"Failed to update order cache from WebSocket: {e}")
 
+    def _on_order_fill_from_websocket(self, order_data: dict) -> None:
+        """
+        Handle order fill events from WebSocket ORDER_TRADE_UPDATE via callback.
+
+        Creates Order and Event objects from raw WebSocket data and publishes
+        to EventBus. This centralizes event creation in TradingEngine,
+        matching the pattern used for candle events (Issue #107).
+
+        Args:
+            order_data: Raw order data dict from Binance ORDER_TRADE_UPDATE
+
+        Thread Safety:
+            Called from WebSocket thread. Uses asyncio.run_coroutine_threadsafe()
+            to publish to EventBus in the main event loop.
+        """
+        from src.models.order import Order, OrderType, OrderStatus, OrderSide
+
+        order_status = order_data.get("X")
+        order_type = order_data.get("ot")
+        symbol = order_data.get("s")
+        order_id = str(order_data.get("i", ""))
+
+        # Extract callback_rate for TRAILING_STOP_MARKET orders
+        callback_rate = None
+        if order_type == "TRAILING_STOP_MARKET":
+            callback_rate = float(order_data.get("cr", 0)) if order_data.get("cr") else 1.0
+
+        is_filled = order_status == "FILLED"
+
+        order = Order(
+            order_id=order_id,
+            symbol=symbol,
+            side=OrderSide(order_data.get("S")),
+            order_type=OrderType(order_type),
+            quantity=float(order_data.get("q", 0)),
+            price=float(order_data.get("ap", 0)),
+            stop_price=float(order_data.get("sp", 0)) if order_data.get("sp") else None,
+            callback_rate=callback_rate,
+            status=OrderStatus.FILLED if is_filled else OrderStatus.PARTIALLY_FILLED,
+            filled_quantity=float(order_data.get("z", 0)),
+        )
+
+        event = Event(
+            event_type=EventType.ORDER_FILLED if is_filled else EventType.ORDER_PARTIALLY_FILLED,
+            data=order,
+            source="user_data_stream",
+        )
+
+        # Publish to EventBus (thread-safe via run_coroutine_threadsafe)
+        if self._event_loop:
+            asyncio.run_coroutine_threadsafe(
+                self.event_bus.publish(event, queue_type=QueueType.ORDER),
+                self._event_loop,
+            )
+            self.logger.info(
+                f"Published {event.event_type.value.upper()} event for "
+                f"{symbol} {order_type} "
+                f"(filled: {order.filled_quantity}/{order.quantity})"
+            )
+        else:
+            self.logger.warning(
+                f"Cannot publish {event.event_type.value.upper()} event: "
+                f"Event loop not available"
+            )
+
     async def _on_candle_closed(self, event: Event) -> None:
         """
         Handle closed candle event - run strategy analysis (Issue #7 Phase 3, #42 Refactor).
@@ -1702,15 +1767,15 @@ class TradingEngine:
                 )
                 self.logger.info("DataCollector streaming enabled")
 
-                # Start User Data Stream for real-time order updates (Issue #54)
+                # Start User Data Stream for real-time order updates (Issue #54, #107)
                 # This enables TP/SL fill detection to prevent orphaned orders
-                # Position closure audit logging handled by _on_order_filled (Issue #96)
+                # Event creation and publishing handled by callbacks (Issue #107)
                 # Also enables real-time position and order cache updates (Issue #41 rate limit fix)
                 try:
                     await self.data_collector.start_listen_key_service(
-                        self.event_bus,
                         position_update_callback=self._on_position_update_from_websocket,
                         order_update_callback=self._on_order_update_from_websocket,
+                        order_fill_callback=self._on_order_fill_from_websocket,
                     )
                     self.logger.info(
                         "User Data Stream enabled for order updates, position cache, and order cache"

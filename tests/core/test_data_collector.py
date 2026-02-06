@@ -55,7 +55,9 @@ def mock_user_streamer():
     streamer.is_connected = False
     streamer.start = AsyncMock()
     streamer.stop = AsyncMock()
-    streamer.set_event_bus = Mock()
+    streamer.set_order_fill_callback = Mock()
+    streamer.set_position_update_callback = Mock()
+    streamer.set_order_update_callback = Mock()
     return streamer
 
 
@@ -484,8 +486,6 @@ class TestBinanceDataCollectorListenKeyService:
     ):
         """Test that start_listen_key_service() delegates to user_streamer."""
         # Arrange
-        mock_event_bus = Mock()
-
         collector = BinanceDataCollector(
             binance_service=mock_binance_service,
             market_streamer=mock_market_streamer,
@@ -493,10 +493,10 @@ class TestBinanceDataCollectorListenKeyService:
         )
 
         # Act
-        await collector.start_listen_key_service(mock_event_bus)
+        await collector.start_listen_key_service(order_fill_callback=lambda d: None)
 
         # Assert
-        mock_user_streamer.set_event_bus.assert_called_once_with(mock_event_bus)
+        mock_user_streamer.set_order_fill_callback.assert_called_once()
         mock_user_streamer.start.assert_called_once()
 
     @pytest.mark.asyncio
@@ -505,8 +505,6 @@ class TestBinanceDataCollectorListenKeyService:
     ):
         """Test that start_listen_key_service() logs warning when user_streamer is None."""
         # Arrange
-        mock_event_bus = Mock()
-
         collector = BinanceDataCollector(
             binance_service=mock_binance_service,
             market_streamer=mock_market_streamer,
@@ -515,7 +513,7 @@ class TestBinanceDataCollectorListenKeyService:
 
         # Act
         with caplog.at_level(logging.WARNING):
-            await collector.start_listen_key_service(mock_event_bus)
+            await collector.start_listen_key_service()
 
         # Assert
         assert "PrivateUserStreamer not configured" in caplog.text
