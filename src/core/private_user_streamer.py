@@ -20,7 +20,6 @@ from src.models.position import PositionUpdate
 # Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.core.binance_service import BinanceServiceClient
-    from src.core.event_handler import EventBus
 
 
 class PrivateUserStreamer(IDataStreamer):
@@ -31,15 +30,14 @@ class PrivateUserStreamer(IDataStreamer):
     events (ORDER_TRADE_UPDATE) from Binance User Data Stream.
     Used for detecting TP/SL fills to prevent orphaned orders.
 
-    Responsibilities (Issue #96 - Pure Data Relay):
+    Responsibilities (Issue #96 - Pure Data Relay, #107 - Callback Pattern):
         - Listen key lifecycle management (via ListenKeyManager)
         - User data WebSocket connection (Implicit subscription via listenKey)
-        - ORDER_TRADE_UPDATE event parsing and relay
-        - ORDER_FILLED event publishing to EventBus
-        - ACCOUNT_UPDATE event parsing for position cache updates
+        - ORDER_TRADE_UPDATE event parsing and relay via callbacks
+        - ACCOUNT_UPDATE event parsing and relay via callbacks
 
-    Note: Business logic (PnL calculation, position tracking, audit logging)
-    is handled by TradingEngine, not this streamer.
+    Note: Business logic (Event creation, PnL calculation, position tracking,
+    audit logging) is handled by TradingEngine, not this streamer.
 
     Note on Subscription:
         Unlike public market streams (e.g., klines) which require explicit SUBSCRIBE
@@ -51,11 +49,11 @@ class PrivateUserStreamer(IDataStreamer):
     Example:
         >>> streamer = PrivateUserStreamer(
         ...     binance_service=binance_service,
-        ...     event_bus=event_bus,
         ...     is_testnet=True
         ... )
+        >>> streamer.set_order_fill_callback(on_order_fill_callback)
         >>> await streamer.start()
-        >>> # ... receiving order updates ...
+        >>> # ... receiving order updates via callbacks ...
         >>> await streamer.stop()
 
     Attributes:
@@ -99,15 +97,14 @@ class PrivateUserStreamer(IDataStreamer):
         self.listen_key_manager: Optional[ListenKeyManager] = None
         self._user_ws_client: Optional[UMFuturesWebsocketClient] = None
 
-        # EventBus for publishing ORDER_FILLED events
-        self._event_bus: Optional["EventBus"] = None
-        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
-
         # Position update callback for real-time cache updates (Issue #41 rate limit fix)
         self._position_update_callback: Optional[Callable[[List[PositionUpdate]], None]] = None
 
         # Order update callback for real-time order cache updates (Issue #41 rate limit fix)
         self._order_update_callback: Optional[Callable[[str, str, str, Dict], None]] = None
+
+        # Order fill callback for relaying fill events to TradingEngine (Issue #107)
+        self._order_fill_callback: Optional[Callable[[dict], None]] = None
 
         # State management
         self._running = False
@@ -129,18 +126,6 @@ class PrivateUserStreamer(IDataStreamer):
             True if WebSocket connection is active, False otherwise.
         """
         return self._is_connected and self._user_ws_client is not None
-
-    def set_event_bus(self, event_bus: "EventBus") -> None:
-        """
-        Set the EventBus for publishing ORDER_FILLED events.
-
-        Must be called before start() if order event publishing is required.
-
-        Args:
-            event_bus: EventBus instance for event publishing
-        """
-        self._event_bus = event_bus
-        self.logger.debug("EventBus configured for PrivateUserStreamer")
 
     def set_position_update_callback(
         self, callback: Callable[[List[PositionUpdate]], None]
@@ -172,6 +157,22 @@ class PrivateUserStreamer(IDataStreamer):
         self._order_update_callback = callback
         self.logger.debug("Order update callback configured for PrivateUserStreamer")
 
+    def set_order_fill_callback(
+        self, callback: Callable[[dict], None]
+    ) -> None:
+        """
+        Set callback for order fill events from ORDER_TRADE_UPDATE.
+
+        This replaces direct EventBus publishing, following the same
+        callback pattern used by PublicMarketStreamer (Issue #107).
+
+        Args:
+            callback: Function to call with raw order data dict when
+                     an order is FILLED or PARTIALLY_FILLED
+        """
+        self._order_fill_callback = callback
+        self.logger.debug("Order fill callback configured for PrivateUserStreamer")
+
     async def start(self) -> None:
         """
         Start User Data Stream WebSocket for real-time order updates.
@@ -190,9 +191,6 @@ class PrivateUserStreamer(IDataStreamer):
                 "User data stream already active, ignoring start request"
             )
             return
-
-        # Capture event loop for thread-safe publishing
-        self._event_loop = asyncio.get_running_loop()
 
         # Initialize ListenKeyManager for listen key lifecycle
         self.listen_key_manager = ListenKeyManager(self.binance_service)
@@ -264,10 +262,6 @@ class PrivateUserStreamer(IDataStreamer):
         if self.listen_key_manager:
             await self.listen_key_manager.stop()
             self.listen_key_manager = None
-
-        # Clear references
-        self._event_bus = None
-        self._event_loop = None
 
         self.logger.info("PrivateUserStreamer shutdown complete")
 
@@ -384,12 +378,11 @@ class PrivateUserStreamer(IDataStreamer):
 
     def _handle_order_trade_update(self, data: dict) -> None:
         """
-        Process official ORDER_TRADE_UPDATE event and publish order events to EventBus.
+        Process official ORDER_TRADE_UPDATE event and relay via callbacks.
 
         Parses order status and execution data from the official exchange event message
-        and relays it downstream.  Publishes ORDER_FILLED for any fully-filled order and
-        ORDER_PARTIALLY_FILLED for partial fills, regardless of order type.  Also invokes
-        the order update callback for cache synchronisation.
+        and relays it downstream via callbacks. Invokes order_update_callback for cache
+        synchronization and order_fill_callback for fill events (Issue #107).
 
         Args:
             data: ORDER_TRADE_UPDATE event data from Binance
@@ -415,51 +408,14 @@ class PrivateUserStreamer(IDataStreamer):
             except Exception as e:
                 self.logger.error(f"Order update callback failed: {e}", exc_info=True)
 
-        # Publish ORDER_FILLED / ORDER_PARTIALLY_FILLED events for all order types
-        if order_status in ("FILLED", "PARTIALLY_FILLED"):
-            from src.models.event import Event, EventType, QueueType
-            from src.models.order import Order, OrderType, OrderStatus, OrderSide
-
-            # Extract callback_rate for TRAILING_STOP_MARKET orders
-            callback_rate = None
-            if order_type == "TRAILING_STOP_MARKET":
-                callback_rate = float(order_data.get("cr", 0)) if order_data.get("cr") else 1.0
-
-            is_filled = order_status == "FILLED"
-
-            order = Order(
-                order_id=order_id,
-                symbol=symbol,
-                side=OrderSide(order_data.get("S")),
-                order_type=OrderType(order_type),
-                quantity=float(order_data.get("q", 0)),
-                price=float(order_data.get("ap", 0)),  # Average fill price
-                stop_price=float(order_data.get("sp", 0)) if order_data.get("sp") else None,
-                callback_rate=callback_rate,
-                status=OrderStatus.FILLED if is_filled else OrderStatus.PARTIALLY_FILLED,
-                filled_quantity=float(order_data.get("z", 0)),  # Cumulative filled qty
-            )
-
-            event = Event(
-                event_type=EventType.ORDER_FILLED if is_filled else EventType.ORDER_PARTIALLY_FILLED,
-                data=order,
-                source="user_data_stream",
-            )
-
-            # Publish to EventBus (thread-safe via run_coroutine_threadsafe)
-            if self._event_bus and self._event_loop:
-                asyncio.run_coroutine_threadsafe(
-                    self._event_bus.publish(event, queue_type=QueueType.ORDER),
-                    self._event_loop,
-                )
+        # Relay fill events to TradingEngine via callback (Issue #107)
+        if order_status in ("FILLED", "PARTIALLY_FILLED") and self._order_fill_callback:
+            try:
+                self._order_fill_callback(order_data)
                 self.logger.info(
-                    f"Published {event.event_type.value.upper()} event for "
-                    f"{symbol} {order_type} "
-                    f"(filled: {order.filled_quantity}/{order.quantity})"
+                    f"Order fill relayed via callback: {symbol} {order_type} -> {order_status} "
+                    f"(ID: {order_id})"
                 )
-            else:
-                self.logger.warning(
-                    f"Cannot publish {event.event_type.value.upper()} event: "
-                    f"EventBus not configured"
-                )
+            except Exception as e:
+                self.logger.error(f"Order fill callback failed: {e}", exc_info=True)
 

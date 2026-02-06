@@ -260,9 +260,9 @@ class TestDataCollectorUserDataStream:
         streamer.is_connected = False
         streamer.start = AsyncMock()
         streamer.stop = AsyncMock()
-        streamer.set_event_bus = Mock()
-        streamer._event_bus = None
-        streamer._event_loop = None
+        streamer.set_order_fill_callback = Mock()
+        streamer.set_position_update_callback = Mock()
+        streamer.set_order_update_callback = Mock()
         return streamer
 
     @pytest.fixture
@@ -274,26 +274,19 @@ class TestDataCollectorUserDataStream:
             user_streamer=mock_user_streamer,
         )
 
-    @pytest.fixture
-    def event_bus(self):
-        """Create mock EventBus."""
-        bus = MagicMock()
-        bus.publish = AsyncMock()
-        return bus
-
     @pytest.mark.asyncio
-    async def test_start_listen_key_service(self, data_collector, mock_user_streamer, event_bus):
+    async def test_start_listen_key_service(self, data_collector, mock_user_streamer):
         """Test starting listen key service via facade."""
-        await data_collector.start_listen_key_service(event_bus)
+        await data_collector.start_listen_key_service(order_fill_callback=lambda d: None)
 
         # Verify facade delegates to user_streamer
-        mock_user_streamer.set_event_bus.assert_called_once_with(event_bus)
+        mock_user_streamer.set_order_fill_callback.assert_called_once()
         mock_user_streamer.start.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stop_listen_key_service(self, data_collector, mock_user_streamer, event_bus):
+    async def test_stop_listen_key_service(self, data_collector, mock_user_streamer):
         """Test stopping listen key service via facade."""
-        await data_collector.start_listen_key_service(event_bus)
+        await data_collector.start_listen_key_service()
 
         # Stop the stream
         await data_collector.stop_listen_key_service()
@@ -303,7 +296,7 @@ class TestDataCollectorUserDataStream:
 
     @pytest.mark.asyncio
     async def test_start_listen_key_service_without_user_streamer(
-        self, binance_service, mock_market_streamer, event_bus, caplog
+        self, binance_service, mock_market_streamer, caplog
     ):
         """Test that start_listen_key_service() logs warning when user_streamer is None."""
         import logging
@@ -315,7 +308,7 @@ class TestDataCollectorUserDataStream:
         )
 
         with caplog.at_level(logging.WARNING):
-            await data_collector.start_listen_key_service(event_bus)
+            await data_collector.start_listen_key_service()
 
         assert "PrivateUserStreamer not configured" in caplog.text
 
@@ -339,18 +332,10 @@ class TestPrivateUserStreamerOrderHandling:
             is_testnet=True,
         )
 
-    @pytest.fixture
-    def event_bus(self):
-        """Create mock EventBus."""
-        bus = MagicMock()
-        bus.publish = AsyncMock()
-        return bus
-
-    def test_handle_order_trade_update_tp_filled(self, user_streamer, event_bus):
+    def test_handle_order_trade_update_tp_filled(self, user_streamer):
         """Test handling ORDER_TRADE_UPDATE for TP fill."""
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
+        mock_callback = Mock()
+        user_streamer.set_order_fill_callback(mock_callback)
 
         # Simulate ORDER_TRADE_UPDATE for TAKE_PROFIT_MARKET fill
         order_data = {
@@ -370,8 +355,11 @@ class TestPrivateUserStreamerOrderHandling:
         # Call handler
         user_streamer._handle_order_trade_update(order_data)
 
-        # Verify event was scheduled to be published
-        loop.close()
+        # Verify callback was called with order data
+        mock_callback.assert_called_once()
+        call_args = mock_callback.call_args[0][0]
+        assert call_args["s"] == "BTCUSDT"
+        assert call_args["X"] == "FILLED"
 
     def test_handle_user_data_message_order_update(self, user_streamer):
         """Test _handle_user_data_message routes ORDER_TRADE_UPDATE correctly."""
@@ -414,11 +402,10 @@ class TestPrivateUserStreamerOrderHandling:
 
             mock_handler.assert_called_once()
 
-    def test_handle_order_trade_update_sl_filled(self, user_streamer, event_bus):
+    def test_handle_order_trade_update_sl_filled(self, user_streamer):
         """Test handling ORDER_TRADE_UPDATE for SL fill."""
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
+        mock_callback = Mock()
+        user_streamer.set_order_fill_callback(mock_callback)
 
         # Simulate ORDER_TRADE_UPDATE for STOP_MARKET fill
         order_data = {
@@ -438,13 +425,16 @@ class TestPrivateUserStreamerOrderHandling:
         # Should not raise
         user_streamer._handle_order_trade_update(order_data)
 
-        loop.close()
+        # Verify callback was called
+        mock_callback.assert_called_once()
+        call_args = mock_callback.call_args[0][0]
+        assert call_args["s"] == "ETHUSDT"
+        assert call_args["X"] == "FILLED"
 
-    def test_handle_order_trade_update_non_tpsl_ignored(self, user_streamer, event_bus):
-        """Test that non-TP/SL orders don't trigger event publishing."""
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
+    def test_handle_order_trade_update_non_tpsl_ignored(self, user_streamer):
+        """Test that MARKET order fills trigger callback relay."""
+        mock_callback = Mock()
+        user_streamer.set_order_fill_callback(mock_callback)
 
         # Simulate ORDER_TRADE_UPDATE for regular MARKET order
         order_data = {
@@ -460,10 +450,14 @@ class TestPrivateUserStreamerOrderHandling:
             },
         }
 
-        # Call handler - should not publish event for MARKET orders
+        # Call handler - should trigger callback for MARKET orders too (Issue #97)
         user_streamer._handle_order_trade_update(order_data)
 
-        loop.close()
+        # Verify callback was called
+        mock_callback.assert_called_once()
+        call_args = mock_callback.call_args[0][0]
+        assert call_args["s"] == "BTCUSDT"
+        assert call_args["X"] == "FILLED"
 
 
 class TestPositionClosureAuditLogging:
@@ -491,23 +485,16 @@ class TestPositionClosureAuditLogging:
             is_testnet=True,
         )
 
-    @pytest.fixture
-    def event_bus(self):
-        """Create mock EventBus."""
-        bus = MagicMock()
-        bus.publish = AsyncMock()
-        return bus
-
-    def test_tp_sl_fill_publishes_event_without_audit_logging(self, user_streamer, event_bus):
+    def test_tp_sl_fill_publishes_event_without_audit_logging(self, user_streamer):
         """
-        Test that TP/SL fills publish ORDER_FILLED event without audit logging.
+        Test that TP/SL fills trigger callback relay without audit logging.
 
         Issue #96: PrivateUserStreamer is now a pure data relay.
+        Issue #107: Uses callback pattern instead of EventBus.
         Audit logging is handled by TradingEngine._on_order_filled.
         """
-        loop = asyncio.new_event_loop()
-        user_streamer._event_bus = event_bus
-        user_streamer._event_loop = loop
+        mock_callback = Mock()
+        user_streamer.set_order_fill_callback(mock_callback)
 
         order_data = {
             "e": "ORDER_TRADE_UPDATE",
@@ -527,10 +514,11 @@ class TestPositionClosureAuditLogging:
         # Should not raise any errors - just relays data
         user_streamer._handle_order_trade_update(order_data)
 
-        # Verify ORDER_FILLED event was published to EventBus
-        event_bus.publish.assert_called_once()
-
-        loop.close()
+        # Verify callback was called
+        mock_callback.assert_called_once()
+        call_args = mock_callback.call_args[0][0]
+        assert call_args["s"] == "BTCUSDT"
+        assert call_args["X"] == "FILLED"
 
 
 class TestEventType:

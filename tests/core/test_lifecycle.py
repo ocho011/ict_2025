@@ -56,7 +56,9 @@ def mock_user_streamer():
     streamer.is_connected = False
     streamer.start = AsyncMock()
     streamer.stop = AsyncMock()
-    streamer.set_event_bus = Mock()
+    streamer.set_order_fill_callback = Mock()
+    streamer.set_position_update_callback = Mock()
+    streamer.set_order_update_callback = Mock()
     return streamer
 
 
@@ -115,8 +117,9 @@ class TestBinanceDataCollectorConnectionState:
         # Start streaming
         await data_collector.start_streaming()
 
-        # Update mock to reflect connected state
+        # Update mock to reflect connected state (both streamers must be connected)
         mock_market_streamer.is_connected = True
+        mock_user_streamer.is_connected = True
 
         # Verify is_connected
         assert data_collector.is_connected is True
@@ -128,6 +131,7 @@ class TestBinanceDataCollectorConnectionState:
     ):
         """Verify is_connected returns False after stop()"""
         mock_market_streamer.is_connected = True
+        mock_user_streamer.is_connected = True
 
         data_collector = BinanceDataCollector(
             binance_service=mock_binance_service,
@@ -141,6 +145,7 @@ class TestBinanceDataCollectorConnectionState:
 
         # Update mock to reflect disconnected state
         mock_market_streamer.is_connected = False
+        mock_user_streamer.is_connected = False
 
         # Verify is_connected
         assert data_collector.is_connected is False
@@ -391,6 +396,7 @@ class TestBinanceDataCollectorContextManager:
             # Start streaming
             await collector.start_streaming()
             mock_market_streamer.is_connected = True
+            mock_user_streamer.is_connected = True
             assert collector.is_connected is True
 
         # After context exit, should be stopped
@@ -422,11 +428,13 @@ class TestBinanceDataCollectorLifecycleIntegration:
         # Start
         await data_collector.start_streaming()
         mock_market_streamer.is_connected = True
+        mock_user_streamer.is_connected = True
         assert data_collector.is_connected is True
 
         # Stop
         await data_collector.stop()
         mock_market_streamer.is_connected = False
+        mock_user_streamer.is_connected = False
         assert data_collector.is_connected is False
         assert data_collector._running is False
 
