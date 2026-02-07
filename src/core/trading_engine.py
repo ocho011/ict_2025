@@ -6,92 +6,52 @@ Coordinates:
 - Strategy-based signal generation
 - Order execution and position management
 - Event-driven async pipeline with graceful shutdown
+
+Refactored (Issue #110): Delegates to specialized modules:
+- PositionCacheManager: Position state caching with TTL
+- TradeExecutor: Signal validation and order execution
+- EventDispatcher: Candle routing and strategy analysis
 """
 
 import asyncio
 import logging
-import time
-from datetime import datetime
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from typing import TYPE_CHECKING, Optional, Dict
 
 # Imports for type hinting only; prevents circular dependency at runtime
-# Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.main import TradingBot
-    from src.models.position import Position
 
 from src.core.data_collector import BinanceDataCollector
 from src.core.event_handler import EventBus
+from src.core.exceptions import EngineState
+from src.core.position_cache import PositionCacheManager
+from src.core.event_dispatcher import EventDispatcher
 from src.execution.order_manager import OrderExecutionManager
+from src.execution.trade_executor import TradeExecutor
 from src.models.candle import Candle
 from src.models.event import Event, EventType, QueueType
 from src.models.order import Order
-from src.models.position import PositionEntryData
 from src.models.signal import Signal
 from src.risk.manager import RiskManager
 from src.strategies.base import BaseStrategy
 from src.utils.config import ConfigManager
 
 
-from enum import Enum
-
-
-class EngineState(Enum):
-    """
-    State machine for TradingEngine lifecycle.
-
-    State Transitions:
-        CREATED → INITIALIZED → RUNNING → STOPPING → STOPPED
-
-    States:
-        CREATED: Initial state after __init__()
-        INITIALIZED: After initialize_components() called
-        RUNNING: Event loop active, run() executing
-        STOPPING: Shutdown initiated
-        STOPPED: Shutdown complete
-    """
-
-    CREATED = "created"
-    INITIALIZED = "initialized"
-    RUNNING = "running"
-    STOPPING = "stopping"
-    STOPPED = "stopped"
-
-
 class TradingEngine:
     """
     Main application orchestrator for event-driven trading system.
 
-    Responsibilities:
+    Responsibilities (after Issue #110 refactor):
     1. Component lifecycle management (EventBus, DataCollector, Strategy, OrderManager)
-    2. Event handler registration for trading pipeline
-    3. Event routing: CANDLE_CLOSED → SIGNAL_GENERATED → ORDER_PLACED → ORDER_FILLED
+    2. Delegate event handling to specialized modules
+    3. WebSocket callback bridging (_on_order_fill_from_websocket, _on_order_update_from_websocket)
     4. Graceful startup and shutdown with pending event processing
-    5. Error isolation and logging
 
-    Architecture:
-        - Uses dependency injection for all components (testability)
-        - Event-driven async pipeline prevents blocking
-        - Error handlers prevent cascade failures
-        - Graceful shutdown ensures order queue drains
-
-    Lifecycle:
-        ```python
-        engine = TradingEngine(config)
-        engine.set_data_collector(collector)
-        engine.set_strategy(strategy)
-        engine.set_order_manager(manager)
-
-        await engine.run()  # Blocks until KeyboardInterrupt
-        # Automatic shutdown with pending event processing
-        ```
-
-    Event Handlers:
-        - _on_candle_closed: Candle → Strategy → Signal
-        - _on_signal: Signal → OrderManager → Order
-        - _on_order_filled: Order → Position update, orphan order cleanup
-        - _on_order_partially_filled: Partial fill tracking and position size adjustment
+    Delegates to:
+    - PositionCacheManager: Position state caching and WebSocket updates
+    - TradeExecutor: Signal-to-order execution coordination
+    - EventDispatcher: Candle event routing and strategy execution
     """
 
     def __init__(self, audit_logger: Optional["AuditLogger"] = None) -> None:
@@ -99,60 +59,6 @@ class TradingEngine:
         Initialize TradingEngine with minimal setup.
 
         Components are created via initialize_components() method after construction.
-        This allows for better testability and clear separation between
-        bootstrap (TradingBot) and execution (TradingEngine).
-
-        Args:
-            audit_logger: Optional AuditLogger instance for structured logging.
-                         If None, uses AuditLogger.get_instance() singleton (default for production).
-                         Explicit injection supported for testing.
-
-        Attributes:
-            logger: Logger instance for engine events
-            audit_logger: AuditLogger instance for audit trail
-            event_bus: Optional[EventBus] (injected via set_components)
-            data_collector: Optional[BinanceDataCollector] (injected via set_components)
-            strategy: Optional[BaseStrategy] (injected via set_components)
-            order_manager: Optional[OrderExecutionManager] (injected via set_components)
-            risk_manager: Optional[RiskManager] (injected via set_components)
-            config_manager: Optional[ConfigManager] (injected via set_components)
-            _running: Runtime state flag
-            _event_loop: Event loop reference (captured in run())
-            _engine_state: Current engine lifecycle state
-            _ready_event: Synchronization barrier for run() startup
-            _event_drop_count: Counter for dropped events (Phase 2.2)
-
-        Process Flow:
-            1. Create logger
-            2. Get audit logger (from parameter or singleton)
-            3. Set component placeholders to None
-            4. Initialize state machine (CREATED)
-            5. Wait for initialize_components() call
-
-        Example (Production - Singleton):
-            ```python
-            # Uses singleton pattern (no explicit audit_logger needed)
-            engine = TradingEngine()
-            engine.initialize_components(
-                config_manager=config_manager,
-                event_bus=event_bus,
-                api_key="...",
-                api_secret="...",
-                is_testnet=True
-            )
-            await engine.run()
-            ```
-
-        Example (Testing - Explicit Injection):
-            ```python
-            from src.core.audit_logger import AuditLogger
-
-            # Explicit injection for testing
-            audit_logger = AuditLogger(log_dir="logs/audit")
-            engine = TradingEngine(audit_logger=audit_logger)
-            engine.initialize_components(...)
-            await engine.run()
-            ```
         """
         self.logger = logging.getLogger(__name__)
 
@@ -173,6 +79,11 @@ class TradingEngine:
         self.risk_manager: Optional[RiskManager] = None
         self.config_manager: Optional[ConfigManager] = None
 
+        # Extracted modules (Issue #110)
+        self.position_cache: Optional[PositionCacheManager] = None
+        self.trade_executor: Optional[TradeExecutor] = None
+        self.event_dispatcher: Optional[EventDispatcher] = None
+
         # Runtime state
         self._running: bool = False
 
@@ -185,22 +96,8 @@ class TradingEngine:
         self._event_drop_count = 0
         self._heartbeat_gap_logged = False
 
-        # Position cache for exit signal handling (Issue #25)
-        # Cache structure: {symbol: (position, timestamp)}
-        # TTL of 60 seconds to reduce API rate limit pressure (Issue #41 rate limit fix)
-        self._position_cache: dict[str, tuple[Optional["Position"], float]] = {}
-        self._position_cache_ttl: float = (
-            60.0  # seconds (increased from 5s to prevent rate limit bans)
-        )
-
-        # Position entry data tracking for PnL and duration calculations (Issue #96)
-        # Moved from PrivateUserStreamer for proper responsibility separation
-        self._position_entry_data: Dict[str, PositionEntryData] = {}
-
-        # Signal cooldown to prevent multi-interval duplicate entries (Issue #101)
-        # Key: symbol, Value: timestamp of last signal generation
-        self._last_signal_time: Dict[str, float] = {}
-        self._signal_cooldown: float = 300.0  # 5 minutes cooldown between signals per symbol
+        # Store logging config for conditional live data logging
+        self._log_live_data = True
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
@@ -213,18 +110,7 @@ class TradingEngine:
         is_testnet: bool,
     ) -> None:
         """
-        Initialize all trading components (Step 1-1: Issue #5 Refactoring).
-
-        TradingEngine now owns the responsibility of creating and assembling
-        trading-specific components (Strategy, DataCollector, OrderManager, RiskManager).
-        This simplifies TradingBot to only handle lifecycle and common utilities.
-
-        Args:
-            config_manager: Configuration management system
-            event_bus: EventBus instance for pub-sub coordination
-            api_key: Binance API key
-            api_secret: Binance API secret
-            is_testnet: Whether to use testnet
+        Initialize all trading components (Issue #5, #110 Refactoring).
 
         Component Creation Order:
             1. ConfigManager injection
@@ -233,16 +119,15 @@ class TradingEngine:
             4. RiskManager
             5. Strategy (via StrategyFactory)
             6. BinanceDataCollector
-            7. **Strategy-DataCollector compatibility validation (Issue #24)**
-            8. Event handler registration
-            9. Leverage and margin type configuration (API calls)
+            7. PositionCacheManager (Issue #110 Phase 1)
+            8. TradeExecutor (Issue #110 Phase 2)
+            9. EventDispatcher (Issue #110 Phase 3)
+            10. Strategy-DataCollector compatibility validation (Issue #24)
+            11. Event handler registration
+            12. Leverage and margin type configuration (API calls)
 
         State Transition:
             CREATED → INITIALIZED
-
-        Notes:
-            - Must be called before run()
-            - Components are created internally, not injected
         """
         self.logger.info("Initializing TradingEngine components...")
 
@@ -317,9 +202,6 @@ class TradingEngine:
             )
 
         # Step 4.5: Create strategy instances per symbol (Issue #8 Phase 2)
-        # max_symbols validation handled in ConfigManager._load_trading_config() (Issue #69)
-        # This prevents resource exhaustion by centralizing configuration validation
-
         self.logger.info(
             f"Creating {len(trading_config.symbols)} strategy instances..."
         )
@@ -353,10 +235,6 @@ class TradingEngine:
             is_testnet=is_testnet,
         )
 
-        # Note: AuditLogger injection removed (Issue #96)
-        # Position closure logging now handled by TradingEngine._on_order_filled
-        # PrivateUserStreamer is now a pure data relay
-
         # Step 5c: Create BinanceDataCollector facade with injected streamers
         from src.core.data_collector import BinanceDataCollector
 
@@ -367,14 +245,44 @@ class TradingEngine:
             user_streamer=user_streamer,
         )
 
-        # Step 5.5: Validate strategy-DataCollector compatibility (Issue #24)
+        # Step 6: Create extracted modules (Issue #110)
+        self.logger.info("Creating extracted modules (Issue #110)...")
+
+        # Phase 1: PositionCacheManager
+        self.position_cache = PositionCacheManager(
+            order_manager=self.order_manager,
+            config_manager=self.config_manager,
+        )
+
+        # Phase 2: TradeExecutor
+        self.trade_executor = TradeExecutor(
+            order_manager=self.order_manager,
+            risk_manager=self.risk_manager,
+            config_manager=self.config_manager,
+            audit_logger=self.audit_logger,
+            position_cache=self.position_cache,
+        )
+
+        # Phase 3: EventDispatcher
+        self.event_dispatcher = EventDispatcher(
+            strategies=self.strategies,
+            position_cache=self.position_cache,
+            event_bus=self.event_bus,
+            audit_logger=self.audit_logger,
+            order_manager=self.order_manager,
+            engine_state_getter=lambda: self._engine_state,
+            event_loop_getter=lambda: self._event_loop,
+            log_live_data=self._log_live_data,
+        )
+
+        # Step 6.5: Validate strategy-DataCollector compatibility (Issue #24)
         # Moved BEFORE event handlers and API calls to follow fail-fast principle
         self._validate_strategy_compatibility()
 
-        # Step 6: Setup event handlers
+        # Step 7: Setup event handlers
         self._setup_event_handlers()
 
-        # Step 7: Configure leverage and margin type for each symbol (Issue #8)
+        # Step 8: Configure leverage and margin type for each symbol (Issue #8)
         self.logger.info("Configuring leverage and margin type...")
         for symbol in trading_config.symbols:
             success = self.order_manager.set_leverage(symbol, trading_config.leverage)
@@ -393,7 +301,7 @@ class TradingEngine:
                     "Using current margin type."
                 )
 
-        # Step 8: State transition
+        # Step 9: State transition
         self._engine_state = EngineState.INITIALIZED
 
         self.logger.info("✅ TradingEngine components initialized successfully")
@@ -404,22 +312,12 @@ class TradingEngine:
 
         Ensures each strategy's required intervals are available from DataCollector.
         Fails fast at initialization time rather than silently dropping events.
-
-        Validation Rules:
-            1. MultiTimeframeStrategy: All strategy.intervals MUST be in data_collector.intervals
-            2. BaseStrategy (single-interval): Warning if data_collector has multiple intervals
-
-        Raises:
-            ConfigurationError: If any strategy's intervals not satisfied
         """
         from src.core.exceptions import ConfigurationError
 
-        # Validate each strategy instance (Issue #8: Multi-coin support)
-        # Issue #27: Unified buffer structure - all strategies have .intervals
         available_intervals = set(self.data_collector.intervals)
 
         for symbol, strategy in self.strategies.items():
-            # Issue #27: All strategies now have intervals attribute (unified interface)
             required_intervals = set(strategy.intervals)
             missing_intervals = required_intervals - available_intervals
 
@@ -451,47 +349,7 @@ class TradingEngine:
         Initialize strategy with historical data by fetching directly from API.
 
         Called once during system startup to pre-populate strategy buffers
-        before WebSocket streaming begins. This enables strategies to analyze
-        immediately when real-time trading starts.
-
-        Args:
-            limit: Number of historical candles to fetch per interval (default: 100)
-
-        Behavior:
-            1. Validates strategy and data_collector are injected
-            2. Detects strategy type (MTF vs single-interval)
-            3. Fetches historical candles via data_collector.get_historical_candles()
-            4. Initializes strategy buffers and indicator caches with fetched data
-            5. Logs initialization status
-
-        Example:
-            ```python
-            # In TradingBot.initialize()
-            self.trading_engine.initialize_strategy_with_backfill(limit=100)
-            # Strategy now has 100 candles of historical context
-            ```
-
-        Strategy Type Handling:
-            For MultiTimeframeStrategy:
-                - Fetches candles for each interval independently
-                - Calls strategy.initialize_with_historical_data(interval, candles)
-                - Example: Fetches 1m, 5m, 1h candles separately
-
-            For Single-Interval Strategy:
-                - Fetches candles for first configured interval
-                - Calls strategy.initialize_with_historical_data(candles)
-                - Uses data_collector's first interval configuration
-
-        Error Handling:
-            - Logs warning if strategy or data_collector not injected
-            - Logs error if API fetch fails (but continues startup)
-            - System continues even if initialization fails
-
-        Notes:
-            - Called ONCE during startup (warmup phase)
-            - Must be called AFTER initialize_components()
-            - Must be called BEFORE start_streaming()
-            - Does NOT trigger signal generation
+        before WebSocket streaming begins.
         """
         if not self.strategies:
             self.logger.warning(
@@ -512,7 +370,6 @@ class TradingEngine:
         )
 
         # Initialize each symbol's strategy sequentially (Issue #8 Phase 3)
-        # Use asyncio.sleep() between symbols to avoid API rate limit
         symbol_count = 0
         for symbol, strategy in self.strategies.items():
             symbol_count += 1
@@ -522,8 +379,6 @@ class TradingEngine:
                     f"Initializing strategy for {symbol}..."
                 )
 
-                # Issue #27: Unified initialization - all strategies have intervals attribute
-                # Fetch and initialize each interval the strategy needs
                 self.logger.info(
                     f"[TradingEngine] Initializing strategy intervals: "
                     f"{strategy.intervals} for {symbol}"
@@ -532,7 +387,6 @@ class TradingEngine:
                 initialized_count = 0
                 for interval in strategy.intervals:
                     try:
-                        # Fetch historical candles directly from API
                         candles = self.data_collector.get_historical_candles(
                             symbol=symbol, interval=interval, limit=limit
                         )
@@ -543,7 +397,6 @@ class TradingEngine:
                                 f"for {symbol} {interval}"
                             )
 
-                            # Issue #27: Unified call signature (candles, interval=interval)
                             strategy.initialize_with_historical_data(
                                 candles, interval=interval
                             )
@@ -576,9 +429,8 @@ class TradingEngine:
                 )
 
             # Rate limit protection: Wait between symbols (Issue #8 Phase 3)
-            # Skip delay after last symbol
             if symbol_count < len(self.strategies):
-                delay = 0.5  # 500ms delay to avoid API rate limit
+                delay = 0.5
                 self.logger.debug(
                     f"[TradingEngine] Waiting {delay}s before next symbol "
                     f"(rate limit protection)..."
@@ -589,141 +441,22 @@ class TradingEngine:
         """
         Register event subscriptions with EventBus.
 
-        Subscribes handlers to EventBus for:
-        - CANDLE_CLOSED → _on_candle_closed: Trigger strategy analysis
-        - SIGNAL_GENERATED → _on_signal_generated: Risk validation and order execution
-        - ORDER_FILLED → _on_order_filled: Position tracking and orphan order cleanup
-        - ORDER_PARTIALLY_FILLED → _on_order_partially_filled: Partial fill tracking
-
-        Handler Routing:
-            - All handlers are async methods
-            - Handlers execute sequentially per event type
-            - Errors isolated (one fails → others continue)
-            - Logging at each pipeline stage
-
-        Notes:
-            - Called automatically by initialize_components()
-            - Requires event_bus to be injected first
-            - Private method (internal setup only)
-
-        Event Flow:
-            CANDLE_CLOSED → _on_candle_closed → Strategy
-                         ↓
-            SIGNAL_GENERATED → _on_signal_generated → RiskManager → OrderManager
-                             ↓
-            ORDER_FILLED → _on_order_filled → Position
-            ORDER_PARTIALLY_FILLED → _on_order_partially_filled → Position (partial)
+        Delegates to extracted modules (Issue #110):
+        - CANDLE_CLOSED → EventDispatcher.on_candle_closed
+        - SIGNAL_GENERATED → TradeExecutor.on_signal_generated
+        - ORDER_FILLED → TradeExecutor.on_order_filled
+        - ORDER_PARTIALLY_FILLED → TradeExecutor.on_order_partially_filled
         """
-        self.event_bus.subscribe(EventType.CANDLE_CLOSED, self._on_candle_closed)
-        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self._on_signal_generated)
-        self.event_bus.subscribe(EventType.ORDER_FILLED, self._on_order_filled)
-        self.event_bus.subscribe(EventType.ORDER_PARTIALLY_FILLED, self._on_order_partially_filled)
+        self.event_bus.subscribe(EventType.CANDLE_CLOSED, self.event_dispatcher.on_candle_closed)
+        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self.trade_executor.on_signal_generated)
+        self.event_bus.subscribe(EventType.ORDER_FILLED, self.trade_executor.on_order_filled)
+        self.event_bus.subscribe(EventType.ORDER_PARTIALLY_FILLED, self.trade_executor.on_order_partially_filled)
 
-        self.logger.info("✅ Event handlers registered:")
-        self.logger.info("  - CANDLE_CLOSED → _on_candle_closed")
-        self.logger.info("  - SIGNAL_GENERATED → _on_signal_generated")
-        self.logger.info("  - ORDER_FILLED → _on_order_filled")
-        self.logger.info("  - ORDER_PARTIALLY_FILLED → _on_order_partially_filled")
-
-    def _get_cached_position(self, symbol: str) -> Optional["Position"]:
-        """
-        Get cached position for symbol, refreshing if TTL expired.
-
-        Uses cached position to reduce API rate limit pressure.
-        Cache TTL is 5 seconds by default.
-
-        Args:
-            symbol: Trading pair to get position for
-
-        Returns:
-            Position if exists and cache valid, None otherwise
-            (Returns None on API failure to prevent using stale/uncertain data - Issue #41)
-        """
-        current_time = time.time()
-
-        # Check if cache exists and is still valid
-        if symbol in self._position_cache:
-            cached_position, cache_time = self._position_cache[symbol]
-            if current_time - cache_time < self._position_cache_ttl:
-                return cached_position
-
-        # Cache expired or missing - refresh from API
-        try:
-            position = self.order_manager.get_position(symbol)
-            self._position_cache[symbol] = (position, current_time)
-            return position
-        except Exception as e:
-            self.logger.error(
-                f"Failed to refresh position cache for {symbol}: {e}. "
-                f"Returning None to indicate uncertain state (Issue #41)."
-            )
-            # CRITICAL: Do NOT update self._position_cache[symbol] here.
-            # This allows callers to distinguish between success (None in cache)
-            # and failure (expired data in cache).
-            return None
-
-    def _invalidate_position_cache(self, symbol: str) -> None:
-        """
-        Invalidate position cache for symbol.
-
-        Called after order execution to ensure fresh position data
-        is fetched on next check.
-
-        Args:
-            symbol: Trading pair to invalidate cache for
-        """
-        if symbol in self._position_cache:
-            del self._position_cache[symbol]
-            self.logger.debug(f"Position cache invalidated for {symbol}")
-        # Clear signal cooldown so new entries are possible after position close (Issue #101)
-        if symbol in self._last_signal_time:
-            del self._last_signal_time[symbol]
-            self.logger.debug(f"Signal cooldown cleared for {symbol}")
-
-    def _on_position_update_from_websocket(self, position_updates: list) -> None:
-        """
-        Handle position updates from WebSocket ACCOUNT_UPDATE events.
-
-        Updates position cache directly from WebSocket data, eliminating
-        the need for REST API calls and reducing rate limit pressure
-        (Issue #41 rate limit fix).
-
-        Args:
-            position_updates: List of PositionUpdate objects from WebSocket
-        """
-        from src.models.position import Position
-
-        current_time = time.time()
-
-        for update in position_updates:
-            symbol = update.symbol
-
-            # Skip if symbol not in our configured symbols
-            if symbol not in self.strategies:
-                continue
-
-            # Create Position object from WebSocket data
-            if abs(update.position_amt) > 0:
-                # Active position exists
-                position = Position(
-                    symbol=symbol,
-                    side="LONG" if update.position_amt > 0 else "SHORT",
-                    quantity=abs(update.position_amt),
-                    entry_price=update.entry_price,
-                    leverage=self.config_manager.trading_config.leverage,
-                    unrealized_pnl=update.unrealized_pnl,
-                )
-                self._position_cache[symbol] = (position, current_time)
-                self.logger.debug(
-                    f"Position cache updated via WebSocket: {symbol} "
-                    f"{position.side} qty={position.quantity} @ {position.entry_price}"
-                )
-            else:
-                # No position (closed or never opened)
-                self._position_cache[symbol] = (None, current_time)
-                self.logger.debug(
-                    f"Position cache cleared via WebSocket: {symbol} (no position)"
-                )
+        self.logger.info("✅ Event handlers registered (Issue #110 - delegated):")
+        self.logger.info("  - CANDLE_CLOSED → EventDispatcher.on_candle_closed")
+        self.logger.info("  - SIGNAL_GENERATED → TradeExecutor.on_signal_generated")
+        self.logger.info("  - ORDER_FILLED → TradeExecutor.on_order_filled")
+        self.logger.info("  - ORDER_PARTIALLY_FILLED → TradeExecutor.on_order_partially_filled")
 
     def _on_order_update_from_websocket(
         self, symbol: str, order_id: str, order_status: str, order_data: dict
@@ -731,15 +464,7 @@ class TradingEngine:
         """
         Handle order updates from WebSocket ORDER_TRADE_UPDATE events.
 
-        Updates order cache in order_manager directly from WebSocket data,
-        eliminating the need for REST API calls and reducing rate limit pressure
-        (Issue #41 rate limit fix).
-
-        Args:
-            symbol: Trading pair
-            order_id: Order ID from WebSocket event
-            order_status: Order status (NEW, FILLED, CANCELED, etc.)
-            order_data: Full order data from WebSocket event
+        Updates order cache in order_manager directly from WebSocket data.
         """
         if self.order_manager is None:
             return
@@ -759,11 +484,7 @@ class TradingEngine:
         Handle order fill events from WebSocket ORDER_TRADE_UPDATE via callback.
 
         Creates Order and Event objects from raw WebSocket data and publishes
-        to EventBus. This centralizes event creation in TradingEngine,
-        matching the pattern used for candle events (Issue #107).
-
-        Args:
-            order_data: Raw order data dict from Binance ORDER_TRADE_UPDATE
+        to EventBus (Issue #107).
 
         Thread Safety:
             Called from WebSocket thread. Uses asyncio.run_coroutine_threadsafe()
@@ -819,819 +540,13 @@ class TradingEngine:
                 f"Event loop not available"
             )
 
-    async def _on_candle_closed(self, event: Event) -> None:
+    def on_candle_received(self, candle: Candle) -> None:
         """
-        Handle closed candle event - run strategy analysis (Issue #7 Phase 3, #42 Refactor).
+        Callback from BinanceDataCollector on every candle update.
 
-        This handler is called when a candle fully closes (is_closed=True).
-        It runs the trading strategy analysis and publishes signals if conditions are met.
-
-        Args:
-            event: Event containing closed Candle data
+        Delegates to EventDispatcher.on_candle_received() (Issue #110 Phase 3).
         """
-        # 1. Validation (Guard Clauses)
-        candle: Candle = event.data
-
-        # Unknown symbol validation (Issue #8 Phase 2 - Fail-fast)
-        if candle.symbol not in self.strategies:
-            self.logger.error(
-                f"❌ Unknown symbol: {candle.symbol}. "
-                f"Configured symbols: {list(self.strategies.keys())}"
-            )
-            return
-
-        # Get strategy for this symbol
-        strategy = self.strategies[candle.symbol]
-
-        # Filter intervals based on strategy configuration (Issue #27 unified)
-        if candle.interval not in strategy.intervals:
-            self.logger.debug(
-                f"Filtering {candle.interval} candle for {candle.symbol} "
-                f"(strategy expects {strategy.intervals})"
-            )
-            return
-
-        # Log candle received (info level)
-        self.logger.info(
-            f"Analyzing closed candle: {candle.symbol} {candle.interval} "
-            f"@ {candle.close} (vol: {candle.volume})"
-        )
-
-        # 2. Routing (Issue #42)
-        current_position = self._get_cached_position(candle.symbol)
-
-        # Issue #41: Handle uncertain position state.
-        # If _get_cached_position returns None, it could be "No Position" or "API Failure".
-        # We must skip analysis if the state is uncertain to prevent incorrect entries.
-        if current_position is None:
-            # Check if cache was actually updated successfully (confirmed None state)
-            if candle.symbol not in self._position_cache:
-                self.logger.warning(
-                    f"Position state unknown for {candle.symbol}, skipping analysis"
-                )
-                return
-
-            _, cache_time = self._position_cache[candle.symbol]
-            if time.time() - cache_time >= self._position_cache_ttl:
-                # Cache is stale, meaning _get_cached_position failed to refresh it
-                self.logger.warning(
-                    f"Position state uncertain for {candle.symbol} (cache expired and refresh failed), "
-                    f"skipping analysis to prevent incorrect entry"
-                )
-                return
-
-        if current_position is not None:
-            # Position exists - check exit conditions first (Issue #25)
-            await self._process_exit_strategy(candle, strategy, current_position)
-            return  # Always skip entry analysis if position exists
-
-        # 3. No position - check entry conditions
-        await self._process_entry_strategy(candle, strategy)
-
-    async def _process_exit_strategy(
-        self, candle: Candle, strategy: BaseStrategy, position: "Position"
-    ) -> bool:
-        """
-        Check exit conditions for existing position (Issue #42).
-
-        Returns:
-            True if exit signal was generated and published, False otherwise.
-        """
-        self.logger.debug(
-            f"Position exists for {candle.symbol}: {position.side} "
-            f"@ {position.entry_price}, checking exit conditions"
-        )
-
-        try:
-            exit_signal = await strategy.should_exit(position, candle)
-        except Exception as e:
-            self.logger.error(
-                f"Strategy should_exit failed for {candle.symbol}: {e}", exc_info=True
-            )
-            exit_signal = None
-
-        if exit_signal is not None:
-            await self._publish_signal_with_audit(
-                signal=exit_signal,
-                candle=candle,
-                operation="exit_analysis",
-                audit_data={
-                    "position_side": position.side,
-                    "position_quantity": position.quantity,
-                },
-            )
-            return True
-
-        # Dynamic SL update: sync exchange SL with strategy trailing level (Issue #104)
-        await self._maybe_update_exchange_sl(candle, strategy, position)
-
-        self.logger.debug(
-            f"No exit signal for {candle.symbol}, position still open - skipping entry analysis"
-        )
-        return False
-
-    async def _process_entry_strategy(
-        self, candle: Candle, strategy: BaseStrategy
-    ) -> None:
-        """
-        Check new entry conditions (Issue #42).
-        """
-        # Signal cooldown check to prevent multi-interval duplicate entries (Issue #101)
-        import time
-
-        symbol = candle.symbol
-        now = time.time()
-        last_signal = self._last_signal_time.get(symbol, 0.0)
-        if now - last_signal < self._signal_cooldown:
-            remaining = self._signal_cooldown - (now - last_signal)
-            self.logger.debug(
-                f"Signal cooldown active for {symbol}: {remaining:.1f}s remaining"
-            )
-            return
-
-        try:
-            signal = await strategy.analyze(candle)
-        except Exception as e:
-            # Don't crash on strategy errors
-            self.logger.error(
-                f"Strategy analysis failed for {candle.symbol}: {e}", exc_info=True
-            )
-            return
-
-        # If signal exists, publish SIGNAL_GENERATED event
-        if signal is not None:
-            # Record signal time for cooldown (Issue #101)
-            self._last_signal_time[symbol] = now
-            await self._publish_signal_with_audit(
-                signal=signal, candle=candle, operation="candle_analysis"
-            )
-        else:
-            # Info log for no signal (shows strategy is working)
-            self.logger.info(
-                f"✓ No signal: {candle.symbol} {candle.interval} (strategy conditions not met)"
-            )
-
-    async def _maybe_update_exchange_sl(
-        self, candle: Candle, strategy: BaseStrategy, position: "Position"
-    ) -> None:
-        """
-        Sync exchange SL with strategy's trailing stop level (Issue #104).
-
-        If the strategy has a persisted trailing level that differs from the
-        original SL by more than 0.1%, update the exchange SL order.
-        """
-        try:
-            # Only applies to strategies with trailing level persistence
-            trailing_levels = getattr(strategy, "_trailing_levels", None)
-            if not trailing_levels:
-                return
-
-            trail_key = f"{candle.symbol}_{position.side}"
-            current_trailing = trailing_levels.get(trail_key)
-            if current_trailing is None:
-                return
-
-            # Minimum movement threshold: only update if SL moved by >0.1%
-            if not hasattr(self, "_last_exchange_sl"):
-                self._last_exchange_sl: Dict[str, float] = {}
-
-            last_sl = self._last_exchange_sl.get(candle.symbol)
-            if last_sl is not None:
-                movement = abs(current_trailing - last_sl) / last_sl
-                if movement < 0.001:  # 0.1% threshold
-                    return
-
-            # Determine SL order side (opposite of position)
-            from src.models.order import OrderSide
-
-            sl_side = OrderSide.SELL if position.side == "LONG" else OrderSide.BUY
-
-            # Update exchange SL
-            result = self.order_manager.update_stop_loss(
-                symbol=candle.symbol,
-                new_stop_price=current_trailing,
-                side=sl_side,
-            )
-            if result:
-                self._last_exchange_sl[candle.symbol] = current_trailing
-                self.logger.info(
-                    f"Exchange SL updated for {candle.symbol}: {current_trailing:.4f}"
-                )
-        except Exception as e:
-            self.logger.warning(
-                f"Failed to update exchange SL for {candle.symbol}: {e}"
-            )
-
-    async def _publish_signal_with_audit(
-        self,
-        signal: Signal,
-        candle: Candle,
-        operation: str,
-        audit_data: Optional[Dict[str, Any]] = None,
-    ) -> None:
-        """
-        Common handling for audit log recording and EventBus publication (Issue #42).
-        """
-        # 1. Log generation status
-        if signal.is_exit_signal:
-            self.logger.info(
-                f"Exit signal generated: {signal.signal_type.value} "
-                f"@ {signal.entry_price} (reason: {signal.exit_reason})"
-            )
-        else:
-            self.logger.info(
-                f"Entry signal generated: {signal.signal_type.value} "
-                f"@ {signal.entry_price} (TP: {signal.take_profit}, "
-                f"SL: {signal.stop_loss})"
-            )
-
-        # 2. Audit log: signal generated
-        try:
-            from src.core.audit_logger import AuditEventType
-
-            full_audit_data = {
-                "interval": candle.interval,
-                "close_price": candle.close,
-                "signal_generated": True,
-                "signal_type": signal.signal_type.value,
-                "strategy_name": signal.strategy_name,
-            }
-
-            if signal.is_exit_signal:
-                full_audit_data.update(
-                    {
-                        "exit_price": signal.entry_price,
-                        "exit_reason": signal.exit_reason,
-                    }
-                )
-            else:
-                full_audit_data.update(
-                    {
-                        "entry_price": signal.entry_price,
-                        "take_profit": signal.take_profit,
-                        "stop_loss": signal.stop_loss,
-                    }
-                )
-
-            # Add any additional audit data passed in
-            if audit_data:
-                full_audit_data.update(audit_data)
-
-            self.audit_logger.log_event(
-                event_type=AuditEventType.SIGNAL_PROCESSING,
-                operation=operation,
-                symbol=candle.symbol,
-                additional_data=full_audit_data,
-            )
-        except Exception as e:
-            self.logger.warning(f"Audit logging failed: {e}")
-
-        # 3. Create event and publish to 'signal' queue
-        signal_event = Event(EventType.SIGNAL_GENERATED, signal)
-        await self.event_bus.publish(signal_event, queue_type=QueueType.SIGNAL)
-
-    async def _on_signal_generated(self, event: Event) -> None:
-        """
-        Handle generated signal - validate and execute order.
-
-        This is the critical trading logic that:
-        1. Validates signal with RiskManager
-        2. For entry signals: Calculates position size and executes with TP/SL
-        3. For exit signals: Uses position quantity and executes with reduce_only
-
-        Args:
-            event: Event containing Signal data
-        """
-        # Step 1: Extract signal from event data
-        signal: Signal = event.data
-
-        self.logger.info(
-            f"Processing signal: {signal.signal_type.value} for {signal.symbol}"
-        )
-
-        try:
-            # Step 2: Get current position from OrderManager (fresh query for execution)
-            current_position = self.order_manager.get_position(signal.symbol)
-
-            # Step 3: Validate signal with RiskManager
-            is_valid = self.risk_manager.validate_risk(signal, current_position)
-
-            if not is_valid:
-                self.logger.warning(
-                    f"Signal rejected by risk validation: {signal.signal_type.value}"
-                )
-
-                # Audit log: risk rejection
-                try:
-                    from src.core.audit_logger import AuditEventType
-
-                    self.audit_logger.log_event(
-                        event_type=AuditEventType.RISK_REJECTION,
-                        operation="signal_execution",
-                        symbol=signal.symbol,
-                        order_data={
-                            "signal_type": signal.signal_type.value,
-                            "entry_price": signal.entry_price,
-                        },
-                        error={"reason": "risk_validation_failed"},
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Audit logging failed: {e}")
-
-                return
-
-            # Step 4: Handle exit vs entry signals differently (Issue #25)
-            if signal.is_exit_signal:
-                # Exit signal: use position quantity and reduce_only
-                await self._execute_exit_signal(signal, current_position)
-                return
-
-            # Entry signal: calculate position size and execute with TP/SL
-            # Step 5: Get account balance
-            account_balance = self.order_manager.get_account_balance()
-
-            if account_balance <= 0:
-                self.logger.error(
-                    f"Invalid account balance: {account_balance}, cannot execute signal"
-                )
-                return
-
-            # Step 6: Calculate position size using RiskManager
-            quantity = self.risk_manager.calculate_position_size(
-                account_balance=account_balance,
-                entry_price=signal.entry_price,
-                stop_loss_price=signal.stop_loss,
-                leverage=self.config_manager.trading_config.leverage,
-                symbol_info=None,  # OrderManager will handle rounding internally
-            )
-
-            # Step 7: Execute signal via OrderManager
-            # Returns (entry_order, [tp_order, sl_order])
-            entry_order, tpsl_orders = self.order_manager.execute_signal(
-                signal=signal, quantity=quantity
-            )
-
-            # Invalidate position cache after order execution
-            self._invalidate_position_cache(signal.symbol)
-
-            # Step 7: Log successful trade execution
-            self.logger.info(
-                f"✅ Trade executed successfully: "
-                f"Order ID={entry_order.order_id}, "
-                f"Quantity={entry_order.quantity}, "
-                f"TP/SL={len(tpsl_orders)}/2 orders"
-            )
-
-            # Audit log: trade executed successfully
-            try:
-                from src.core.audit_logger import AuditEventType
-
-                self.audit_logger.log_event(
-                    event_type=AuditEventType.TRADE_EXECUTED,
-                    operation="execute_trade",
-                    symbol=signal.symbol,
-                    order_data={
-                        "signal_type": signal.signal_type.value,
-                        "entry_price": signal.entry_price,
-                        "quantity": quantity,
-                        "leverage": self.config_manager.trading_config.leverage,
-                    },
-                    response={
-                        "entry_order_id": entry_order.order_id,
-                        "tpsl_count": len(tpsl_orders),
-                    },
-                )
-            except Exception as e:
-                self.logger.warning(f"Audit logging failed: {e}")
-
-            # Note: ORDER_FILLED event will be published by PrivateUserStreamer
-            # when WebSocket confirms the fill (Issue #97 - removed optimistic fill)
-
-        except Exception as e:
-            # Step 9: Catch and log execution errors without crashing
-            self.logger.error(
-                f"Failed to execute signal for {signal.symbol}: {e}", exc_info=True
-            )
-
-            # Audit log: trade execution failed
-            try:
-                from src.core.audit_logger import AuditEventType
-
-                self.audit_logger.log_event(
-                    event_type=AuditEventType.TRADE_EXECUTION_FAILED,
-                    operation="execute_trade",
-                    symbol=signal.symbol,
-                    order_data={
-                        "signal_type": signal.signal_type.value,
-                        "entry_price": signal.entry_price,
-                    },
-                    error={"error_type": type(e).__name__, "error_message": str(e)},
-                )
-            except Exception:
-                pass  # Exception context already logged
-
-            # Don't re-raise - system should continue running
-
-    async def _execute_exit_signal(self, signal: Signal, position: "Position") -> None:
-        """
-        Execute an exit signal to close a position.
-
-        Uses position quantity and executes with reduce_only to prevent
-        accidentally opening a new position in the opposite direction.
-
-        Args:
-            signal: Exit signal (CLOSE_LONG or CLOSE_SHORT)
-            position: Current position to close
-
-        Process:
-            1. Cancel any existing TP/SL orders
-            2. Execute market order with reduce_only=True
-            3. Invalidate position cache
-            4. Log execution and audit trail
-        """
-        from src.models.signal import SignalType
-
-        try:
-            self.logger.info(
-                f"Executing exit signal: {signal.signal_type.value} for {signal.symbol} "
-                f"(qty: {position.quantity}, reason: {signal.exit_reason})"
-            )
-
-            # Step 1: Cancel any existing TP/SL orders first
-            try:
-                cancelled_count = self.order_manager.cancel_all_orders(signal.symbol)
-                if cancelled_count > 0:
-                    self.logger.info(
-                        f"Cancelled {cancelled_count} existing orders before exit"
-                    )
-            except Exception as e:
-                self.logger.warning(f"Failed to cancel existing orders: {e}")
-
-            # Step 2: Execute close order using position quantity
-            # Determine side based on signal type (SELL to close LONG, BUY to close SHORT)
-            close_side = (
-                "SELL" if signal.signal_type == SignalType.CLOSE_LONG else "BUY"
-            )
-
-            # Execute close order with reduce_only via async method
-            result = await self.order_manager.execute_market_close(
-                symbol=signal.symbol,
-                position_amt=position.quantity,
-                side=close_side,
-                reduce_only=True,
-            )
-
-            # Step 3: Invalidate position cache
-            self._invalidate_position_cache(signal.symbol)
-
-            # Step 4: Check result and log
-            if result.get("success"):
-                order_id = result.get("order_id")
-                exit_price = result.get("avg_price", 0.0)
-                executed_qty = result.get("executed_qty", position.quantity)
-
-                # Calculate realized PnL
-                # LONG: (exit_price - entry_price) * quantity
-                # SHORT: (entry_price - exit_price) * quantity
-                if position.side == "LONG":
-                    realized_pnl = (exit_price - position.entry_price) * executed_qty
-                else:
-                    realized_pnl = (position.entry_price - exit_price) * executed_qty
-
-                # Calculate duration if entry_time is available
-                duration_seconds = None
-                if position.entry_time:
-                    from datetime import datetime, timezone
-
-                    duration = (
-                        datetime.now(timezone.utc)
-                        - position.entry_time.replace(tzinfo=timezone.utc)
-                        if position.entry_time.tzinfo is None
-                        else datetime.now(timezone.utc) - position.entry_time
-                    )
-                    duration_seconds = duration.total_seconds()
-
-                self.logger.info(
-                    f"✅ Position closed successfully: "
-                    f"Order ID={order_id}, "
-                    f"Quantity={executed_qty}, "
-                    f"Exit price={exit_price}, "
-                    f"Realized PnL={realized_pnl:.4f}, "
-                    f"Exit reason={signal.exit_reason}"
-                )
-
-                # Audit log: trade_closed event with full exit details
-                try:
-                    from src.core.audit_logger import AuditEventType
-
-                    self.audit_logger.log_event(
-                        event_type=AuditEventType.TRADE_CLOSED,
-                        operation="execute_exit",
-                        symbol=signal.symbol,
-                        data={
-                            "exit_price": exit_price,
-                            "realized_pnl": realized_pnl,
-                            "exit_reason": signal.exit_reason,
-                            "duration_seconds": duration_seconds,
-                            "entry_price": position.entry_price,
-                            "quantity": executed_qty,
-                            "position_side": position.side,
-                            "leverage": position.leverage,
-                            "signal_type": signal.signal_type.value,
-                        },
-                        response={
-                            "close_order_id": order_id,
-                            "status": result.get("status"),
-                        },
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Audit logging failed: {e}")
-            else:
-                error_msg = result.get("error", "Unknown error")
-                self.logger.error(
-                    f"Failed to close position for {signal.symbol}: {error_msg}"
-                )
-
-                # Audit log: exit execution failed
-                try:
-                    from src.core.audit_logger import AuditEventType
-
-                    self.audit_logger.log_event(
-                        event_type=AuditEventType.TRADE_EXECUTION_FAILED,
-                        operation="execute_exit",
-                        symbol=signal.symbol,
-                        order_data={
-                            "signal_type": signal.signal_type.value,
-                            "exit_price": signal.entry_price,
-                            "exit_reason": signal.exit_reason,
-                        },
-                        error={"reason": error_msg},
-                    )
-                except Exception:
-                    pass
-
-        except Exception as e:
-            self.logger.error(
-                f"Failed to execute exit signal for {signal.symbol}: {e}", exc_info=True
-            )
-
-            # Audit log: exit execution failed
-            try:
-                from src.core.audit_logger import AuditEventType
-
-                self.audit_logger.log_event(
-                    event_type=AuditEventType.TRADE_EXECUTION_FAILED,
-                    operation="execute_exit",
-                    symbol=signal.symbol,
-                    order_data={
-                        "signal_type": signal.signal_type.value,
-                        "exit_price": signal.entry_price,
-                        "exit_reason": signal.exit_reason,
-                    },
-                    error={"error_type": type(e).__name__, "error_message": str(e)},
-                )
-            except Exception:
-                pass
-
-    async def _on_order_filled(self, event: Event) -> None:
-        """
-        Handle order fill notification (Issue #9: Enhanced with orphan order prevention).
-
-        Logs order fills for tracking and monitoring. When a TP/SL order is filled,
-        automatically cancels any remaining orders for the symbol to prevent orphaned orders.
-
-        Args:
-            event: Event containing Order data
-        """
-        # Step 1: Extract order from event data
-        order: Order = event.data
-
-        # Step 2: Log order fill confirmation
-        self.logger.info(
-            f"Order filled: ID={order.order_id}, "
-            f"Symbol={order.symbol}, "
-            f"Side={order.side.value}, "
-            f"Type={order.order_type.value}, "
-            f"Quantity={order.quantity}, "
-            f"Price={order.price}"
-        )
-
-        # Audit log: order filled confirmation
-        try:
-            from src.core.audit_logger import AuditEventType
-
-            self.audit_logger.log_event(
-                event_type=AuditEventType.ORDER_PLACED,  # Reuse existing event type
-                operation="order_confirmation",
-                symbol=order.symbol,
-                response={
-                    "order_id": order.order_id,
-                    "side": order.side.value,
-                    "quantity": order.quantity,
-                    "price": order.price,
-                    "order_type": order.order_type.value,
-                },
-            )
-        except Exception as e:
-            self.logger.warning(f"Audit logging failed: {e}")
-
-        # Track position entry data for MARKET/LIMIT fills (Issue #96)
-        # Entry data is used later for PnL and duration calculation when position closes
-        from src.models.order import OrderType as OT
-        if order.order_type in (OT.MARKET, OT.LIMIT):
-            from datetime import datetime, timezone
-            position_side = "LONG" if order.side.value == "BUY" else "SHORT"
-            self._position_entry_data[order.symbol] = PositionEntryData(
-                entry_price=order.price,
-                entry_time=datetime.now(timezone.utc),
-                quantity=order.quantity,
-                side=position_side,
-            )
-            self.logger.info(
-                f"Tracking position entry: {order.symbol} {position_side} "
-                f"price={order.price}, qty={order.quantity}"
-            )
-
-        # Step 3: Handle TP/SL fills - cancel remaining orders (Issue #9)
-        from src.models.order import OrderType
-
-        if order.order_type in (
-            OrderType.STOP_MARKET,
-            OrderType.TAKE_PROFIT_MARKET,
-            OrderType.STOP,
-            OrderType.TAKE_PROFIT,
-            OrderType.TRAILING_STOP_MARKET,
-        ):
-            # TP or SL was hit - position is closed
-            # Cancel any remaining orders (the other TP/SL) to prevent orphaned orders
-            self.logger.info(
-                f"{order.order_type.value} filled for {order.symbol} - "
-                f"cancelling remaining orders to prevent orphans"
-            )
-
-            try:
-                cancelled_count = self.order_manager.cancel_all_orders(order.symbol)
-                if cancelled_count > 0:
-                    self.logger.info(
-                        f"TP/SL hit: cancelled {cancelled_count} remaining orders "
-                        f"for {order.symbol}"
-                    )
-                else:
-                    self.logger.info(
-                        f"TP/SL hit: no remaining orders to cancel for {order.symbol}"
-                    )
-            except Exception as e:
-                # Log error but don't crash - orphaned orders are a data issue, not a critical failure
-                self.logger.error(
-                    f"Failed to cancel remaining orders after TP/SL fill: {e}. "
-                    f"Manual cleanup may be required for {order.symbol}."
-                )
-
-            # Log position closure to audit trail (Issue #96 - moved from PrivateUserStreamer)
-            self._log_position_closure(order)
-
-    def _log_position_closure(self, order: Order) -> None:
-        """
-        Log position closure to audit trail with PnL and duration.
-
-        Moved from PrivateUserStreamer for proper responsibility separation (Issue #96).
-        TradingEngine owns business logic; streamer is pure data relay.
-
-        Args:
-            order: The filled TP/SL order that closed the position
-        """
-        from src.core.audit_logger import AuditEventType
-        from datetime import datetime, timezone
-
-        # Map order type to close reason
-        close_reason_map = {
-            "TAKE_PROFIT_MARKET": "TAKE_PROFIT",
-            "TAKE_PROFIT": "TAKE_PROFIT",
-            "STOP_MARKET": "STOP_LOSS",
-            "STOP": "STOP_LOSS",
-            "TRAILING_STOP_MARKET": "TRAILING_STOP",
-        }
-        close_reason = close_reason_map.get(order.order_type.value, "UNKNOWN")
-
-        # Build closure data
-        closure_data = {
-            "close_reason": close_reason,
-            "exit_price": order.price,
-            "exit_quantity": order.quantity,
-            "exit_side": order.side.value,
-            "order_id": order.order_id,
-            "order_type": order.order_type.value,
-        }
-
-        # Add entry data if available (for PnL and duration)
-        entry_data = self._position_entry_data.pop(order.symbol, None)
-        if entry_data:
-            closure_data["entry_price"] = entry_data.entry_price
-            closure_data["position_side"] = entry_data.side
-
-            # Calculate holding duration
-            held_duration = datetime.now(timezone.utc) - entry_data.entry_time
-            closure_data["held_duration_seconds"] = held_duration.total_seconds()
-
-            # Calculate realized PnL
-            # LONG: profit when exit > entry, SHORT: profit when entry > exit
-            if entry_data.side == "LONG":
-                realized_pnl = (order.price - entry_data.entry_price) * order.quantity
-            else:  # SHORT
-                realized_pnl = (entry_data.entry_price - order.price) * order.quantity
-            closure_data["realized_pnl"] = realized_pnl
-
-            self.logger.debug(f"Cleaned up position entry data for {order.symbol}")
-        else:
-            self.logger.warning(
-                f"No entry data found for {order.symbol}, PnL and duration unavailable"
-            )
-
-        # Log to audit trail
-        try:
-            self.audit_logger.log_event(
-                event_type=AuditEventType.POSITION_CLOSED,
-                operation="tp_sl_order_filled",
-                symbol=order.symbol,
-                data=closure_data,
-            )
-            self.logger.info(
-                f"Position closed via {close_reason}: {order.symbol} "
-                f"exit_price={order.price}, qty={order.quantity}"
-            )
-        except Exception as e:
-            self.logger.error(f"Failed to log position closure: {e}")
-
-    async def _on_order_partially_filled(self, event: Event) -> None:
-        """
-        Handle partial fill notification (Issue #97).
-
-        Tracks partial fills for position size adjustments. Entry orders with partial
-        fills may need TP/SL quantity adjustments. Exit orders with partial fills
-        indicate the position footprint has decreased.
-
-        Args:
-            event: Event containing Order data with filled_quantity
-        """
-        order: Order = event.data
-
-        self.logger.info(
-            f"Order partially filled: ID={order.order_id}, "
-            f"Symbol={order.symbol}, "
-            f"Type={order.order_type.value}, "
-            f"Filled={order.filled_quantity}/{order.quantity}"
-        )
-
-        # Audit log: partial fill
-        try:
-            from src.core.audit_logger import AuditEventType
-
-            self.audit_logger.log_event(
-                event_type=AuditEventType.ORDER_PLACED,  # Reuse existing event type
-                operation="partial_fill",
-                symbol=order.symbol,
-                response={
-                    "order_id": order.order_id,
-                    "side": order.side.value,
-                    "filled_quantity": order.filled_quantity,
-                    "total_quantity": order.quantity,
-                    "fill_ratio": order.filled_quantity / order.quantity if order.quantity else 0,
-                    "order_type": order.order_type.value,
-                },
-            )
-        except Exception as e:
-            self.logger.warning(f"Audit logging failed: {e}")
-
-        # Track partial entry fills for position tracking (Issue #97)
-        # When entry order is partially filled, update position entry data
-        from src.models.order import OrderType as OT
-        if order.order_type in (OT.MARKET, OT.LIMIT):
-            from datetime import datetime, timezone
-            position_side = "LONG" if order.side.value == "BUY" else "SHORT"
-
-            # Update or create position entry data with partial fill info
-            existing = self._position_entry_data.get(order.symbol)
-            if existing:
-                # Update existing entry with new filled quantity
-                self._position_entry_data[order.symbol] = PositionEntryData(
-                    entry_price=order.price,  # Use average fill price
-                    entry_time=existing.entry_time,  # Keep original entry time
-                    quantity=order.filled_quantity,  # Update to actual filled qty
-                    side=position_side,
-                )
-            else:
-                # First partial fill - create new entry
-                self._position_entry_data[order.symbol] = PositionEntryData(
-                    entry_price=order.price,
-                    entry_time=datetime.now(timezone.utc),
-                    quantity=order.filled_quantity,
-                    side=position_side,
-                )
-
-            self.logger.info(
-                f"Updated position entry (partial): {order.symbol} {position_side} "
-                f"price={order.price}, filled_qty={order.filled_quantity}"
-            )
+        self.event_dispatcher.on_candle_received(candle)
 
     async def wait_until_ready(self, timeout: float = 5.0) -> bool:
         """
@@ -1639,36 +554,6 @@ class TradingEngine:
 
         Prevents race condition where DataCollector starts sending candles
         before run() has executed and captured the event loop reference.
-
-        This method blocks until:
-        - run() has executed and set _ready_event, OR
-        - timeout is exceeded (raises TimeoutError)
-
-        Args:
-            timeout: Maximum seconds to wait (default: 5.0)
-
-        Returns:
-            True if engine became ready within timeout
-
-        Raises:
-            TimeoutError: If timeout exceeded before engine became ready
-
-        Example:
-            ```python
-            # In TradingBot.run()
-            engine_task = asyncio.create_task(self.engine.run())
-
-            # Wait for engine to be ready before starting DataCollector
-            await self.engine.wait_until_ready(timeout=5.0)
-
-            # Now safe to start DataCollector
-            await self.data_collector.start_streaming()
-            ```
-
-        Notes:
-            - Called by TradingBot before starting DataCollector
-            - Ensures event loop is captured before candles arrive
-            - Timeout prevents infinite blocking on engine failure
         """
         try:
             await asyncio.wait_for(self._ready_event.wait(), timeout=timeout)
@@ -1678,146 +563,17 @@ class TradingEngine:
             self.logger.error(f"TradingEngine failed to become ready within {timeout}s")
             raise TimeoutError(f"Engine not ready after {timeout}s")
 
-    def on_candle_received(self, candle: Candle) -> None:
-        """
-        Callback from BinanceDataCollector on every candle update.
-
-        Bridges WebSocket thread to EventBus using stored event loop reference.
-        Migrated from TradingBot as part of Phase 2.2 circular dependency refactoring.
-
-        Args:
-            candle: Candle data from WebSocket stream
-
-        Thread Safety:
-            Called from WebSocket thread. Uses stored event loop reference
-            with asyncio.run_coroutine_threadsafe() to schedule coroutine
-            in main thread's event loop.
-
-        State Handling:
-            - RUNNING: Accept and publish event
-            - INITIALIZED/STOPPING: Reject with debug log (expected during transitions)
-            - CREATED/STOPPED: Reject with warning (unexpected)
-
-        Event Drop Counting:
-            Increments _event_drop_count on rejection or publish failure.
-            Helps monitor system health and backpressure.
-
-        Event Types:
-            - CANDLE_CLOSED: Published when candle.is_closed is True
-            - CANDLE_UPDATE: Published for live updates (is_closed is False)
-
-        Performance Considerations:
-            - Minimal validation (Hot Path optimization)
-            - Direct state check without lock
-            - Fast rejection path for non-RUNNING states
-            - Thread-safe event loop scheduling
-        """
-
-        # Step 1: Check engine state
-        if self._engine_state != EngineState.RUNNING:
-            self._event_drop_count += 1
-
-            # Log level depends on whether rejection is expected
-            if self._engine_state in (EngineState.INITIALIZED, EngineState.STOPPING):
-                self.logger.debug(
-                    f"Event rejected (state={self._engine_state.name}): "
-                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                    f"Drops: {self._event_drop_count}"
-                )
-            else:
-                self.logger.warning(
-                    f"Event rejected in unexpected state ({self._engine_state.name}): "
-                    f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                    f"Drops: {self._event_drop_count}"
-                )
-            return
-
-        # Step 2: Verify event loop is available
-        if self._event_loop is None:
-            self._event_drop_count += 1
-            self.logger.error(
-                f"Event loop not set! Cannot publish: "
-                f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                f"Drops: {self._event_drop_count}"
-            )
-            return
-
-        # Step 3: Determine event type
-        event_type = (
-            EventType.CANDLE_CLOSED if candle.is_closed else EventType.CANDLE_UPDATE
-        )
-
-        # Step 4: Create Event wrapper
-        event = Event(event_type, candle)
-
-        # Step 5: Publish to EventBus (thread-safe)
-        try:
-            asyncio.run_coroutine_threadsafe(
-                self.event_bus.publish(event, queue_type=QueueType.DATA),
-                self._event_loop,
-            )
-
-        except Exception as e:
-            self._event_drop_count += 1
-            self.logger.error(
-                f"Failed to publish event: {e} | "
-                f"{candle.symbol} {candle.interval} @ {candle.close}. "
-                f"Drops: {self._event_drop_count}",
-                exc_info=True,
-            )
-            return
-
-        # Step 6: Log success
-        if candle.is_closed:
-            self.logger.info(
-                f"📊 Candle closed: {candle.symbol} {candle.interval} "
-                f"@ {candle.close} → EventBus"
-            )
-        else:
-            # Log continuous live data updates (configurable via log_live_data)
-            if self._log_live_data:
-                self.logger.info(
-                    f"🔄 Live data: {candle.symbol} {candle.interval} @ {candle.close}"
-                )
-
     async def run(self) -> None:
         """
         Start the trading engine and run until interrupted.
 
-        Main runtime loop that:
-        1. Captures event loop reference
-        2. Sets state to RUNNING and signals ready
-        3. Starts EventBus processors (3 queues)
-        4. Starts DataCollector streaming
-        5. Runs until interrupted
-        6. Triggers graceful shutdown
-
         Process Flow:
-            1. Capture event loop (FIRST - prevents race condition)
+            1. Capture event loop
             2. Set _engine_state = RUNNING
-            3. Signal _ready_event (allows DataCollector to proceed)
-            4. Log startup message
-            5. Start EventBus and DataCollector concurrently
-            6. Block until KeyboardInterrupt or component failure
-            7. Trigger shutdown() in finally block
-
-        Error Handling:
-            - KeyboardInterrupt: Graceful shutdown
-            - Component failure: Log error, trigger shutdown
-            - asyncio.gather with return_exceptions=True
-
-        Example:
-            ```python
-            engine = TradingEngine()
-            engine.set_components(...)
-            await engine.run()  # Blocks until interrupted
-            ```
-
-        Notes:
-            - Blocks until stopped (main loop)
-            - Always calls shutdown() (even on errors)
-            - EventBus and DataCollector run concurrently
-            - Event loop captured before any async operations
+            3. Signal _ready_event
+            4. Start EventBus and DataCollector concurrently
+            5. Run until interrupted
+            6. Trigger graceful shutdown
         """
         # Capture event loop FIRST (Phase 2.1 - prevents race condition)
         self._event_loop = asyncio.get_running_loop()
@@ -1846,9 +602,6 @@ class TradingEngine:
                 self.logger.info("DataCollector streaming enabled")
 
                 # Start User Data Stream for real-time order updates (Issue #54, #107)
-                # This enables TP/SL fill detection to prevent orphaned orders
-                # Event creation and publishing handled by callbacks (Issue #107)
-                # Also enables real-time position and order cache updates (Issue #41 rate limit fix)
                 try:
                     await self.data_collector.start_listen_key_service(
                         position_update_callback=self._on_position_update_from_websocket,
@@ -1866,7 +619,6 @@ class TradingEngine:
                     )
 
             # Run until interrupted
-            # return_exceptions=True prevents one task error from cancelling others
             await asyncio.gather(*tasks, return_exceptions=True)
 
         except asyncio.CancelledError:
@@ -1879,6 +631,18 @@ class TradingEngine:
             # Always shutdown gracefully
             await self.shutdown()
 
+    def _on_position_update_from_websocket(self, position_updates: list) -> None:
+        """
+        Handle position updates from WebSocket ACCOUNT_UPDATE events.
+
+        Delegates to PositionCacheManager (Issue #110 Phase 1).
+        """
+        if self.position_cache is not None:
+            self.position_cache.update_from_websocket(
+                position_updates=position_updates,
+                allowed_symbols=set(self.strategies.keys()),
+            )
+
     async def shutdown(self) -> None:
         """
         Gracefully shutdown all components with pending event processing.
@@ -1890,45 +654,6 @@ class TradingEngine:
         4. All pending events processed or timeout logged
         5. Transition to STOPPED state
         6. Clear ready event
-
-        Args:
-            None
-
-        Process Flow:
-            1. Set _engine_state = STOPPING
-            2. Log shutdown start
-            3. Stop DataCollector if configured
-            4. Wait briefly for final events to publish
-            5. Shutdown EventBus with 10s timeout per queue
-            6. Set _engine_state = STOPPED
-            7. Clear _ready_event
-            8. Log shutdown complete
-
-        Error Handling:
-            - DataCollector stop error: Log, continue
-            - EventBus shutdown error: Log, continue
-            - All errors logged, shutdown proceeds
-
-        Timeout Strategy:
-            - 10s per queue (30s max total for EventBus)
-            - Critical for order queue (ensure orders processed)
-            - Data queue can drop (less critical)
-
-        Example:
-            ```python
-            # Automatic via run()
-            await engine.run()  # Calls shutdown() on exit
-
-            # Manual shutdown
-            await engine.shutdown()
-            ```
-
-        Notes:
-            - Safe to call multiple times (idempotent)
-            - Always called from run() finally block
-            - Blocks until shutdown complete
-            - Order events MUST be processed (critical)
-            - State transitions: RUNNING → STOPPING → STOPPED
         """
         # Idempotency check - safe to call multiple times
         if not self._running:
@@ -1967,3 +692,67 @@ class TradingEngine:
             self._ready_event.clear()
 
             self.logger.info("TradingEngine shutdown complete")
+
+    # ── Backward compatibility properties (Issue #110) ──────────────────
+
+    @property
+    def _position_cache(self) -> dict:
+        """Backward-compatible access to position cache dict for tests."""
+        if self.position_cache is not None:
+            return self.position_cache.cache
+        return {}
+
+    @property
+    def _position_cache_ttl(self) -> float:
+        """Backward-compatible access to position cache TTL for tests."""
+        if self.position_cache is not None:
+            return self.position_cache._ttl
+        return 60.0
+
+    @property
+    def _position_entry_data(self) -> Dict:
+        """Backward-compatible access to position entry data for tests."""
+        if self.trade_executor is not None:
+            return self.trade_executor._position_entry_data
+        return {}
+
+    @_position_entry_data.setter
+    def _position_entry_data(self, value: Dict) -> None:
+        """Backward-compatible setter for position entry data."""
+        if self.trade_executor is not None:
+            self.trade_executor._position_entry_data = value
+
+    @property
+    def _last_signal_time(self) -> Dict:
+        """Backward-compatible access to signal cooldown times."""
+        if self.position_cache is not None:
+            return self.position_cache._last_signal_time
+        return {}
+
+    # ── Backward compatibility delegate methods (Issue #110) ────────────
+    # These methods delegate to the extracted modules so that existing tests
+    # and any code referencing the old TradingEngine methods still work.
+
+    async def _on_candle_closed(self, event: Event) -> None:
+        """Delegate to EventDispatcher (backward compatibility)."""
+        await self.event_dispatcher.on_candle_closed(event)
+
+    async def _on_signal_generated(self, event: Event) -> None:
+        """Delegate to TradeExecutor (backward compatibility)."""
+        await self.trade_executor.on_signal_generated(event)
+
+    async def _on_order_filled(self, event: Event) -> None:
+        """Delegate to TradeExecutor (backward compatibility)."""
+        await self.trade_executor.on_order_filled(event)
+
+    async def _on_order_partially_filled(self, event: Event) -> None:
+        """Delegate to TradeExecutor (backward compatibility)."""
+        await self.trade_executor.on_order_partially_filled(event)
+
+    def _get_cached_position(self, symbol: str):
+        """Delegate to PositionCacheManager (backward compatibility)."""
+        return self.position_cache.get(symbol)
+
+    def _invalidate_position_cache(self, symbol: str) -> None:
+        """Delegate to PositionCacheManager (backward compatibility)."""
+        self.position_cache.invalidate(symbol)

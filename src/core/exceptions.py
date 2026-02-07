@@ -1,6 +1,30 @@
 """
-Custom exceptions for the trading system
+Custom exceptions and shared enums for the trading system
 """
+
+from enum import Enum
+
+
+class EngineState(Enum):
+    """
+    State machine for TradingEngine lifecycle.
+
+    State Transitions:
+        CREATED → INITIALIZED → RUNNING → STOPPING → STOPPED
+
+    States:
+        CREATED: Initial state after __init__()
+        INITIALIZED: After initialize_components() called
+        RUNNING: Event loop active, run() executing
+        STOPPING: Shutdown initiated
+        STOPPED: Shutdown complete
+    """
+
+    CREATED = "created"
+    INITIALIZED = "initialized"
+    RUNNING = "running"
+    STOPPING = "stopping"
+    STOPPED = "stopped"
 
 
 class TradingSystemError(Exception):
