@@ -27,10 +27,10 @@ from src.core.event_handler import EventBus
 from src.core.trading_engine import TradingEngine
 from src.execution.liquidation_manager import LiquidationManager
 from src.utils.config import ConfigManager, LiquidationConfig
-from src.execution.order_manager import OrderExecutionManager
+from src.execution.order_gateway import OrderGateway
 from src.models.candle import Candle
 from src.models.event import Event, EventType
-from src.risk.manager import RiskManager
+from src.risk.risk_guard import RiskGuard
 from src.strategies import StrategyFactory
 from src.strategies.base import BaseStrategy
 from src.utils.config import ConfigManager
@@ -80,8 +80,8 @@ class TradingBot:
         self.config_manager: Optional[ConfigManager] = None
         self.event_bus: Optional[EventBus] = None
         self.data_collector: Optional[BinanceDataCollector] = None
-        self.order_manager: Optional[OrderExecutionManager] = None
-        self.risk_manager: Optional[RiskManager] = None
+        self.order_manager: Optional[OrderGateway] = None
+        self.risk_manager: Optional[RiskGuard] = None
         self.trading_engine: Optional[TradingEngine] = None
         self.liquidation_manager: Optional[LiquidationManager] = None
         self.logger: Optional[logging.Logger] = None
@@ -109,8 +109,8 @@ class TradingBot:
         8. LiquidationManager - Emergency shutdown handler
 
         TradingEngine now owns:
-        - OrderExecutionManager creation
-        - RiskManager creation
+        - OrderGateway creation
+        - RiskGuard creation
         - Strategy creation
         - DataCollector creation
         - Leverage configuration

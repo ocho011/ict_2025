@@ -48,8 +48,8 @@ class TestTradingBotInitialization:
     @patch("src.main.ConfigManager")
     @patch("src.main.TradingLogger")
     @patch("src.main.BinanceDataCollector")
-    @patch("src.main.OrderExecutionManager")
-    @patch("src.main.RiskManager")
+    @patch("src.main.OrderGateway")
+    @patch("src.main.RiskGuard")
     @patch("src.main.StrategyFactory")
     @patch("src.main.EventBus")
     @patch("src.main.TradingEngine")
@@ -181,8 +181,8 @@ class TestTradingBotInitialization:
         # Mock all other components
         with (
             patch("src.main.BinanceDataCollector"),
-            patch("src.main.OrderExecutionManager") as mock_order,
-            patch("src.main.RiskManager"),
+            patch("src.main.OrderGateway") as mock_order,
+            patch("src.main.RiskGuard"),
             patch("src.main.StrategyFactory"),
             patch("src.main.EventBus"),
             patch("src.main.LiquidationManager"),

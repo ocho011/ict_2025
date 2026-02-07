@@ -121,7 +121,7 @@ class LiquidationManager:
 
     def __init__(
         self,
-        order_manager,  # OrderExecutionManager instance
+        order_manager,  # OrderGateway instance
         audit_logger: Optional[AuditLogger] = None,
         config: Optional[LiquidationConfig] = None,
     ):
@@ -129,7 +129,7 @@ class LiquidationManager:
         Initialize liquidation manager.
 
         Args:
-            order_manager: OrderExecutionManager instance for API calls
+            order_manager: OrderGateway instance for API calls
             audit_logger: Optional AuditLogger instance for audit trail.
                          If None, uses singleton instance from AuditLogger.get_instance()
             config: LiquidationConfig instance with validated configuration
@@ -372,7 +372,7 @@ class LiquidationManager:
         for symbol in symbols:
             for attempt in range(self.config.max_retries):
                 try:
-                    # Call OrderExecutionManager.cancel_all_orders()
+                    # Call OrderGateway.cancel_all_orders()
                     cancelled_count = self.order_manager.cancel_all_orders(symbol)
                     cancelled_total += cancelled_count
 

@@ -25,7 +25,7 @@ from src.utils.config import LiquidationConfig
 
 @pytest.fixture
 def mock_order_manager():
-    """Mock OrderExecutionManager for testing."""
+    """Mock OrderGateway for testing."""
     manager = MagicMock()
     manager.get_all_positions = AsyncMock(return_value=[])
     manager.cancel_all_orders = MagicMock(return_value=0)  # Sync method returns int

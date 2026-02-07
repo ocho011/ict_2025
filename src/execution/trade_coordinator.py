@@ -1,10 +1,10 @@
-"""TradeExecutor: Signal-to-order execution coordination.
+"""TradeCoordinator: Signal-to-order execution coordination.
 
 Extracted from TradingEngine to separate trade execution logic from
 engine orchestration (Issue #110 Phase 2).
 
 Responsibilities:
-- Signal validation via RiskManager
+- Signal validation via RiskGuard
 - Entry order execution with TP/SL
 - Exit order execution with reduce_only
 - Order fill tracking and position entry data management
@@ -25,7 +25,7 @@ from src.models.signal import Signal
 from src.models.event import Event, EventType
 
 
-class TradeExecutor:
+class TradeCoordinator:
     """
     Coordinates signal-to-order execution flow.
 
@@ -35,8 +35,8 @@ class TradeExecutor:
     - Position closure with PnL and duration calculation
 
     Dependencies:
-    - OrderExecutionManager: For order placement and cancellation
-    - RiskManager: For signal validation and position sizing
+    - OrderGateway: For order placement and cancellation
+    - RiskGuard: For signal validation and position sizing
     - ConfigManager: For trading parameters (leverage)
     - PositionCacheManager: For cache invalidation after execution
     - AuditLogger: For compliance logging
@@ -63,7 +63,7 @@ class TradeExecutor:
         Handle generated signal - validate and execute order.
 
         This is the critical trading logic that:
-        1. Validates signal with RiskManager
+        1. Validates signal with RiskGuard
         2. For entry signals: Calculates position size and executes with TP/SL
         3. For exit signals: Uses position quantity and executes with reduce_only
 
@@ -78,10 +78,10 @@ class TradeExecutor:
         )
 
         try:
-            # Step 2: Get current position from OrderManager (fresh query for execution)
+            # Step 2: Get current position from OrderGateway (fresh query for execution)
             current_position = self._order_manager.get_position(signal.symbol)
 
-            # Step 3: Validate signal with RiskManager
+            # Step 3: Validate signal with RiskGuard
             is_valid = self._risk_manager.validate_risk(signal, current_position)
 
             if not is_valid:
@@ -124,16 +124,16 @@ class TradeExecutor:
                 )
                 return
 
-            # Step 6: Calculate position size using RiskManager
+            # Step 6: Calculate position size using RiskGuard
             quantity = self._risk_manager.calculate_position_size(
                 account_balance=account_balance,
                 entry_price=signal.entry_price,
                 stop_loss_price=signal.stop_loss,
                 leverage=self._config_manager.trading_config.leverage,
-                symbol_info=None,  # OrderManager will handle rounding internally
+                symbol_info=None,  # OrderGateway will handle rounding internally
             )
 
-            # Step 7: Execute signal via OrderManager
+            # Step 7: Execute signal via OrderGateway
             # Returns (entry_order, [tp_order, sl_order])
             entry_order, tpsl_orders = self._order_manager.execute_signal(
                 signal=signal, quantity=quantity
