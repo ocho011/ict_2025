@@ -2,7 +2,7 @@
 Unit tests for TradingEngine orchestrator (Updated for Issue #110 refactor)
 
 Tests component integration, event handlers, and lifecycle management with
-delegated modules (PositionCacheManager, TradeExecutor, EventDispatcher).
+delegated modules (PositionCacheManager, TradeCoordinator, EventDispatcher).
 """
 
 import asyncio
@@ -59,7 +59,7 @@ def trading_engine():
 
     # Create extracted modules with the mocked components (Issue #110)
     from src.core.position_cache import PositionCacheManager
-    from src.execution.trade_executor import TradeExecutor
+    from src.execution.trade_coordinator import TradeCoordinator
     from src.core.event_dispatcher import EventDispatcher
 
     engine.position_cache = PositionCacheManager(
@@ -67,7 +67,7 @@ def trading_engine():
         config_manager=engine.config_manager,
     )
 
-    engine.trade_executor = TradeExecutor(
+    engine.trade_executor = TradeCoordinator(
         order_manager=engine.order_manager,
         risk_manager=engine.risk_manager,
         config_manager=engine.config_manager,
@@ -117,8 +117,8 @@ class TestTradingEngineInit:
         assert engine.event_dispatcher is None
 
     @patch("src.core.binance_service.BinanceServiceClient")
-    @patch("src.execution.order_manager.OrderExecutionManager")
-    @patch("src.risk.manager.RiskManager")
+    @patch("src.execution.order_gateway.OrderGateway")
+    @patch("src.risk.risk_guard.RiskGuard")
     @patch("src.strategies.StrategyFactory.create")
     @patch("src.core.data_collector.BinanceDataCollector")
     def test_initialize_components_success(
@@ -325,7 +325,7 @@ class TestEventHandlers:
         )
         event = Event(EventType.SIGNAL_GENERATED, signal)
 
-        # Call handler (delegates to TradeExecutor)
+        # Call handler (delegates to TradeCoordinator)
         await trading_engine._on_signal_generated(event)
 
         # Verify risk validation called
@@ -372,10 +372,10 @@ class TestEventHandlers:
 
         event = Event(EventType.ORDER_FILLED, mock_order)
 
-        # Call handler (delegates to TradeExecutor)
+        # Call handler (delegates to TradeCoordinator)
         await trading_engine._on_order_filled(event)
 
-        # TradeExecutor has its own logger - verify it ran without error
+        # TradeCoordinator has its own logger - verify it ran without error
         # (the mock order_type needs to support 'in' check for OrderType enum)
 
     @pytest.mark.asyncio
@@ -400,7 +400,7 @@ class TestEventHandlers:
             data=partial_order,
         )
 
-        # Process the partial fill event (delegates to TradeExecutor)
+        # Process the partial fill event (delegates to TradeCoordinator)
         await trading_engine._on_order_partially_filled(event)
 
         # Verify position entry data was tracked (via backward-compat property)
@@ -591,7 +591,7 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_full_pipeline_candle_to_order(self, trading_engine):
-        """Integration: Candle → Strategy → Signal → RiskManager → Order → Event."""
+        """Integration: Candle → Strategy → Signal → RiskGuard → Order → Event."""
         # Track published events
         published_events = []
 
@@ -643,7 +643,7 @@ class TestIntegration:
         assert signal_event.data == expected_signal
         assert queue_type == QueueType.SIGNAL
 
-        # Process signal → order (via TradeExecutor)
+        # Process signal → order (via TradeCoordinator)
         await trading_engine._on_signal_generated(signal_event)
 
         # After Issue #97: ORDER_FILLED events come from WebSocket confirmation,
@@ -838,9 +838,9 @@ class TestInitializationOrder:
         with (
             patch("src.core.binance_service.BinanceServiceClient") as mock_service_cls,
             patch(
-                "src.execution.order_manager.OrderExecutionManager"
+                "src.execution.order_gateway.OrderGateway"
             ) as mock_order_cls,
-            patch("src.risk.manager.RiskManager") as mock_risk_cls,
+            patch("src.risk.risk_guard.RiskGuard") as mock_risk_cls,
             patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
             patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
         ):
@@ -909,9 +909,9 @@ class TestInitializationOrder:
         with (
             patch("src.core.binance_service.BinanceServiceClient") as mock_service_cls,
             patch(
-                "src.execution.order_manager.OrderExecutionManager"
+                "src.execution.order_gateway.OrderGateway"
             ) as mock_order_cls,
-            patch("src.risk.manager.RiskManager") as mock_risk_cls,
+            patch("src.risk.risk_guard.RiskGuard") as mock_risk_cls,
             patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
             patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
         ):

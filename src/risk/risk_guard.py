@@ -13,14 +13,14 @@ if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
 
 
-class RiskManager:
+class RiskGuard:
     """
     Manages risk and calculates position sizes
     """
 
     def __init__(self, config: dict, audit_logger: Optional["AuditLogger"] = None):
         """
-        Initialize RiskManager with configuration.
+        Initialize RiskGuard with configuration.
 
         Args:
             config: Risk configuration dictionary with keys:
@@ -79,7 +79,7 @@ class RiskManager:
             ValueError: Invalid inputs (negative values, zero prices)
 
         Example:
-            >>> manager = RiskManager({'max_risk_per_trade': 0.01})
+            >>> manager = RiskGuard({'max_risk_per_trade': 0.01})
             >>> size = manager.calculate_position_size(
             ...     account_balance=10000,
             ...     entry_price=50000,
@@ -495,7 +495,7 @@ class RiskManager:
             None - Uses safe defaults if symbol_info missing
 
         Example:
-            >>> manager = RiskManager({'max_risk_per_trade': 0.01})
+            >>> manager = RiskGuard({'max_risk_per_trade': 0.01})
             >>> manager._round_to_lot_size(1.2345, {'lot_size': 0.001, 'quantity_precision': 3})
             1.234
 

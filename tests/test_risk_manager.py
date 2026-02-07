@@ -1,5 +1,5 @@
 """
-Unit tests for RiskManager - Subtask 7.1, 7.2, 7.3, 7.4
+Unit tests for RiskGuard - Subtask 7.1, 7.2, 7.3, 7.4
 """
 
 import logging
@@ -10,7 +10,7 @@ import pytest
 
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
-from src.risk.manager import RiskManager
+from src.risk.risk_guard import RiskGuard
 
 
 class TestPositionSizeCalculation:
@@ -23,14 +23,14 @@ class TestPositionSizeCalculation:
 
     @pytest.fixture
     def risk_manager(self, mock_audit_logger):
-        """Setup RiskManager with standard config"""
+        """Setup RiskGuard with standard config"""
         config = {
             "max_risk_per_trade": 0.01,  # 1%
             "max_leverage": 20,
             "default_leverage": 10,
             "max_position_size_percent": 0.1,  # 10%
         }
-        return RiskManager(config, audit_logger=mock_audit_logger)
+        return RiskGuard(config, audit_logger=mock_audit_logger)
 
     def test_normal_case_2_percent_sl(self, risk_manager):
         """
@@ -113,7 +113,7 @@ class TestPositionSizeCalculation:
             "max_position_size_percent": 0.1,
         }
         mock_audit_logger = MagicMock()
-        risk_manager = RiskManager(config, audit_logger=mock_audit_logger)
+        risk_manager = RiskGuard(config, audit_logger=mock_audit_logger)
 
         quantity = risk_manager.calculate_position_size(
             account_balance=10000, entry_price=50000, stop_loss_price=49000, leverage=10  # 2% SL
@@ -248,7 +248,7 @@ class TestSignalValidation:
 
     @pytest.fixture
     def risk_manager(self):
-        """Setup RiskManager"""
+        """Setup RiskGuard"""
         config = {
             "max_risk_per_trade": 0.01,
             "max_leverage": 20,
@@ -256,7 +256,7 @@ class TestSignalValidation:
             "max_position_size_percent": 0.1,
         }
         mock_audit_logger = MagicMock()
-        return RiskManager(config, audit_logger=mock_audit_logger)
+        return RiskGuard(config, audit_logger=mock_audit_logger)
 
     def test_valid_long_signal(self, risk_manager):
         """Valid LONG signal passes validation"""
@@ -286,7 +286,7 @@ class TestSignalValidation:
 
     def test_long_invalid_tp_below_entry(self, risk_manager, caplog):
         """LONG signal with TP ≤ entry is rejected"""
-        # Bypass Signal.__post_init__ validation to test RiskManager validation
+        # Bypass Signal.__post_init__ validation to test RiskGuard validation
         with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.LONG_ENTRY,
@@ -307,7 +307,7 @@ class TestSignalValidation:
 
     def test_long_invalid_sl_above_entry(self, risk_manager, caplog):
         """LONG signal with SL ≥ entry is rejected"""
-        # Bypass Signal.__post_init__ validation to test RiskManager validation
+        # Bypass Signal.__post_init__ validation to test RiskGuard validation
         with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.LONG_ENTRY,
@@ -328,7 +328,7 @@ class TestSignalValidation:
 
     def test_short_invalid_tp_above_entry(self, risk_manager, caplog):
         """SHORT signal with TP ≥ entry is rejected"""
-        # Bypass Signal.__post_init__ validation to test RiskManager validation
+        # Bypass Signal.__post_init__ validation to test RiskGuard validation
         with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.SHORT_ENTRY,
@@ -349,7 +349,7 @@ class TestSignalValidation:
 
     def test_short_invalid_sl_below_entry(self, risk_manager, caplog):
         """SHORT signal with SL ≤ entry is rejected"""
-        # Bypass Signal.__post_init__ validation to test RiskManager validation
+        # Bypass Signal.__post_init__ validation to test RiskGuard validation
         with patch.object(Signal, "__post_init__", lambda self: None):
             signal = Signal(
                 signal_type=SignalType.SHORT_ENTRY,
@@ -396,7 +396,7 @@ class TestPositionSizeLimiting:
 
     @pytest.fixture
     def risk_manager(self):
-        """Setup RiskManager with 10% max position size"""
+        """Setup RiskGuard with 10% max position size"""
         config = {
             "max_risk_per_trade": 0.01,
             "max_leverage": 20,
@@ -404,7 +404,7 @@ class TestPositionSizeLimiting:
             "max_position_size_percent": 0.1,  # 10% max
         }
         mock_audit_logger = MagicMock()
-        return RiskManager(config, audit_logger=mock_audit_logger)
+        return RiskGuard(config, audit_logger=mock_audit_logger)
 
     def test_within_limit_no_capping(self, risk_manager):
         """
@@ -473,7 +473,7 @@ class TestPositionSizeLimiting:
             "max_position_size_percent": 0.2,  # 20% max
         }
         mock_audit_logger = MagicMock()
-        risk_manager = RiskManager(config, audit_logger=mock_audit_logger)
+        risk_manager = RiskGuard(config, audit_logger=mock_audit_logger)
 
         quantity = risk_manager.calculate_position_size(
             account_balance=10000, entry_price=50000, stop_loss_price=49950, leverage=10  # Tight SL
@@ -590,7 +590,7 @@ class TestQuantityRounding:
 
     @pytest.fixture
     def risk_manager(self):
-        """Setup RiskManager with standard config"""
+        """Setup RiskGuard with standard config"""
         config = {
             "max_risk_per_trade": 0.01,
             "max_leverage": 20,
@@ -598,7 +598,7 @@ class TestQuantityRounding:
             "max_position_size_percent": 0.1,
         }
         mock_audit_logger = MagicMock()
-        return RiskManager(config, audit_logger=mock_audit_logger)
+        return RiskGuard(config, audit_logger=mock_audit_logger)
 
     def test_standard_rounding_btcusdt(self, risk_manager):
         """Standard case: 1.2345 BTC with BTCUSDT specs → 1.234"""

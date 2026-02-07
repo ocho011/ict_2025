@@ -9,7 +9,7 @@ Coordinates:
 
 Refactored (Issue #110): Delegates to specialized modules:
 - PositionCacheManager: Position state caching with TTL
-- TradeExecutor: Signal validation and order execution
+- TradeCoordinator: Signal validation and order execution
 - EventDispatcher: Candle routing and strategy analysis
 """
 
@@ -27,13 +27,13 @@ from src.core.event_handler import EventBus
 from src.core.exceptions import EngineState
 from src.core.position_cache import PositionCacheManager
 from src.core.event_dispatcher import EventDispatcher
-from src.execution.order_manager import OrderExecutionManager
-from src.execution.trade_executor import TradeExecutor
+from src.execution.order_gateway import OrderGateway
+from src.execution.trade_coordinator import TradeCoordinator
 from src.models.candle import Candle
 from src.models.event import Event, EventType, QueueType
 from src.models.order import Order
 from src.models.signal import Signal
-from src.risk.manager import RiskManager
+from src.risk.risk_guard import RiskGuard
 from src.strategies.base import BaseStrategy
 from src.utils.config import ConfigManager
 
@@ -43,14 +43,14 @@ class TradingEngine:
     Main application orchestrator for event-driven trading system.
 
     Responsibilities (after Issue #110 refactor):
-    1. Component lifecycle management (EventBus, DataCollector, Strategy, OrderManager)
+    1. Component lifecycle management (EventBus, DataCollector, Strategy, OrderGateway)
     2. Delegate event handling to specialized modules
     3. WebSocket callback bridging (_on_order_fill_from_websocket, _on_order_update_from_websocket)
     4. Graceful startup and shutdown with pending event processing
 
     Delegates to:
     - PositionCacheManager: Position state caching and WebSocket updates
-    - TradeExecutor: Signal-to-order execution coordination
+    - TradeCoordinator: Signal-to-order execution coordination
     - EventDispatcher: Candle event routing and strategy execution
     """
 
@@ -75,13 +75,13 @@ class TradingEngine:
         self.event_bus: Optional[EventBus] = None
         self.data_collector: Optional[BinanceDataCollector] = None
         self.strategies: dict[str, BaseStrategy] = {}  # Issue #8: Multi-coin support
-        self.order_manager: Optional[OrderExecutionManager] = None
-        self.risk_manager: Optional[RiskManager] = None
+        self.order_manager: Optional[OrderGateway] = None
+        self.risk_manager: Optional[RiskGuard] = None
         self.config_manager: Optional[ConfigManager] = None
 
         # Extracted modules (Issue #110)
         self.position_cache: Optional[PositionCacheManager] = None
-        self.trade_executor: Optional[TradeExecutor] = None
+        self.trade_executor: Optional[TradeCoordinator] = None
         self.event_dispatcher: Optional[EventDispatcher] = None
 
         # Runtime state
@@ -115,12 +115,12 @@ class TradingEngine:
         Component Creation Order:
             1. ConfigManager injection
             2. EventBus injection
-            3. OrderExecutionManager
-            4. RiskManager
+            3. OrderGateway
+            4. RiskGuard
             5. Strategy (via StrategyFactory)
             6. BinanceDataCollector
             7. PositionCacheManager (Issue #110 Phase 1)
-            8. TradeExecutor (Issue #110 Phase 2)
+            8. TradeCoordinator (Issue #110 Phase 2)
             9. EventDispatcher (Issue #110 Phase 3)
             10. Strategy-DataCollector compatibility validation (Issue #24)
             11. Event handler registration
@@ -151,20 +151,20 @@ class TradingEngine:
             is_testnet=is_testnet,
         )
 
-        # Step 2: Initialize OrderExecutionManager
-        self.logger.info("Creating OrderExecutionManager...")
-        from src.execution.order_manager import OrderExecutionManager
+        # Step 2: Initialize OrderGateway
+        self.logger.info("Creating OrderGateway...")
+        from src.execution.order_gateway import OrderGateway
 
-        self.order_manager = OrderExecutionManager(
+        self.order_manager = OrderGateway(
             audit_logger=self.audit_logger,
             binance_service=self.binance_service,
         )
 
-        # Step 3: Initialize RiskManager
-        self.logger.info("Creating RiskManager...")
-        from src.risk.manager import RiskManager
+        # Step 3: Initialize RiskGuard
+        self.logger.info("Creating RiskGuard...")
+        from src.risk.risk_guard import RiskGuard
 
-        self.risk_manager = RiskManager(
+        self.risk_manager = RiskGuard(
             config={
                 "max_risk_per_trade": trading_config.max_risk_per_trade,
                 "default_leverage": trading_config.leverage,
@@ -254,8 +254,8 @@ class TradingEngine:
             config_manager=self.config_manager,
         )
 
-        # Phase 2: TradeExecutor
-        self.trade_executor = TradeExecutor(
+        # Phase 2: TradeCoordinator
+        self.trade_executor = TradeCoordinator(
             order_manager=self.order_manager,
             risk_manager=self.risk_manager,
             config_manager=self.config_manager,
@@ -443,9 +443,9 @@ class TradingEngine:
 
         Delegates to extracted modules (Issue #110):
         - CANDLE_CLOSED → EventDispatcher.on_candle_closed
-        - SIGNAL_GENERATED → TradeExecutor.on_signal_generated
-        - ORDER_FILLED → TradeExecutor.on_order_filled
-        - ORDER_PARTIALLY_FILLED → TradeExecutor.on_order_partially_filled
+        - SIGNAL_GENERATED → TradeCoordinator.on_signal_generated
+        - ORDER_FILLED → TradeCoordinator.on_order_filled
+        - ORDER_PARTIALLY_FILLED → TradeCoordinator.on_order_partially_filled
         """
         self.event_bus.subscribe(EventType.CANDLE_CLOSED, self.event_dispatcher.on_candle_closed)
         self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self.trade_executor.on_signal_generated)
@@ -454,9 +454,9 @@ class TradingEngine:
 
         self.logger.info("✅ Event handlers registered (Issue #110 - delegated):")
         self.logger.info("  - CANDLE_CLOSED → EventDispatcher.on_candle_closed")
-        self.logger.info("  - SIGNAL_GENERATED → TradeExecutor.on_signal_generated")
-        self.logger.info("  - ORDER_FILLED → TradeExecutor.on_order_filled")
-        self.logger.info("  - ORDER_PARTIALLY_FILLED → TradeExecutor.on_order_partially_filled")
+        self.logger.info("  - SIGNAL_GENERATED → TradeCoordinator.on_signal_generated")
+        self.logger.info("  - ORDER_FILLED → TradeCoordinator.on_order_filled")
+        self.logger.info("  - ORDER_PARTIALLY_FILLED → TradeCoordinator.on_order_partially_filled")
 
     def _on_order_update_from_websocket(
         self, symbol: str, order_id: str, order_status: str, order_data: dict
@@ -738,15 +738,15 @@ class TradingEngine:
         await self.event_dispatcher.on_candle_closed(event)
 
     async def _on_signal_generated(self, event: Event) -> None:
-        """Delegate to TradeExecutor (backward compatibility)."""
+        """Delegate to TradeCoordinator (backward compatibility)."""
         await self.trade_executor.on_signal_generated(event)
 
     async def _on_order_filled(self, event: Event) -> None:
-        """Delegate to TradeExecutor (backward compatibility)."""
+        """Delegate to TradeCoordinator (backward compatibility)."""
         await self.trade_executor.on_order_filled(event)
 
     async def _on_order_partially_filled(self, event: Event) -> None:
-        """Delegate to TradeExecutor (backward compatibility)."""
+        """Delegate to TradeCoordinator (backward compatibility)."""
         await self.trade_executor.on_order_partially_filled(event)
 
     def _get_cached_position(self, symbol: str):

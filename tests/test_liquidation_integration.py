@@ -2,9 +2,9 @@
 Integration tests for Stage 2 emergency liquidation system.
 
 Test Coverage:
-- OrderExecutionManager.get_all_positions() integration
-- OrderExecutionManager.cancel_all_orders() integration with retry logic
-- OrderExecutionManager.execute_market_close() integration with retry logic and reduceOnly enforcement
+- OrderGateway.get_all_positions() integration
+- OrderGateway.cancel_all_orders() integration with retry logic
+- OrderGateway.execute_market_close() integration with retry logic and reduceOnly enforcement
 - LiquidationManager._cancel_all_orders() with exponential backoff
 - LiquidationManager._close_all_positions() with position closure logic
 - TradingBot.shutdown() integration with liquidation
@@ -28,7 +28,7 @@ from src.core.exceptions import OrderExecutionError, ValidationError
 
 @pytest.fixture
 def mock_order_manager_with_positions():
-    """Mock OrderExecutionManager with realistic position data."""
+    """Mock OrderGateway with realistic position data."""
     manager = MagicMock()
 
     # Mock get_all_positions - returns 2 positions
@@ -94,8 +94,8 @@ def integration_config():
     )
 
 
-class TestOrderExecutionManagerIntegration:
-    """Test OrderExecutionManager method integrations."""
+class TestOrderGatewayIntegration:
+    """Test OrderGateway method integrations."""
 
     @pytest.mark.asyncio
     async def test_get_all_positions_returns_filtered_positions(

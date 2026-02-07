@@ -669,11 +669,11 @@ class TestExitIntegration:
         self, ict_strategy_trailing_stop, mock_position_long, mock_candle
     ):
         """Test exit signal passes risk validation."""
-        from src.risk.manager import RiskManager
+        from src.risk.risk_guard import RiskGuard
         from src.core.audit_logger import AuditLogger
 
         # Mock risk manager to accept exit signals
-        mock_risk_manager = MagicMock(spec=RiskManager)
+        mock_risk_manager = MagicMock(spec=RiskGuard)
         mock_risk_manager.validate_risk.return_value = True
 
         # Mock audit logger

@@ -25,7 +25,7 @@ class AlwaysSignalStrategy(BaseStrategy):
     This strategy is designed ONLY for testing the complete trading system:
     1. Signal generation works
     2. EventBus routes signals correctly
-    3. RiskManager validates signals
+    3. RiskGuard validates signals
     4. OrderManager executes orders (on testnet)
     5. Position tracking works
 

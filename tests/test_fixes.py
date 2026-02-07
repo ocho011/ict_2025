@@ -12,7 +12,7 @@ from unittest.mock import Mock
 # Add src to path
 sys.path.insert(0, "src")
 
-from src.execution.order_manager import OrderExecutionManager
+from src.execution.order_gateway import OrderGateway
 from src.core.data_collector import BinanceDataCollector
 
 
@@ -25,7 +25,7 @@ def test_position_caching():
     mock_binance_service = Mock()
 
     # Create order manager
-    manager = OrderExecutionManager(
+    manager = OrderGateway(
         audit_logger=mock_audit_logger, binance_service=mock_binance_service
     )
 
@@ -47,7 +47,7 @@ def test_api_logging():
     mock_binance_service = Mock()
 
     # Create order manager
-    manager = OrderExecutionManager(
+    manager = OrderGateway(
         audit_logger=mock_audit_logger, binance_service=mock_binance_service
     )
 
