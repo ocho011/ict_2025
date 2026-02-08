@@ -51,7 +51,15 @@
       "Bash(pip show:*)",
       "Bash(/opt/homebrew/bin/python3 -m pytest:*)",
       "Bash(/usr/bin/python3 -m pytest:*)",
-      "mcp__serena__find_file"
+      "mcp__serena__find_file",
+      "Bash(git remote prune:*)",
+      "Bash(gh issue close:*)",
+      "Bash(git mv:*)",
+      "Bash(echo:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr merge:*)",
+      "Bash(git stash:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

@@ -50,10 +50,6 @@ class TestGetPositionWithRetry:
         assert hasattr(manager, "_position_circuit_breaker")
         assert isinstance(manager._position_circuit_breaker, CircuitBreaker)
 
-        # Verify cache structure supports new 3-tuple format
-        assert hasattr(manager, "_cache_failure_ttl_seconds")
-        assert manager._cache_failure_ttl_seconds == 30.0
-
     def test_get_position_success_caching(self, manager, mock_client):
         """Test successful position query uses success cache TTL"""
         # Mock successful response
@@ -76,37 +72,14 @@ class TestGetPositionWithRetry:
         assert position1.symbol == "BTCUSDT"
         assert position1.quantity == 0.001
 
-        # Second call - should use cache (5s TTL for success)
+        # Second call - no cache, hits API again
         position2 = manager.get_position("BTCUSDT")
         assert position2 is not None
         assert position2.symbol == "BTCUSDT"
 
-        # API should only be called once due to cache hit
-        assert mock_client.get_position_risk.call_count == 1
-
-    def test_get_position_failure_caching(self, manager, mock_client):
-        """Test failed position query uses failure cache TTL (30s)"""
-        # Mock API failure
-        mock_client.get_position_risk.side_effect = ClientError(
-            status_code=429, error_code=-1003, error_message="Rate limit", header={}
-        )
-
-        # First call - cache miss, failure cached for 30s
-        position1 = manager.get_position("BTCUSDT")
-        assert position1 is None
-
-        # Second call within 30s - should use failure cache
-        position2 = manager.get_position("BTCUSDT")
-        assert position2 is None
-
-        # API should only be called once due to cache hit
-        assert mock_client.get_position_risk.call_count == 1
-
-        # Wait past failure TTL, should call API again
-        time.sleep(0.1)  # Small delay to pass cache TTL
-        position3 = manager.get_position("BTCUSDT")
-        assert position3 is None
+        # API should be called twice (no caching in OrderGateway)
         assert mock_client.get_position_risk.call_count == 2
+
 
     def test_get_position_retry_on_rate_limit(self, manager, mock_client):
         """Test retry behavior on rate limit errors"""
@@ -202,17 +175,6 @@ class TestGetPositionWithRetry:
             assert position.symbol == "BTCUSDT"
             assert manager._position_circuit_breaker.get_state() == "CLOSED"
 
-    def test_get_position_cache_structure_3tuple(self, manager):
-        """Test cache uses new 3-tuple structure (position, time, type)"""
-        # Mock empty position response
-        with patch("time.time", return_value=1000):
-            manager.get_position("BTCUSDT")
-
-            # Check cache content
-            cached_data = manager._position_cache.get("BTCUSDT")
-            assert cached_data is not None
-            assert len(cached_data) == 3  # (position, timestamp, cache_type)
-            assert cached_data[2] == "success"  # Cache type for successful query
 
     def test_get_position_backwards_compatibility(self, manager, mock_client):
         """Test backward compatibility with existing code patterns"""
@@ -240,7 +202,3 @@ class TestGetPositionWithRetry:
 
         with pytest.raises(ValidationError, match="Invalid symbol"):
             manager.get_position(None)  # None symbol
-
-        # Verify cache not polluted with validation errors
-        assert "" not in manager._position_cache
-        assert None not in manager._position_cache
