@@ -78,8 +78,8 @@ class TradeCoordinator:
         )
 
         try:
-            # Step 2: Get current position from OrderGateway (fresh query for execution)
-            current_position = self._order_gateway.get_position(signal.symbol)
+            # Step 2: Get current position via PositionCacheManager (fresh query for execution)
+            current_position = self._position_cache_manager.get_fresh(signal.symbol)
 
             # Step 3: Validate signal with RiskGuard
             is_valid = self._risk_guard.validate_risk(signal, current_position)
@@ -543,7 +543,7 @@ class TradeCoordinator:
         """
         order: Order = event.data
 
-        self.logger.info(
+        self.logger.debug(
             f"Order partially filled: ID={order.order_id}, "
             f"Symbol={order.symbol}, "
             f"Type={order.order_type.value}, "
@@ -596,7 +596,7 @@ class TradeCoordinator:
                     side=position_side,
                 )
 
-            self.logger.info(
+            self.logger.debug(
                 f"Updated position entry (partial): {order.symbol} {position_side} "
                 f"price={order.price}, filled_qty={order.filled_quantity}"
             )

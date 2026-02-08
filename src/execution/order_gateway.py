@@ -80,16 +80,6 @@ class OrderGateway:
         # Initialize state tracking
         self._open_orders: Dict[str, List[Order]] = {}
 
-        # Position cache with separate TTLs for success/failure
-        # Improved for high-frequency trading with better hit rates
-        self._position_cache: Dict[str, tuple[Optional[Position], float, str]] = {}
-        self._cache_ttl_seconds = (
-            10.0  # Increased from 5s to 10s for better performance
-        )
-        self._cache_failure_ttl_seconds = (
-            15.0  # Reduced from 30s to 15s for faster retry
-        )
-
         # Open orders cache to reduce API calls (Issue #41 rate limit fix)
         # Cache structure: {symbol: (orders_list, timestamp)}
         self._open_orders_cache: Dict[str, tuple[List[Dict[str, Any]], float]] = {}
@@ -1456,21 +1446,8 @@ class OrderGateway:
         if not symbol or not isinstance(symbol, str):
             raise ValidationError(f"Invalid symbol: {symbol}")
 
-        # 2. Check cache first
-        cached_data = self._position_cache.get(symbol)
-        current_time = time.time()
-        if cached_data:
-            cached_position, cache_time, cache_type = cached_data
-            ttl = (
-                self._cache_failure_ttl_seconds
-                if cache_type == "failure"
-                else self._cache_ttl_seconds
-            )
-            if (current_time - cache_time) < ttl:
-                return cached_position  # Return cached position
-
-        # 3. Log API call (only if cache miss)
-        self.logger.info(f"Querying position for {symbol} (cache miss)")
+        # 2. Log API call
+        self.logger.info(f"Querying position for {symbol}")
 
         try:
             # 3. Call Binance API through circuit breaker
@@ -1484,8 +1461,6 @@ class OrderGateway:
 
             # 4. Parse response
             if response is None:
-                # Cache the None result as failure and let retry decorator handle it
-                self._position_cache[symbol] = (None, current_time, "failure")
                 self.logger.error(f"Position API failed for {symbol} - no response")
                 return None
 
@@ -1495,8 +1470,6 @@ class OrderGateway:
             if isinstance(unwrapped, list):
                 # Direct list response or unwrapped data list
                 if len(unwrapped) == 0:
-                    # Cache the None result as success (no position)
-                    self._position_cache[symbol] = (None, current_time, "success")
                     self.logger.info(f"No active position for {symbol} (empty data)")
                     return None
                 position_data = unwrapped[0]
@@ -1510,8 +1483,6 @@ class OrderGateway:
 
             # 5. Check if position exists
             if position_amt == 0:
-                # Cache the None result as success (no position)
-                self._position_cache[symbol] = (None, current_time, "success")
                 self.logger.info(f"No active position for {symbol}")
                 return None
 
@@ -1548,9 +1519,6 @@ class OrderGateway:
                 f"Position retrieved: {side} {quantity} {symbol} @ {entry_price}, "
                 f"PnL: {unrealized_pnl}"
             )
-
-            # Store in cache as success
-            self._position_cache[symbol] = (position, current_time, "success")
 
             # Audit log: position query successful
             try:
@@ -1600,9 +1568,6 @@ class OrderGateway:
             except Exception:
                 pass  # Don't double-log
 
-            # Cache the error result as failure
-            self._position_cache[symbol] = (None, current_time, "failure")
-
             if isinstance(e, ServerError):
                 raise OrderExecutionError(
                     f"Position query failed: server error {e.status_code}, msg={e.message}"
@@ -1619,9 +1584,6 @@ class OrderGateway:
                         f"Position query failed: code={e.error_code}, msg={e.error_message}"
                     )
         except (KeyError, ValueError, TypeError) as e:
-            # Cache parsing error as failure
-            self._position_cache[symbol] = (None, current_time, "failure")
-
             # Audit log: parsing error
             try:
                 from src.core.audit_logger import AuditEventType

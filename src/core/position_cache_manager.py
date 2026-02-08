@@ -88,6 +88,22 @@ class PositionCacheManager:
             # and failure (expired data in cache).
             return None
 
+    def get_fresh(self, symbol: str) -> Optional["Position"]:
+        """Get guaranteed-fresh position by invalidating cache first.
+
+        Use this for execution-critical paths (e.g., before placing orders)
+        where stale cached data could lead to incorrect decisions.
+        For normal reads (e.g., strategy analysis), use get() instead.
+
+        Args:
+            symbol: Trading pair to get position for
+
+        Returns:
+            Position if exists, None otherwise
+        """
+        self.invalidate(symbol)
+        return self.get(symbol)
+
     def invalidate(self, symbol: str) -> None:
         """
         Invalidate position cache for symbol.
