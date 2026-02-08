@@ -26,7 +26,7 @@ class PositionCacheManager:
     from engine orchestration (Issue #110 Phase 1).
 
     Attributes:
-        _order_manager: OrderManager instance for position queries
+        _order_gateway: OrderGateway instance for position queries
         _config_manager: ConfigManager for trading configuration (leverage)
         _cache: Position cache with timestamps (symbol -> (Position|None, timestamp))
         _ttl: Cache time-to-live in seconds
@@ -35,11 +35,11 @@ class PositionCacheManager:
 
     def __init__(
         self,
-        order_manager,
+        order_gateway,
         config_manager,
         ttl: float = 60.0,
     ):
-        self._order_manager = order_manager
+        self._order_gateway = order_gateway
         self._config_manager = config_manager
         self._cache: dict[str, tuple[Optional["Position"], float]] = {}
         self._ttl = ttl
@@ -75,7 +75,7 @@ class PositionCacheManager:
 
         # Cache expired or missing - refresh from API
         try:
-            position = self._order_manager.get_position(symbol)
+            position = self._order_gateway.get_position(symbol)
             self._cache[symbol] = (position, current_time)
             return position
         except Exception as e:

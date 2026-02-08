@@ -22,7 +22,7 @@ from src.models.position import Position
 from src.models.signal import Signal, SignalType
 from src.core.trading_engine import TradingEngine
 from src.core.audit_logger import AuditLogger
-from src.utils.config import ConfigManager, ExitConfig, TradingConfig
+from src.utils.config_manager import ConfigManager, ExitConfig, TradingConfig
 from src.strategies.ict_strategy import ICTStrategy
 
 

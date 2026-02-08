@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any, Callable
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.models.position import Position
-    from src.core.position_cache import PositionCacheManager
+    from src.core.position_cache_manager import PositionCacheManager
 
 from src.core.exceptions import EngineState
 from src.models.candle import Candle
@@ -49,19 +49,19 @@ class EventDispatcher:
     def __init__(
         self,
         strategies: Dict[str, BaseStrategy],
-        position_cache: "PositionCacheManager",
+        position_cache_manager: "PositionCacheManager",
         event_bus,
         audit_logger: "AuditLogger",
-        order_manager,
+        order_gateway,
         engine_state_getter: Callable[[], EngineState],
         event_loop_getter: Callable[[], Optional[asyncio.AbstractEventLoop]],
         log_live_data: bool = True,
     ):
         self._strategies = strategies
-        self._position_cache = position_cache
+        self._position_cache_manager = position_cache_manager
         self._event_bus = event_bus
         self._audit_logger = audit_logger
-        self._order_manager = order_manager
+        self._order_gateway = order_gateway
         self._get_engine_state = engine_state_getter
         self._get_event_loop = event_loop_getter
         self._signal_cooldown: float = 300.0  # 5 minutes cooldown
@@ -109,21 +109,21 @@ class EventDispatcher:
         )
 
         # 2. Routing (Issue #42)
-        current_position = self._position_cache.get(candle.symbol)
+        current_position = self._position_cache_manager.get(candle.symbol)
 
         # Issue #41: Handle uncertain position state.
         # If _position_cache.get returns None, it could be "No Position" or "API Failure".
         # We must skip analysis if the state is uncertain to prevent incorrect entries.
         if current_position is None:
             # Check if cache was actually updated successfully (confirmed None state)
-            if candle.symbol not in self._position_cache.cache:
+            if candle.symbol not in self._position_cache_manager.cache:
                 self.logger.warning(
                     f"Position state unknown for {candle.symbol}, skipping analysis"
                 )
                 return
 
-            _, cache_time = self._position_cache.cache[candle.symbol]
-            if time.time() - cache_time >= self._position_cache._ttl:
+            _, cache_time = self._position_cache_manager.cache[candle.symbol]
+            if time.time() - cache_time >= self._position_cache_manager._ttl:
                 # Cache is stale, meaning _position_cache.get failed to refresh it
                 self.logger.warning(
                     f"Position state uncertain for {candle.symbol} (cache expired and refresh failed), "
@@ -190,7 +190,7 @@ class EventDispatcher:
         # Signal cooldown check to prevent multi-interval duplicate entries (Issue #101)
         symbol = candle.symbol
         now = time.time()
-        last_signal = self._position_cache._last_signal_time.get(symbol, 0.0)
+        last_signal = self._position_cache_manager._last_signal_time.get(symbol, 0.0)
         if now - last_signal < self._signal_cooldown:
             remaining = self._signal_cooldown - (now - last_signal)
             self.logger.debug(
@@ -210,7 +210,7 @@ class EventDispatcher:
         # If signal exists, publish SIGNAL_GENERATED event
         if signal is not None:
             # Record signal time for cooldown (Issue #101)
-            self._position_cache._last_signal_time[symbol] = now
+            self._position_cache_manager._last_signal_time[symbol] = now
             await self.publish_signal_with_audit(
                 signal=signal, candle=candle, operation="candle_analysis"
             )
@@ -253,7 +253,7 @@ class EventDispatcher:
             sl_side = OrderSide.SELL if position.side == "LONG" else OrderSide.BUY
 
             # Update exchange SL
-            result = self._order_manager.update_stop_loss(
+            result = self._order_gateway.update_stop_loss(
                 symbol=candle.symbol,
                 new_stop_price=current_trailing,
                 side=sl_side,

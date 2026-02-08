@@ -20,11 +20,11 @@ from src.execution.liquidation_manager import (
     LiquidationState,
     LiquidationResult,
 )
-from src.utils.config import LiquidationConfig
+from src.utils.config_manager import LiquidationConfig
 
 
 @pytest.fixture
-def mock_order_manager():
+def mock_order_gateway():
     """Mock OrderGateway for testing."""
     manager = MagicMock()
     manager.get_all_positions = AsyncMock(return_value=[])
@@ -65,10 +65,10 @@ def disabled_config():
 
 
 @pytest.fixture
-def liquidation_manager(mock_order_manager, mock_audit_logger, security_first_config):
+def liquidation_manager(mock_order_gateway, mock_audit_logger, security_first_config):
     """LiquidationManager instance with security-first config."""
     return LiquidationManager(
-        order_manager=mock_order_manager,
+        order_gateway=mock_order_gateway,
         audit_logger=mock_audit_logger,
         config=security_first_config,
     )
@@ -86,10 +86,10 @@ class TestLiquidationManagerInitialization:
         assert liquidation_manager.config == security_first_config
 
     def test_manager_stores_dependencies(
-        self, liquidation_manager, mock_order_manager, mock_audit_logger
+        self, liquidation_manager, mock_order_gateway, mock_audit_logger
     ):
         """Manager stores order manager and audit logger."""
-        assert liquidation_manager.order_manager == mock_order_manager
+        assert liquidation_manager.order_gateway == mock_order_gateway
         assert liquidation_manager.audit_logger == mock_audit_logger
 
 
@@ -166,11 +166,11 @@ class TestLiquidationResults:
 
     @pytest.mark.asyncio
     async def test_skipped_state_when_disabled(
-        self, mock_order_manager, mock_audit_logger, disabled_config
+        self, mock_order_gateway, mock_audit_logger, disabled_config
     ):
         """Liquidation returns SKIPPED when emergency_liquidation=False."""
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=disabled_config,
         )

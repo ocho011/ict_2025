@@ -27,8 +27,8 @@ class TestTradingBotConstructor:
         assert bot.config_manager is None
         assert bot.event_bus is None
         assert bot.data_collector is None
-        assert bot.order_manager is None
-        assert bot.risk_manager is None
+        assert bot.order_gateway is None
+        assert bot.risk_guard is None
         assert bot.trading_engine is None
         assert bot.logger is None
 
@@ -61,8 +61,8 @@ class TestTradingBotInitialization:
         mock_trading_engine,
         mock_event_bus,
         mock_strategy_factory,
-        mock_risk_manager,
-        mock_order_manager,
+        mock_risk_guard_guard,
+        mock_order_gateway_gateway,
         mock_data_collector,
         mock_trading_logger,
         mock_config_manager,
@@ -92,14 +92,14 @@ class TestTradingBotInitialization:
         # Setup TradingEngine mock
         mock_engine_instance = mock_trading_engine.return_value
         mock_engine_instance.initialize_strategy_with_backfill = AsyncMock()
-        mock_engine_instance.order_manager = Mock()
+        mock_engine_instance.order_gateway = Mock()
         mock_engine_instance.data_collector = Mock()
-        mock_engine_instance.risk_manager = Mock()
+        mock_engine_instance.risk_guard = Mock()
 
         # Setup OrderManager mock
-        mock_order_instance = Mock()
-        mock_order_instance.set_leverage.return_value = True
-        mock_order_manager.return_value = mock_order_instance
+        mock_order_gateway_instance = Mock()
+        mock_order_gateway_instance.set_leverage.return_value = True
+        mock_order_gateway_gateway.return_value = mock_order_gateway_instance
 
         # Setup logger mock
         mock_logger = Mock()
@@ -120,9 +120,9 @@ class TestTradingBotInitialization:
         
         # Verify components are set from TradingEngine
         assert bot.trading_engine == mock_trading_engine_instance
-        assert bot.order_manager == mock_trading_engine_instance.order_manager
+        assert bot.order_gateway == mock_trading_engine_instance.order_gateway
         assert bot.data_collector == mock_trading_engine_instance.data_collector
-        assert bot.risk_manager == mock_trading_engine_instance.risk_manager
+        assert bot.risk_guard == mock_trading_engine_instance.risk_guard
 
     @patch("src.main.ConfigManager")
     @patch("src.main.TradingLogger")
@@ -181,7 +181,7 @@ class TestTradingBotInitialization:
         # Mock all other components
         with (
             patch("src.main.BinanceDataCollector"),
-            patch("src.main.OrderGateway") as mock_order,
+            patch("src.main.OrderGateway") as mock_order_gateway,
             patch("src.main.RiskGuard"),
             patch("src.main.StrategyFactory"),
             patch("src.main.EventBus"),
@@ -189,9 +189,9 @@ class TestTradingBotInitialization:
         ):
 
             # Setup OrderManager mock
-            mock_order_instance = Mock()
-            mock_order_instance.set_leverage.return_value = True
-            mock_order.return_value = mock_order_instance
+            mock_order_gateway_instance = Mock()
+            mock_order_gateway_instance.set_leverage.return_value = True
+            mock_order_gateway.return_value = mock_order_gateway_instance
 
             bot = TradingBot()
             await bot.initialize()
@@ -279,9 +279,9 @@ class TestTradingBotInitialization:
         # Mock TradingEngine instance components
         mock_engine_instance = mock_trading_engine.return_value
         mock_engine_instance.initialize_strategy_with_backfill = AsyncMock()
-        mock_engine_instance.order_manager = Mock()
+        mock_engine_instance.order_gateway = Mock()
         mock_engine_instance.data_collector = Mock()
-        mock_engine_instance.risk_manager = Mock()
+        mock_engine_instance.risk_guard = Mock()
 
         # Execute
         bot = TradingBot()

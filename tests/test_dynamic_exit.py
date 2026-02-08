@@ -20,7 +20,7 @@ from src.models.candle import Candle
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
 from src.strategies.ict_strategy import ICTStrategy
-from src.utils.config import ExitConfig
+from src.utils.config_manager import ExitConfig
 
 
 class TestExitConfig:

@@ -10,7 +10,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.data_collector import BinanceDataCollector
-from src.utils.config import ConfigManager
+from src.utils.config_manager import ConfigManager
 
 def test_rest_api():
     """Test REST API historical candles"""

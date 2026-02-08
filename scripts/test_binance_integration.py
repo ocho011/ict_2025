@@ -30,7 +30,7 @@ sys.path.insert(0, str(project_root))
 
 from src.core.data_collector import BinanceDataCollector
 from src.models.candle import Candle
-from src.utils.config import ConfigManager
+from src.utils.config_manager import ConfigManager
 
 # Setup logging
 logging.basicConfig(

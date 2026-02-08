@@ -7,7 +7,7 @@ Tests TradingConfig validation and parsing for multi-symbol support.
 import pytest
 
 from src.core.exceptions import ConfigurationError
-from src.utils.config import TradingConfig, ExitConfig
+from src.utils.config_manager import TradingConfig, ExitConfig
 
 
 class TestMultiSymbolValidation:

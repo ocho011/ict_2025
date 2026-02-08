@@ -10,7 +10,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 import logging
 
-from src.utils.config import LiquidationConfig
+from src.utils.config_manager import LiquidationConfig
 
 
 logger = logging.getLogger(__name__)

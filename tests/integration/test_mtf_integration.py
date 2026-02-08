@@ -70,12 +70,12 @@ def trading_engine_with_mtf(mock_config_manager):
     engine.data_collector.intervals = ["5m", "1h", "4h"]
 
     # Mock order manager and risk manager
-    engine.order_manager = Mock()
-    engine.order_manager.get_position = Mock(return_value=None)
-    engine.order_manager.get_account_balance = Mock(return_value=1000.0)
+    engine.order_gateway = Mock()
+    engine.order_gateway.get_position = Mock(return_value=None)
+    engine.order_gateway.get_account_balance = Mock(return_value=1000.0)
 
-    engine.risk_manager = Mock()
-    engine.risk_manager.validate_risk = Mock(return_value=True)
+    engine.risk_guard = Mock()
+    engine.risk_guard.validate_risk = Mock(return_value=True)
 
     engine.logger = Mock()
 

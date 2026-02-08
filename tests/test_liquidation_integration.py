@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock, patch, call
 from decimal import Decimal
 
 from src.core.audit_logger import AuditLogger, AuditEventType
-from src.utils.config import LiquidationConfig
+from src.utils.config_manager import LiquidationConfig
 from src.execution.liquidation_manager import (
     LiquidationManager,
     LiquidationState,
@@ -27,7 +27,7 @@ from src.core.exceptions import OrderExecutionError, ValidationError
 
 
 @pytest.fixture
-def mock_order_manager_with_positions():
+def mock_order_gateway_with_positions():
     """Mock OrderGateway with realistic position data."""
     manager = MagicMock()
 
@@ -99,11 +99,11 @@ class TestOrderGatewayIntegration:
 
     @pytest.mark.asyncio
     async def test_get_all_positions_returns_filtered_positions(
-        self, mock_order_manager_with_positions, mock_audit_logger, integration_config
+        self, mock_order_gateway_with_positions, mock_audit_logger, integration_config
     ):
         """get_all_positions filters to requested symbols with non-zero amounts."""
         manager = LiquidationManager(
-            order_manager=mock_order_manager_with_positions,
+            order_gateway=mock_order_gateway_with_positions,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -111,7 +111,7 @@ class TestOrderGatewayIntegration:
         result = await manager.execute_liquidation(["BTCUSDT", "ETHUSDT"])
 
         # Verify positions were queried
-        mock_order_manager_with_positions.get_all_positions.assert_called_once_with(
+        mock_order_gateway_with_positions.get_all_positions.assert_called_once_with(
             ["BTCUSDT", "ETHUSDT"]
         )
 
@@ -121,11 +121,11 @@ class TestOrderGatewayIntegration:
 
     @pytest.mark.asyncio
     async def test_cancel_all_orders_batch_operation(
-        self, mock_order_manager_with_positions, mock_audit_logger, integration_config
+        self, mock_order_gateway_with_positions, mock_audit_logger, integration_config
     ):
         """cancel_all_orders is called for each symbol."""
         manager = LiquidationManager(
-            order_manager=mock_order_manager_with_positions,
+            order_gateway=mock_order_gateway_with_positions,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -133,20 +133,20 @@ class TestOrderGatewayIntegration:
         result = await manager.execute_liquidation(["BTCUSDT", "ETHUSDT"])
 
         # Verify cancel was called for each symbol
-        assert mock_order_manager_with_positions.cancel_all_orders.call_count == 2
-        mock_order_manager_with_positions.cancel_all_orders.assert_any_call("BTCUSDT")
-        mock_order_manager_with_positions.cancel_all_orders.assert_any_call("ETHUSDT")
+        assert mock_order_gateway_with_positions.cancel_all_orders.call_count == 2
+        mock_order_gateway_with_positions.cancel_all_orders.assert_any_call("BTCUSDT")
+        mock_order_gateway_with_positions.cancel_all_orders.assert_any_call("ETHUSDT")
 
         # Verify total cancelled count
         assert result.orders_cancelled == 3  # 2 + 1
 
     @pytest.mark.asyncio
     async def test_execute_market_close_with_reduce_only_enforcement(
-        self, mock_order_manager_with_positions, mock_audit_logger, integration_config
+        self, mock_order_gateway_with_positions, mock_audit_logger, integration_config
     ):
         """execute_market_close is called with reduceOnly=True enforced."""
         manager = LiquidationManager(
-            order_manager=mock_order_manager_with_positions,
+            order_gateway=mock_order_gateway_with_positions,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -154,10 +154,10 @@ class TestOrderGatewayIntegration:
         result = await manager.execute_liquidation(["BTCUSDT", "ETHUSDT"])
 
         # Verify execute_market_close was called for both positions
-        assert mock_order_manager_with_positions.execute_market_close.call_count == 2
+        assert mock_order_gateway_with_positions.execute_market_close.call_count == 2
 
         # Verify reduceOnly=True was passed
-        calls = mock_order_manager_with_positions.execute_market_close.call_args_list
+        calls = mock_order_gateway_with_positions.execute_market_close.call_args_list
         for call_args in calls:
             _, kwargs = call_args
             assert kwargs["reduce_only"] is True, "reduceOnly must always be True"
@@ -179,10 +179,10 @@ class TestRetryLogicWithExponentialBackoff:
         self, mock_audit_logger, integration_config
     ):
         """cancel_all_orders retries on failure with exponential backoff."""
-        mock_order_manager = MagicMock()
+        mock_order_gateway = MagicMock()
 
         # Mock failures then success
-        mock_order_manager.cancel_all_orders = MagicMock(
+        mock_order_gateway.cancel_all_orders = MagicMock(
             side_effect=[
                 Exception("API error"),  # Attempt 1: fail
                 Exception("Timeout"),    # Attempt 2: fail
@@ -191,7 +191,7 @@ class TestRetryLogicWithExponentialBackoff:
         )
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -199,7 +199,7 @@ class TestRetryLogicWithExponentialBackoff:
         result = await manager.execute_liquidation(["BTCUSDT"])
 
         # Verify 3 attempts were made
-        assert mock_order_manager.cancel_all_orders.call_count == 3
+        assert mock_order_gateway.cancel_all_orders.call_count == 3
 
         # Verify eventual success
         assert result.orders_cancelled == 3
@@ -210,7 +210,7 @@ class TestRetryLogicWithExponentialBackoff:
         self, mock_audit_logger, integration_config
     ):
         """_close_all_positions retries on failure with exponential backoff."""
-        mock_order_manager = MagicMock()
+        mock_order_gateway = MagicMock()
 
         # Mock position data
         async def mock_get_positions(symbols):
@@ -224,7 +224,7 @@ class TestRetryLogicWithExponentialBackoff:
                 },
             ]
 
-        mock_order_manager.get_all_positions = AsyncMock(side_effect=mock_get_positions)
+        mock_order_gateway.get_all_positions = AsyncMock(side_effect=mock_get_positions)
 
         # Mock failures then success
         call_count = [0]
@@ -236,12 +236,12 @@ class TestRetryLogicWithExponentialBackoff:
             else:
                 return {"success": True, "order_id": "123", "status": "FILLED"}
 
-        mock_order_manager.execute_market_close = AsyncMock(
+        mock_order_gateway.execute_market_close = AsyncMock(
             side_effect=mock_execute_close
         )
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -260,15 +260,15 @@ class TestRetryLogicWithExponentialBackoff:
         self, mock_audit_logger, integration_config
     ):
         """Retry logic respects max_retries limit."""
-        mock_order_manager = MagicMock()
+        mock_order_gateway = MagicMock()
 
         # Always fail
-        mock_order_manager.cancel_all_orders = MagicMock(
+        mock_order_gateway.cancel_all_orders = MagicMock(
             side_effect=Exception("Persistent API error")
         )
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -276,7 +276,7 @@ class TestRetryLogicWithExponentialBackoff:
         result = await manager.execute_liquidation(["BTCUSDT"])
 
         # Verify max_retries attempts were made
-        assert mock_order_manager.cancel_all_orders.call_count == integration_config.max_retries
+        assert mock_order_gateway.cancel_all_orders.call_count == integration_config.max_retries
 
         # Verify failure was recorded
         assert result.orders_failed == 1
@@ -287,11 +287,11 @@ class TestSecurityRequirements:
 
     @pytest.mark.asyncio
     async def test_reduce_only_always_true(
-        self, mock_order_manager_with_positions, mock_audit_logger, integration_config
+        self, mock_order_gateway_with_positions, mock_audit_logger, integration_config
     ):
         """reduceOnly=True is enforced for all position close orders."""
         manager = LiquidationManager(
-            order_manager=mock_order_manager_with_positions,
+            order_gateway=mock_order_gateway_with_positions,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -299,13 +299,13 @@ class TestSecurityRequirements:
         await manager.execute_liquidation(["BTCUSDT", "ETHUSDT"])
 
         # Verify all execute_market_close calls used reduceOnly=True
-        for call_args in mock_order_manager_with_positions.execute_market_close.call_args_list:
+        for call_args in mock_order_gateway_with_positions.execute_market_close.call_args_list:
             _, kwargs = call_args
             assert kwargs.get("reduce_only") is True, "SECURITY: reduceOnly must always be True"
 
     @pytest.mark.asyncio
     async def test_timeout_enforcement(
-        self, mock_order_manager_with_positions, mock_audit_logger
+        self, mock_order_gateway_with_positions, mock_audit_logger
     ):
         """Liquidation respects timeout_seconds configuration."""
         # Create config with short timeout (minimum is 1.0s per LiquidationConfig validation)
@@ -323,12 +323,12 @@ class TestSecurityRequirements:
             await asyncio.sleep(2.0)  # Exceeds timeout
             return []
 
-        mock_order_manager_with_positions.get_all_positions = AsyncMock(
+        mock_order_gateway_with_positions.get_all_positions = AsyncMock(
             side_effect=slow_get_positions
         )
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager_with_positions,
+            order_gateway=mock_order_gateway_with_positions,
             audit_logger=mock_audit_logger,
             config=short_timeout_config,
         )
@@ -342,11 +342,11 @@ class TestSecurityRequirements:
 
     @pytest.mark.asyncio
     async def test_comprehensive_audit_trail(
-        self, mock_order_manager_with_positions, mock_audit_logger, integration_config
+        self, mock_order_gateway_with_positions, mock_audit_logger, integration_config
     ):
         """All operations are logged with correlation IDs."""
         manager = LiquidationManager(
-            order_manager=mock_order_manager_with_positions,
+            order_gateway=mock_order_gateway_with_positions,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -367,7 +367,7 @@ class TestSecurityRequirements:
         self, mock_audit_logger, integration_config
     ):
         """Invalid position amounts are validated and skipped."""
-        mock_order_manager = MagicMock()
+        mock_order_gateway = MagicMock()
 
         # Mock position with string "0.0" that converts to float 0.0 (edge case)
         # Note: get_all_positions should already filter these out, but testing the edge case
@@ -375,12 +375,12 @@ class TestSecurityRequirements:
         async def mock_get_positions(symbols):
             return []  # Empty - positions with 0 amount are already filtered
 
-        mock_order_manager.get_all_positions = AsyncMock(side_effect=mock_get_positions)
-        mock_order_manager.cancel_all_orders = MagicMock(return_value=0)
-        mock_order_manager.execute_market_close = AsyncMock()
+        mock_order_gateway.get_all_positions = AsyncMock(side_effect=mock_get_positions)
+        mock_order_gateway.cancel_all_orders = MagicMock(return_value=0)
+        mock_order_gateway.execute_market_close = AsyncMock()
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -393,7 +393,7 @@ class TestSecurityRequirements:
         assert result.state == LiquidationState.COMPLETED
 
         # Verify execute_market_close was NOT called
-        mock_order_manager.execute_market_close.assert_not_called()
+        mock_order_gateway.execute_market_close.assert_not_called()
 
 
 class TestTradingBotIntegration:
@@ -416,15 +416,15 @@ class TestTradingBotIntegration:
         self, mock_audit_logger, integration_config
     ):
         """Liquidation failures do not block shutdown process."""
-        mock_order_manager = MagicMock()
+        mock_order_gateway = MagicMock()
 
         # Mock catastrophic failure
-        mock_order_manager.get_all_positions = AsyncMock(
+        mock_order_gateway.get_all_positions = AsyncMock(
             side_effect=Exception("Complete API failure")
         )
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -448,14 +448,14 @@ class TestEdgeCases:
         self, mock_audit_logger, integration_config
     ):
         """Handles empty positions list gracefully."""
-        mock_order_manager = MagicMock()
+        mock_order_gateway = MagicMock()
 
         # Return empty list
-        mock_order_manager.get_all_positions = AsyncMock(return_value=[])
-        mock_order_manager.cancel_all_orders = MagicMock(return_value=0)
+        mock_order_gateway.get_all_positions = AsyncMock(return_value=[])
+        mock_order_gateway.cancel_all_orders = MagicMock(return_value=0)
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )
@@ -472,7 +472,7 @@ class TestEdgeCases:
         self, mock_audit_logger, integration_config
     ):
         """Handles partial position closure (some succeed, some fail)."""
-        mock_order_manager = MagicMock()
+        mock_order_gateway = MagicMock()
 
         # Return 2 positions
         async def mock_get_positions(symbols):
@@ -493,7 +493,7 @@ class TestEdgeCases:
                 },
             ]
 
-        mock_order_manager.get_all_positions = AsyncMock(side_effect=mock_get_positions)
+        mock_order_gateway.get_all_positions = AsyncMock(side_effect=mock_get_positions)
 
         # First position succeeds, second fails
         close_count = [0]
@@ -505,10 +505,10 @@ class TestEdgeCases:
             else:
                 return {"success": False, "error": "Insufficient margin"}
 
-        mock_order_manager.execute_market_close = AsyncMock(side_effect=mock_execute_close)
+        mock_order_gateway.execute_market_close = AsyncMock(side_effect=mock_execute_close)
 
         manager = LiquidationManager(
-            order_manager=mock_order_manager,
+            order_gateway=mock_order_gateway,
             audit_logger=mock_audit_logger,
             config=integration_config,
         )

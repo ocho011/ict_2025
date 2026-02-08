@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.core.exceptions import ConfigurationError
-from src.utils.config import ConfigManager
+from src.utils.config_manager import ConfigManager
 
 
 class TestEnvironmentSeparation:

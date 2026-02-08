@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.models.position import Position
-    from src.core.position_cache import PositionCacheManager
+    from src.core.position_cache_manager import PositionCacheManager
 
 from src.models.order import Order
 from src.models.position import PositionEntryData
@@ -44,17 +44,17 @@ class TradeCoordinator:
 
     def __init__(
         self,
-        order_manager,
-        risk_manager,
+        order_gateway,
+        risk_guard,
         config_manager,
         audit_logger: "AuditLogger",
-        position_cache: "PositionCacheManager",
+        position_cache_manager: "PositionCacheManager",
     ):
-        self._order_manager = order_manager
-        self._risk_manager = risk_manager
+        self._order_gateway = order_gateway
+        self._risk_guard = risk_guard
         self._config_manager = config_manager
         self._audit_logger = audit_logger
-        self._position_cache = position_cache
+        self._position_cache_manager = position_cache_manager
         self._position_entry_data: Dict[str, PositionEntryData] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -79,10 +79,10 @@ class TradeCoordinator:
 
         try:
             # Step 2: Get current position from OrderGateway (fresh query for execution)
-            current_position = self._order_manager.get_position(signal.symbol)
+            current_position = self._order_gateway.get_position(signal.symbol)
 
             # Step 3: Validate signal with RiskGuard
-            is_valid = self._risk_manager.validate_risk(signal, current_position)
+            is_valid = self._risk_guard.validate_risk(signal, current_position)
 
             if not is_valid:
                 self.logger.warning(
@@ -116,7 +116,7 @@ class TradeCoordinator:
 
             # Entry signal: calculate position size and execute with TP/SL
             # Step 5: Get account balance
-            account_balance = self._order_manager.get_account_balance()
+            account_balance = self._order_gateway.get_account_balance()
 
             if account_balance <= 0:
                 self.logger.error(
@@ -125,7 +125,7 @@ class TradeCoordinator:
                 return
 
             # Step 6: Calculate position size using RiskGuard
-            quantity = self._risk_manager.calculate_position_size(
+            quantity = self._risk_guard.calculate_position_size(
                 account_balance=account_balance,
                 entry_price=signal.entry_price,
                 stop_loss_price=signal.stop_loss,
@@ -135,12 +135,12 @@ class TradeCoordinator:
 
             # Step 7: Execute signal via OrderGateway
             # Returns (entry_order, [tp_order, sl_order])
-            entry_order, tpsl_orders = self._order_manager.execute_signal(
+            entry_order, tpsl_orders = self._order_gateway.execute_signal(
                 signal=signal, quantity=quantity
             )
 
             # Invalidate position cache after order execution
-            self._position_cache.invalidate(signal.symbol)
+            self._position_cache_manager.invalidate(signal.symbol)
 
             # Step 7: Log successful trade execution
             self.logger.info(
@@ -227,7 +227,7 @@ class TradeCoordinator:
 
             # Step 1: Cancel any existing TP/SL orders first
             try:
-                cancelled_count = self._order_manager.cancel_all_orders(signal.symbol)
+                cancelled_count = self._order_gateway.cancel_all_orders(signal.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"Cancelled {cancelled_count} existing orders before exit"
@@ -242,7 +242,7 @@ class TradeCoordinator:
             )
 
             # Execute close order with reduce_only via async method
-            result = await self._order_manager.execute_market_close(
+            result = await self._order_gateway.execute_market_close(
                 symbol=signal.symbol,
                 position_amt=position.quantity,
                 side=close_side,
@@ -250,7 +250,7 @@ class TradeCoordinator:
             )
 
             # Step 3: Invalidate position cache
-            self._position_cache.invalidate(signal.symbol)
+            self._position_cache_manager.invalidate(signal.symbol)
 
             # Step 4: Check result and log
             if result.get("success"):
@@ -438,7 +438,7 @@ class TradeCoordinator:
             )
 
             try:
-                cancelled_count = self._order_manager.cancel_all_orders(order.symbol)
+                cancelled_count = self._order_gateway.cancel_all_orders(order.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"TP/SL hit: cancelled {cancelled_count} remaining orders "

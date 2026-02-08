@@ -22,7 +22,7 @@ from enum import Enum
 from typing import Dict, List, Optional
 
 from src.core.audit_logger import AuditLogger, AuditEventType
-from src.utils.config import LiquidationConfig
+from src.utils.config_manager import LiquidationConfig
 
 
 class LiquidationState(Enum):
@@ -121,7 +121,7 @@ class LiquidationManager:
 
     def __init__(
         self,
-        order_manager,  # OrderGateway instance
+        order_gateway,  # OrderGateway instance
         audit_logger: Optional[AuditLogger] = None,
         config: Optional[LiquidationConfig] = None,
     ):
@@ -129,12 +129,12 @@ class LiquidationManager:
         Initialize liquidation manager.
 
         Args:
-            order_manager: OrderGateway instance for API calls
+            order_gateway: OrderGateway instance for API calls
             audit_logger: Optional AuditLogger instance for audit trail.
                          If None, uses singleton instance from AuditLogger.get_instance()
             config: LiquidationConfig instance with validated configuration
         """
-        self.order_manager = order_manager
+        self.order_gateway = order_gateway
         self.audit_logger = audit_logger or AuditLogger.get_instance()
         self.config = config
         self.logger = logging.getLogger(__name__)
@@ -373,7 +373,7 @@ class LiquidationManager:
             for attempt in range(self.config.max_retries):
                 try:
                     # Call OrderGateway.cancel_all_orders()
-                    cancelled_count = self.order_manager.cancel_all_orders(symbol)
+                    cancelled_count = self.order_gateway.cancel_all_orders(symbol)
                     cancelled_total += cancelled_count
 
                     # Audit log success
@@ -455,7 +455,7 @@ class LiquidationManager:
 
         # Step 1: Query all open positions for symbols
         try:
-            positions = await self.order_manager.get_all_positions(symbols)
+            positions = await self.order_gateway.get_all_positions(symbols)
 
             if not positions:
                 self.logger.info(
@@ -506,7 +506,7 @@ class LiquidationManager:
             for attempt in range(self.config.max_retries):
                 try:
                     # Execute market close order with reduceOnly=True (enforced in execute_market_close)
-                    result = await self.order_manager.execute_market_close(
+                    result = await self.order_gateway.execute_market_close(
                         symbol=symbol,
                         position_amt=abs_position_amt,
                         side=close_side,
