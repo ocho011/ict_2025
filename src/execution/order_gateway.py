@@ -23,7 +23,7 @@ from src.models.signal import Signal, SignalType
 # RequestWeightTracker moved to src.core.binance_service
 
 
-class OrderExecutionManager:
+class OrderGateway:
     """
     Binance Futures order execution manager.
 
@@ -37,10 +37,10 @@ class OrderExecutionManager:
 
     Example:
         >>> # Using environment variables (recommended)
-        >>> manager = OrderExecutionManager(is_testnet=True)
+        >>> manager = OrderGateway(is_testnet=True)
 
         >>> # Providing keys directly
-        >>> manager = OrderExecutionManager(
+        >>> manager = OrderGateway(
         ...     api_key='your_key',
         ...     api_secret='your_secret',
         ...     is_testnet=False
@@ -61,7 +61,7 @@ class OrderExecutionManager:
         binance_service: Optional[BinanceServiceClient] = None,
     ) -> None:
         """
-        Initialize OrderExecutionManager.
+        Initialize OrderGateway.
 
         Args:
             audit_logger: Optional AuditLogger instance for structured logging.

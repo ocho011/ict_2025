@@ -451,7 +451,7 @@ trading:
 
     def test_config_manager_without_yaml(self, temp_config_dir, monkeypatch):
         """Test ConfigManager works without YAML config."""
-        from src.utils.config import ConfigManager
+        from src.utils.config_manager import ConfigManager
 
         # Patch the config_dir
         cm = ConfigManager.__new__(ConfigManager)
@@ -473,7 +473,7 @@ trading:
 
     def test_config_manager_with_yaml(self, temp_config_dir, yaml_config_content):
         """Test ConfigManager loads YAML config when available."""
-        from src.utils.config import ConfigManager
+        from src.utils.config_manager import ConfigManager
 
         # Create YAML config file
         yaml_file = temp_config_dir / "trading_config.yaml"
@@ -505,7 +505,7 @@ trading:
 
     def test_config_manager_yaml_invalid_structure(self, temp_config_dir):
         """Test ConfigManager handles invalid YAML structure."""
-        from src.utils.config import ConfigManager
+        from src.utils.config_manager import ConfigManager
 
         # Create invalid YAML (missing trading section)
         yaml_file = temp_config_dir / "trading_config.yaml"
@@ -527,7 +527,7 @@ trading:
         self, temp_config_dir, yaml_config_content
     ):
         """Test getting enabled symbols from hierarchical config."""
-        from src.utils.config import ConfigManager
+        from src.utils.config_manager import ConfigManager
 
         yaml_file = temp_config_dir / "trading_config.yaml"
         yaml_file.write_text(yaml_config_content)

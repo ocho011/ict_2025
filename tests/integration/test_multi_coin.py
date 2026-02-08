@@ -70,12 +70,12 @@ def trading_engine_multi_coin(mock_config_manager_multi_symbol):
     engine.data_collector.intervals = ["5m", "1h", "4h"]
 
     # Mock order manager and risk manager
-    engine.order_manager = Mock()
-    engine.order_manager.get_position = Mock(return_value=None)
-    engine.order_manager.get_account_balance = Mock(return_value=1000.0)
+    engine.order_gateway = Mock()
+    engine.order_gateway.get_position = Mock(return_value=None)
+    engine.order_gateway.get_account_balance = Mock(return_value=1000.0)
 
-    engine.risk_manager = Mock()
-    engine.risk_manager.validate_risk = Mock(return_value=True)
+    engine.risk_guard = Mock()
+    engine.risk_guard.validate_risk = Mock(return_value=True)
 
     engine.logger = Mock()
 
@@ -243,7 +243,7 @@ class TestMaxSymbolsEnforcement:
 
     def test_rejects_more_than_10_symbols(self):
         """Test that >10 symbols raises ConfigurationError."""
-        from src.utils.config import TradingConfig, ConfigurationError
+        from src.utils.config_manager import TradingConfig, ConfigurationError
 
         # Create config with 11 symbols
         symbols = [f"SYM{i}USDT" for i in range(11)]
@@ -265,7 +265,7 @@ class TestMaxSymbolsEnforcement:
 
     def test_accepts_exactly_10_symbols(self):
         """Test that exactly 10 symbols is accepted (boundary case)."""
-        from src.utils.config import TradingConfig
+        from src.utils.config_manager import TradingConfig
 
         # Create config with 10 symbols
         symbols = [f"SYM{i}USDT" for i in range(10)]

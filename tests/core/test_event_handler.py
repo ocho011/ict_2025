@@ -10,7 +10,7 @@ import threading
 
 import pytest
 
-from src.core.event_handler import EventBus
+from src.core.event_bus import EventBus
 from src.models.event import Event, EventType, QueueType
 
 

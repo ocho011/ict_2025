@@ -20,7 +20,7 @@ from src.models.candle import Candle
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
 from src.strategies.ict_strategy import ICTStrategy
-from src.utils.config import ExitConfig
+from src.utils.config_manager import ExitConfig
 
 
 class TestExitConfig:
@@ -669,11 +669,11 @@ class TestExitIntegration:
         self, ict_strategy_trailing_stop, mock_position_long, mock_candle
     ):
         """Test exit signal passes risk validation."""
-        from src.risk.manager import RiskManager
+        from src.risk.risk_guard import RiskGuard
         from src.core.audit_logger import AuditLogger
 
         # Mock risk manager to accept exit signals
-        mock_risk_manager = MagicMock(spec=RiskManager)
+        mock_risk_manager = MagicMock(spec=RiskGuard)
         mock_risk_manager.validate_risk.return_value = True
 
         # Mock audit logger

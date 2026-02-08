@@ -7,7 +7,7 @@ Tests all validation rules for APIConfig, TradingConfig, and ConfigManager
 import pytest
 
 from src.core.exceptions import ConfigurationError
-from src.utils.config import APIConfig, ConfigManager, LoggingConfig, TradingConfig
+from src.utils.config_manager import APIConfig, ConfigManager, LoggingConfig, TradingConfig
 
 
 class TestAPIConfigValidation:

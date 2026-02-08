@@ -23,17 +23,16 @@ from enum import Enum, auto
 
 from src.core.audit_logger import AuditLogger
 from src.core.data_collector import BinanceDataCollector
-from src.core.event_handler import EventBus
+from src.core.event_bus import EventBus
 from src.core.trading_engine import TradingEngine
 from src.execution.liquidation_manager import LiquidationManager
-from src.utils.config import ConfigManager, LiquidationConfig
-from src.execution.order_manager import OrderExecutionManager
+from src.utils.config_manager import ConfigManager, LiquidationConfig
+from src.execution.order_gateway import OrderGateway
 from src.models.candle import Candle
 from src.models.event import Event, EventType
-from src.risk.manager import RiskManager
+from src.risk.risk_guard import RiskGuard
 from src.strategies import StrategyFactory
 from src.strategies.base import BaseStrategy
-from src.utils.config import ConfigManager
 from src.utils.logger import TradingLogger
 
 
@@ -61,8 +60,8 @@ class TradingBot:
         config_manager: Configuration management system
         event_bus: Event coordination and pub-sub system
         data_collector: WebSocket data collection from Binance
-        order_manager: Order execution and position management
-        risk_manager: Risk validation and position sizing
+        order_gateway: Order execution and position management
+        risk_guard: Risk validation and position sizing
         strategy: Trading strategy implementation
         logger: Application logger
         _running: Bot runtime state flag
@@ -80,8 +79,8 @@ class TradingBot:
         self.config_manager: Optional[ConfigManager] = None
         self.event_bus: Optional[EventBus] = None
         self.data_collector: Optional[BinanceDataCollector] = None
-        self.order_manager: Optional[OrderExecutionManager] = None
-        self.risk_manager: Optional[RiskManager] = None
+        self.order_gateway: Optional[OrderGateway] = None
+        self.risk_guard: Optional[RiskGuard] = None
         self.trading_engine: Optional[TradingEngine] = None
         self.liquidation_manager: Optional[LiquidationManager] = None
         self.logger: Optional[logging.Logger] = None
@@ -109,8 +108,8 @@ class TradingBot:
         8. LiquidationManager - Emergency shutdown handler
 
         TradingEngine now owns:
-        - OrderExecutionManager creation
-        - RiskManager creation
+        - OrderGateway creation
+        - RiskGuard creation
         - Strategy creation
         - DataCollector creation
         - Leverage configuration
@@ -179,9 +178,9 @@ class TradingBot:
         )
 
         # Get references to components created by TradingEngine
-        self.order_manager = self.trading_engine.order_manager
+        self.order_gateway = self.trading_engine.order_gateway
         self.data_collector = self.trading_engine.data_collector
-        self.risk_manager = self.trading_engine.risk_manager
+        self.risk_guard = self.trading_engine.risk_guard
 
         # Step 8: Initialize strategy with historical data (if backfill enabled)
         self._backfill_limit = trading_config.backfill_limit
@@ -207,7 +206,7 @@ class TradingBot:
         )
 
         self.liquidation_manager = LiquidationManager(
-            order_manager=self.order_manager,
+            order_gateway=self.order_gateway,
             audit_logger=self.audit_logger,
             config=liquidation_config,
         )

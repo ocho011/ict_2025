@@ -13,7 +13,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.utils.config import LiquidationConfig
+from src.utils.config_manager import LiquidationConfig
 from src.execution.config_validator import LiquidationConfigValidator
 
 

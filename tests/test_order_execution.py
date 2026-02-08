@@ -1,5 +1,5 @@
 """
-OrderExecutionManager Unit Tests
+OrderGateway Unit Tests
 """
 
 import logging
@@ -10,14 +10,14 @@ import pytest
 from binance.error import ClientError
 
 from src.core.exceptions import OrderExecutionError, OrderRejectedError, ValidationError
-from src.execution.order_manager import OrderExecutionManager
+from src.execution.order_gateway import OrderGateway
 from src.core.binance_service import BinanceServiceClient
 from src.models.order import OrderSide, OrderStatus, OrderType
 from src.models.signal import Signal, SignalType
 
 
-class TestOrderExecutionManager:
-    """OrderExecutionManager Unit Tests"""
+class TestOrderGateway:
+    """OrderGateway Unit Tests"""
 
     @pytest.fixture
     def mock_client(self):
@@ -53,8 +53,8 @@ class TestOrderExecutionManager:
 
     @pytest.fixture
     def manager(self, mock_binance_service, mock_audit_logger):
-        """OrderExecutionManager instance (using mock service)"""
-        return OrderExecutionManager(
+        """OrderGateway instance (using mock service)"""
+        return OrderGateway(
             audit_logger=mock_audit_logger,
             binance_service=mock_binance_service
         )
@@ -298,8 +298,8 @@ class TestExecuteSignal:
 
     @pytest.fixture
     def manager(self, mock_binance_service):
-        """OrderExecutionManager instance (using mock service)"""
-        return OrderExecutionManager(
+        """OrderGateway instance (using mock service)"""
+        return OrderGateway(
             audit_logger=MagicMock(),
             binance_service=mock_binance_service
         )
@@ -692,8 +692,8 @@ class TestTPSLPlacement:
 
     @pytest.fixture
     def manager(self, mock_binance_service):
-        """OrderExecutionManager instance (using mock service)"""
-        return OrderExecutionManager(
+        """OrderGateway instance (using mock service)"""
+        return OrderGateway(
             audit_logger=MagicMock(),
             binance_service=mock_binance_service
         )
@@ -1297,8 +1297,8 @@ class TestQueryMethods:
 
     @pytest.fixture
     def manager(self, mock_binance_service):
-        """OrderExecutionManager instance (using mock service)"""
-        return OrderExecutionManager(
+        """OrderGateway instance (using mock service)"""
+        return OrderGateway(
             audit_logger=MagicMock(),
             binance_service=mock_binance_service
         )
@@ -1817,8 +1817,8 @@ class TestPriceFormatting:
 
     @pytest.fixture
     def manager(self, mock_binance_service):
-        """OrderExecutionManager instance with mock service"""
-        return OrderExecutionManager(
+        """OrderGateway instance with mock service"""
+        return OrderGateway(
             audit_logger=MagicMock(),
             binance_service=mock_binance_service
         )

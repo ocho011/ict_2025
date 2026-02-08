@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch, call
 import pytest
 
 from binance.error import ClientError, ServerError
-from src.execution.order_manager import OrderExecutionManager
+from src.execution.order_gateway import OrderGateway
 from src.core.circuit_breaker import CircuitBreaker
 from src.core.exceptions import OrderExecutionError, ValidationError
 from src.models.position import Position
@@ -39,8 +39,8 @@ class TestGetPositionWithRetry:
 
     @pytest.fixture
     def manager(self, mock_binance_service, mock_audit_logger):
-        """OrderExecutionManager instance with mocked services"""
-        return OrderExecutionManager(
+        """OrderGateway instance with mocked services"""
+        return OrderGateway(
             audit_logger=mock_audit_logger, binance_service=mock_binance_service
         )
 

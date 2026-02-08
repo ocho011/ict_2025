@@ -2,7 +2,7 @@
 Unit tests for TradingEngine orchestrator (Updated for Issue #110 refactor)
 
 Tests component integration, event handlers, and lifecycle management with
-delegated modules (PositionCacheManager, TradeExecutor, EventDispatcher).
+delegated modules (PositionCacheManager, TradeCoordinator, EventDispatcher).
 """
 
 import asyncio
@@ -43,44 +43,44 @@ def trading_engine():
     eth_strategy.intervals = ["1h"]
     engine.strategies = {"BTCUSDT": engine.strategy, "ETHUSDT": eth_strategy}
 
-    engine.order_manager = Mock()
-    engine.order_manager.get_position = Mock(return_value=None)
-    engine.order_manager.get_account_balance = Mock(return_value=1000.0)
-    engine.order_manager.execute_signal = Mock(
+    engine.order_gateway = Mock()
+    engine.order_gateway.get_position = Mock(return_value=None)
+    engine.order_gateway.get_account_balance = Mock(return_value=1000.0)
+    engine.order_gateway.execute_signal = Mock(
         return_value=(Mock(order_id="TEST123", quantity=0.1), [])
     )
 
-    engine.risk_manager = Mock()
-    engine.risk_manager.validate_risk = Mock(return_value=True)
-    engine.risk_manager.calculate_position_size = Mock(return_value=0.1)
+    engine.risk_guard = Mock()
+    engine.risk_guard.validate_risk = Mock(return_value=True)
+    engine.risk_guard.calculate_position_size = Mock(return_value=0.1)
 
     engine.config_manager = Mock()
     engine.config_manager.trading_config = Mock(leverage=10)
 
     # Create extracted modules with the mocked components (Issue #110)
-    from src.core.position_cache import PositionCacheManager
-    from src.execution.trade_executor import TradeExecutor
+    from src.core.position_cache_manager import PositionCacheManager
+    from src.execution.trade_coordinator import TradeCoordinator
     from src.core.event_dispatcher import EventDispatcher
 
-    engine.position_cache = PositionCacheManager(
-        order_manager=engine.order_manager,
+    engine.position_cache_manager = PositionCacheManager(
+        order_gateway=engine.order_gateway,
         config_manager=engine.config_manager,
     )
 
-    engine.trade_executor = TradeExecutor(
-        order_manager=engine.order_manager,
-        risk_manager=engine.risk_manager,
+    engine.trade_coordinator = TradeCoordinator(
+        order_gateway=engine.order_gateway,
+        risk_guard=engine.risk_guard,
         config_manager=engine.config_manager,
         audit_logger=mock_audit_logger,
-        position_cache=engine.position_cache,
+        position_cache_manager=engine.position_cache_manager,
     )
 
     engine.event_dispatcher = EventDispatcher(
         strategies=engine.strategies,
-        position_cache=engine.position_cache,
+        position_cache_manager=engine.position_cache_manager,
         event_bus=engine.event_bus,
         audit_logger=mock_audit_logger,
-        order_manager=engine.order_manager,
+        order_gateway=engine.order_gateway,
         engine_state_getter=lambda: engine._engine_state,
         event_loop_getter=lambda: engine._event_loop,
         log_live_data=True,
@@ -106,19 +106,19 @@ class TestTradingEngineInit:
         assert engine.event_bus is None
         assert engine.data_collector is None
         assert not engine.strategies
-        assert engine.order_manager is None
-        assert engine.risk_manager is None
+        assert engine.order_gateway is None
+        assert engine.risk_guard is None
         assert engine.config_manager is None
         assert engine._running is False
 
         # Issue #110: Extracted modules start as None
-        assert engine.position_cache is None
-        assert engine.trade_executor is None
+        assert engine.position_cache_manager is None
+        assert engine.trade_coordinator is None
         assert engine.event_dispatcher is None
 
     @patch("src.core.binance_service.BinanceServiceClient")
-    @patch("src.execution.order_manager.OrderExecutionManager")
-    @patch("src.risk.manager.RiskManager")
+    @patch("src.execution.order_gateway.OrderGateway")
+    @patch("src.risk.risk_guard.RiskGuard")
     @patch("src.strategies.StrategyFactory.create")
     @patch("src.core.data_collector.BinanceDataCollector")
     def test_initialize_components_success(
@@ -153,13 +153,13 @@ class TestTradingEngineInit:
         mock_service = Mock()
         mock_service_cls.return_value = mock_service
 
-        mock_order_manager = Mock()
-        mock_order_manager.set_leverage = Mock(return_value=True)
-        mock_order_manager.set_margin_type = Mock(return_value=True)
-        mock_order_cls.return_value = mock_order_manager
+        mock_order_gateway = Mock()
+        mock_order_gateway.set_leverage = Mock(return_value=True)
+        mock_order_gateway.set_margin_type = Mock(return_value=True)
+        mock_order_cls.return_value = mock_order_gateway
 
-        mock_risk = Mock()
-        mock_risk_cls.return_value = mock_risk
+        mock_risk_guard = Mock()
+        mock_risk_cls.return_value = mock_risk_guard
 
         mock_strategy = Mock()
         # Ensure strategy intervals match config so validation passes
@@ -182,14 +182,14 @@ class TestTradingEngineInit:
         # Verify components stored
         assert engine.config_manager is mock_config_manager
         assert engine.event_bus is mock_event_bus
-        assert engine.order_manager is mock_order_manager
-        assert engine.risk_manager is mock_risk
+        assert engine.order_gateway is mock_order_gateway
+        assert engine.risk_guard is mock_risk_guard
         assert engine.data_collector is mock_collector
         assert engine.strategies["BTCUSDT"] is mock_strategy
 
         # Issue #110: Verify extracted modules created
-        assert engine.position_cache is not None
-        assert engine.trade_executor is not None
+        assert engine.position_cache_manager is not None
+        assert engine.trade_coordinator is not None
         assert engine.event_dispatcher is not None
 
         # Verify handlers registered (4 handlers: CANDLE_CLOSED, SIGNAL_GENERATED,
@@ -197,8 +197,8 @@ class TestTradingEngineInit:
         assert mock_event_bus.subscribe.call_count == 4
 
         # Verify API configuration calls
-        mock_order_manager.set_leverage.assert_called_with("BTCUSDT", 10)
-        mock_order_manager.set_margin_type.assert_called_with("BTCUSDT", "ISOLATED")
+        mock_order_gateway.set_leverage.assert_called_with("BTCUSDT", 10)
+        mock_order_gateway.set_margin_type.assert_called_with("BTCUSDT", "ISOLATED")
 
 
 class TestEventHandlers:
@@ -325,20 +325,20 @@ class TestEventHandlers:
         )
         event = Event(EventType.SIGNAL_GENERATED, signal)
 
-        # Call handler (delegates to TradeExecutor)
+        # Call handler (delegates to TradeCoordinator)
         await trading_engine._on_signal_generated(event)
 
         # Verify risk validation called
-        trading_engine.risk_manager.validate_risk.assert_called_once()
+        trading_engine.risk_guard.validate_risk.assert_called_once()
 
         # Verify order execution called
-        trading_engine.order_manager.execute_signal.assert_called_once()
+        trading_engine.order_gateway.execute_signal.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_on_signal_generated_rejects_invalid_signals(self, trading_engine):
         """Verify signal rejected when risk validation fails."""
         # Mock risk manager to reject signal
-        trading_engine.risk_manager.validate_risk.return_value = False
+        trading_engine.risk_guard.validate_risk.return_value = False
 
         signal = Signal(
             signal_type=SignalType.LONG_ENTRY,
@@ -355,7 +355,7 @@ class TestEventHandlers:
         await trading_engine._on_signal_generated(event)
 
         # Verify order NOT executed
-        trading_engine.order_manager.execute_signal.assert_not_called()
+        trading_engine.order_gateway.execute_signal.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_on_order_filled_logs_order(self, trading_engine):
@@ -372,10 +372,10 @@ class TestEventHandlers:
 
         event = Event(EventType.ORDER_FILLED, mock_order)
 
-        # Call handler (delegates to TradeExecutor)
+        # Call handler (delegates to TradeCoordinator)
         await trading_engine._on_order_filled(event)
 
-        # TradeExecutor has its own logger - verify it ran without error
+        # TradeCoordinator has its own logger - verify it ran without error
         # (the mock order_type needs to support 'in' check for OrderType enum)
 
     @pytest.mark.asyncio
@@ -400,7 +400,7 @@ class TestEventHandlers:
             data=partial_order,
         )
 
-        # Process the partial fill event (delegates to TradeExecutor)
+        # Process the partial fill event (delegates to TradeCoordinator)
         await trading_engine._on_order_partially_filled(event)
 
         # Verify position entry data was tracked (via backward-compat property)
@@ -591,7 +591,7 @@ class TestIntegration:
 
     @pytest.mark.asyncio
     async def test_full_pipeline_candle_to_order(self, trading_engine):
-        """Integration: Candle → Strategy → Signal → RiskManager → Order → Event."""
+        """Integration: Candle → Strategy → Signal → RiskGuard → Order → Event."""
         # Track published events
         published_events = []
 
@@ -616,7 +616,7 @@ class TestIntegration:
 
         # Mock order execution
         mock_order = Mock(order_id="ORDER123", quantity=0.1)
-        trading_engine.order_manager.execute_signal.return_value = (mock_order, [])
+        trading_engine.order_gateway.execute_signal.return_value = (mock_order, [])
 
         # Create candle and trigger handler
         candle = Candle(
@@ -643,7 +643,7 @@ class TestIntegration:
         assert signal_event.data == expected_signal
         assert queue_type == QueueType.SIGNAL
 
-        # Process signal → order (via TradeExecutor)
+        # Process signal → order (via TradeCoordinator)
         await trading_engine._on_signal_generated(signal_event)
 
         # After Issue #97: ORDER_FILLED events come from WebSocket confirmation,
@@ -654,10 +654,10 @@ class TestIntegration:
         trading_engine.strategy.analyze.assert_called_once_with(candle)
 
         # Verify risk validation was called
-        trading_engine.risk_manager.validate_risk.assert_called_once()
+        trading_engine.risk_guard.validate_risk.assert_called_once()
 
         # Verify order execution was called
-        trading_engine.order_manager.execute_signal.assert_called_once()
+        trading_engine.order_gateway.execute_signal.assert_called_once()
 
 
 class TestStrategyCompatibilityValidation:
@@ -838,9 +838,9 @@ class TestInitializationOrder:
         with (
             patch("src.core.binance_service.BinanceServiceClient") as mock_service_cls,
             patch(
-                "src.execution.order_manager.OrderExecutionManager"
+                "src.execution.order_gateway.OrderGateway"
             ) as mock_order_cls,
-            patch("src.risk.manager.RiskManager") as mock_risk_cls,
+            patch("src.risk.risk_guard.RiskGuard") as mock_risk_cls,
             patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
             patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
         ):
@@ -909,19 +909,19 @@ class TestInitializationOrder:
         with (
             patch("src.core.binance_service.BinanceServiceClient") as mock_service_cls,
             patch(
-                "src.execution.order_manager.OrderExecutionManager"
+                "src.execution.order_gateway.OrderGateway"
             ) as mock_order_cls,
-            patch("src.risk.manager.RiskManager") as mock_risk_cls,
+            patch("src.risk.risk_guard.RiskGuard") as mock_risk_cls,
             patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
             patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
         ):
             # Setup mocks
             mock_service_cls.return_value = MagicMock()
 
-            mock_order_manager = MagicMock()
-            mock_order_manager.set_leverage = MagicMock(return_value=True)
-            mock_order_manager.set_margin_type = MagicMock(return_value=True)
-            mock_order_cls.return_value = mock_order_manager
+            mock_order_gateway = MagicMock()
+            mock_order_gateway.set_leverage = MagicMock(return_value=True)
+            mock_order_gateway.set_margin_type = MagicMock(return_value=True)
+            mock_order_cls.return_value = mock_order_gateway
 
             mock_risk_cls.return_value = MagicMock()
 
@@ -947,8 +947,8 @@ class TestInitializationOrder:
 
             # CRITICAL: Verify API calls were NOT made
             # (validation failed before set_leverage/set_margin_type)
-            mock_order_manager.set_leverage.assert_not_called()
-            mock_order_manager.set_margin_type.assert_not_called()
+            mock_order_gateway.set_leverage.assert_not_called()
+            mock_order_gateway.set_margin_type.assert_not_called()
 
 
 class TestIntervalFiltering:
@@ -958,7 +958,7 @@ class TestIntervalFiltering:
     async def test_mtf_strategy_processes_required_interval(self):
         """Test MTF strategy processes candles from required intervals."""
         from src.strategies.base import BaseStrategy
-        from src.core.position_cache import PositionCacheManager
+        from src.core.position_cache_manager import PositionCacheManager
         from src.core.event_dispatcher import EventDispatcher
 
         mock_audit_logger = MagicMock()
@@ -976,23 +976,23 @@ class TestIntervalFiltering:
 
         # Mock other components
         engine.event_bus = AsyncMock()
-        engine.order_manager = Mock()
-        engine.order_manager.get_position.return_value = None
+        engine.order_gateway = Mock()
+        engine.order_gateway.get_position.return_value = None
         engine.config_manager = Mock()
         engine.config_manager.trading_config = Mock(leverage=10)
         engine.logger = Mock()
 
         # Create extracted modules
-        engine.position_cache = PositionCacheManager(
-            order_manager=engine.order_manager,
+        engine.position_cache_manager = PositionCacheManager(
+            order_gateway=engine.order_gateway,
             config_manager=engine.config_manager,
         )
         engine.event_dispatcher = EventDispatcher(
             strategies=engine.strategies,
-            position_cache=engine.position_cache,
+            position_cache_manager=engine.position_cache_manager,
             event_bus=engine.event_bus,
             audit_logger=mock_audit_logger,
-            order_manager=engine.order_manager,
+            order_gateway=engine.order_gateway,
             engine_state_getter=lambda: engine._engine_state,
             event_loop_getter=lambda: engine._event_loop,
         )
@@ -1023,7 +1023,7 @@ class TestIntervalFiltering:
     async def test_mtf_strategy_filters_unrequired_interval(self):
         """Test MTF strategy filters out candles from unrequired intervals."""
         from src.strategies.base import BaseStrategy
-        from src.core.position_cache import PositionCacheManager
+        from src.core.position_cache_manager import PositionCacheManager
         from src.core.event_dispatcher import EventDispatcher
 
         mock_audit_logger = MagicMock()
@@ -1041,23 +1041,23 @@ class TestIntervalFiltering:
 
         # Mock other components
         engine.event_bus = AsyncMock()
-        engine.order_manager = Mock()
-        engine.order_manager.get_position.return_value = None
+        engine.order_gateway = Mock()
+        engine.order_gateway.get_position.return_value = None
         engine.config_manager = Mock()
         engine.config_manager.trading_config = Mock(leverage=10)
         engine.logger = Mock()
 
         # Create extracted modules
-        engine.position_cache = PositionCacheManager(
-            order_manager=engine.order_manager,
+        engine.position_cache_manager = PositionCacheManager(
+            order_gateway=engine.order_gateway,
             config_manager=engine.config_manager,
         )
         engine.event_dispatcher = EventDispatcher(
             strategies=engine.strategies,
-            position_cache=engine.position_cache,
+            position_cache_manager=engine.position_cache_manager,
             event_bus=engine.event_bus,
             audit_logger=mock_audit_logger,
-            order_manager=engine.order_manager,
+            order_gateway=engine.order_gateway,
             engine_state_getter=lambda: engine._engine_state,
             event_loop_getter=lambda: engine._event_loop,
         )
@@ -1088,7 +1088,7 @@ class TestIntervalFiltering:
     async def test_single_strategy_processes_registered_interval(self):
         """Test single-interval strategy processes intervals it registered."""
         from src.strategies.base import BaseStrategy
-        from src.core.position_cache import PositionCacheManager
+        from src.core.position_cache_manager import PositionCacheManager
         from src.core.event_dispatcher import EventDispatcher
 
         mock_audit_logger = MagicMock()
@@ -1103,22 +1103,22 @@ class TestIntervalFiltering:
         engine.data_collector.intervals = ["5m", "1h"]
 
         engine.event_bus = AsyncMock()
-        engine.order_manager = Mock()
-        engine.order_manager.get_position.return_value = None
+        engine.order_gateway = Mock()
+        engine.order_gateway.get_position.return_value = None
         engine.config_manager = Mock()
         engine.config_manager.trading_config = Mock(leverage=10)
         engine.logger = Mock()
 
-        engine.position_cache = PositionCacheManager(
-            order_manager=engine.order_manager,
+        engine.position_cache_manager = PositionCacheManager(
+            order_gateway=engine.order_gateway,
             config_manager=engine.config_manager,
         )
         engine.event_dispatcher = EventDispatcher(
             strategies=engine.strategies,
-            position_cache=engine.position_cache,
+            position_cache_manager=engine.position_cache_manager,
             event_bus=engine.event_bus,
             audit_logger=mock_audit_logger,
-            order_manager=engine.order_manager,
+            order_gateway=engine.order_gateway,
             engine_state_getter=lambda: engine._engine_state,
             event_loop_getter=lambda: engine._event_loop,
         )
@@ -1145,7 +1145,7 @@ class TestIntervalFiltering:
     async def test_single_strategy_filters_unregistered_interval(self):
         """Test single-interval strategy filters out intervals not in strategy.intervals."""
         from src.strategies.base import BaseStrategy
-        from src.core.position_cache import PositionCacheManager
+        from src.core.position_cache_manager import PositionCacheManager
         from src.core.event_dispatcher import EventDispatcher
 
         mock_audit_logger = MagicMock()
@@ -1160,22 +1160,22 @@ class TestIntervalFiltering:
         engine.data_collector.intervals = ["5m", "1h"]
 
         engine.event_bus = AsyncMock()
-        engine.order_manager = Mock()
-        engine.order_manager.get_position.return_value = None
+        engine.order_gateway = Mock()
+        engine.order_gateway.get_position.return_value = None
         engine.config_manager = Mock()
         engine.config_manager.trading_config = Mock(leverage=10)
         engine.logger = Mock()
 
-        engine.position_cache = PositionCacheManager(
-            order_manager=engine.order_manager,
+        engine.position_cache_manager = PositionCacheManager(
+            order_gateway=engine.order_gateway,
             config_manager=engine.config_manager,
         )
         engine.event_dispatcher = EventDispatcher(
             strategies=engine.strategies,
-            position_cache=engine.position_cache,
+            position_cache_manager=engine.position_cache_manager,
             event_bus=engine.event_bus,
             audit_logger=mock_audit_logger,
-            order_manager=engine.order_manager,
+            order_gateway=engine.order_gateway,
             engine_state_getter=lambda: engine._engine_state,
             event_loop_getter=lambda: engine._event_loop,
         )
@@ -1316,7 +1316,7 @@ class TestIssue41PositionUncertainty:
     @pytest.mark.asyncio
     async def test_on_candle_closed_skips_on_position_refresh_failure(self):
         """Verify _on_candle_closed() skips analysis when position refresh fails."""
-        from src.core.position_cache import PositionCacheManager
+        from src.core.position_cache_manager import PositionCacheManager
         from src.core.event_dispatcher import EventDispatcher
 
         mock_audit_logger = MagicMock()
@@ -1328,8 +1328,8 @@ class TestIssue41PositionUncertainty:
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock OrderManager to RAISE an exception on get_position
-        engine.order_manager = Mock()
-        engine.order_manager.get_position.side_effect = Exception(
+        engine.order_gateway = Mock()
+        engine.order_gateway.get_position.side_effect = Exception(
             "API Connection Error"
         )
 
@@ -1340,16 +1340,16 @@ class TestIssue41PositionUncertainty:
         engine.logger = Mock()
 
         # Create extracted modules
-        engine.position_cache = PositionCacheManager(
-            order_manager=engine.order_manager,
+        engine.position_cache_manager = PositionCacheManager(
+            order_gateway=engine.order_gateway,
             config_manager=engine.config_manager,
         )
         engine.event_dispatcher = EventDispatcher(
             strategies=engine.strategies,
-            position_cache=engine.position_cache,
+            position_cache_manager=engine.position_cache_manager,
             event_bus=engine.event_bus,
             audit_logger=mock_audit_logger,
-            order_manager=engine.order_manager,
+            order_gateway=engine.order_gateway,
             engine_state_getter=lambda: engine._engine_state,
             event_loop_getter=lambda: engine._event_loop,
         )
@@ -1378,7 +1378,7 @@ class TestIssue41PositionUncertainty:
     @pytest.mark.asyncio
     async def test_on_candle_closed_proceeds_on_confirmed_no_position(self):
         """Verify _on_candle_closed() proceeds when position state is confirmed (None)."""
-        from src.core.position_cache import PositionCacheManager
+        from src.core.position_cache_manager import PositionCacheManager
         from src.core.event_dispatcher import EventDispatcher
 
         mock_audit_logger = MagicMock()
@@ -1391,8 +1391,8 @@ class TestIssue41PositionUncertainty:
         engine.strategies = {"BTCUSDT": engine.strategy}
 
         # Mock OrderManager to return None (No position)
-        engine.order_manager = Mock()
-        engine.order_manager.get_position.return_value = None
+        engine.order_gateway = Mock()
+        engine.order_gateway.get_position.return_value = None
 
         # Mock other components
         engine.event_bus = AsyncMock()
@@ -1401,16 +1401,16 @@ class TestIssue41PositionUncertainty:
         engine.logger = Mock()
 
         # Create extracted modules
-        engine.position_cache = PositionCacheManager(
-            order_manager=engine.order_manager,
+        engine.position_cache_manager = PositionCacheManager(
+            order_gateway=engine.order_gateway,
             config_manager=engine.config_manager,
         )
         engine.event_dispatcher = EventDispatcher(
             strategies=engine.strategies,
-            position_cache=engine.position_cache,
+            position_cache_manager=engine.position_cache_manager,
             event_bus=engine.event_bus,
             audit_logger=mock_audit_logger,
-            order_manager=engine.order_manager,
+            order_gateway=engine.order_gateway,
             engine_state_getter=lambda: engine._engine_state,
             event_loop_getter=lambda: engine._event_loop,
         )
@@ -1472,12 +1472,12 @@ class TestIssue110ExtractedModules:
 
     def test_position_update_delegates_to_position_cache(self, trading_engine):
         """Verify _on_position_update_from_websocket delegates to PositionCacheManager."""
-        trading_engine.position_cache.update_from_websocket = Mock()
+        trading_engine.position_cache_manager.update_from_websocket = Mock()
 
         mock_updates = [Mock()]
         trading_engine._on_position_update_from_websocket(mock_updates)
 
-        trading_engine.position_cache.update_from_websocket.assert_called_once_with(
+        trading_engine.position_cache_manager.update_from_websocket.assert_called_once_with(
             position_updates=mock_updates,
             allowed_symbols=set(trading_engine.strategies.keys()),
         )
@@ -1485,9 +1485,9 @@ class TestIssue110ExtractedModules:
     def test_backward_compat_position_cache_property(self, trading_engine):
         """Verify backward-compatible _position_cache property works."""
         # The property should return the position_cache's internal dict
-        assert trading_engine._position_cache is trading_engine.position_cache.cache
+        assert trading_engine._position_cache is trading_engine.position_cache_manager.cache
 
     def test_backward_compat_position_entry_data_property(self, trading_engine):
         """Verify backward-compatible _position_entry_data property works."""
         # The property should return trade_executor's entry data dict
-        assert trading_engine._position_entry_data is trading_engine.trade_executor._position_entry_data
+        assert trading_engine._position_entry_data is trading_engine.trade_coordinator._position_entry_data

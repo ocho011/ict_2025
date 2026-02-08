@@ -1,10 +1,10 @@
-"""TradeExecutor: Signal-to-order execution coordination.
+"""TradeCoordinator: Signal-to-order execution coordination.
 
 Extracted from TradingEngine to separate trade execution logic from
 engine orchestration (Issue #110 Phase 2).
 
 Responsibilities:
-- Signal validation via RiskManager
+- Signal validation via RiskGuard
 - Entry order execution with TP/SL
 - Exit order execution with reduce_only
 - Order fill tracking and position entry data management
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Optional, Dict, Any
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.models.position import Position
-    from src.core.position_cache import PositionCacheManager
+    from src.core.position_cache_manager import PositionCacheManager
 
 from src.models.order import Order
 from src.models.position import PositionEntryData
@@ -25,7 +25,7 @@ from src.models.signal import Signal
 from src.models.event import Event, EventType
 
 
-class TradeExecutor:
+class TradeCoordinator:
     """
     Coordinates signal-to-order execution flow.
 
@@ -35,8 +35,8 @@ class TradeExecutor:
     - Position closure with PnL and duration calculation
 
     Dependencies:
-    - OrderExecutionManager: For order placement and cancellation
-    - RiskManager: For signal validation and position sizing
+    - OrderGateway: For order placement and cancellation
+    - RiskGuard: For signal validation and position sizing
     - ConfigManager: For trading parameters (leverage)
     - PositionCacheManager: For cache invalidation after execution
     - AuditLogger: For compliance logging
@@ -44,17 +44,17 @@ class TradeExecutor:
 
     def __init__(
         self,
-        order_manager,
-        risk_manager,
+        order_gateway,
+        risk_guard,
         config_manager,
         audit_logger: "AuditLogger",
-        position_cache: "PositionCacheManager",
+        position_cache_manager: "PositionCacheManager",
     ):
-        self._order_manager = order_manager
-        self._risk_manager = risk_manager
+        self._order_gateway = order_gateway
+        self._risk_guard = risk_guard
         self._config_manager = config_manager
         self._audit_logger = audit_logger
-        self._position_cache = position_cache
+        self._position_cache_manager = position_cache_manager
         self._position_entry_data: Dict[str, PositionEntryData] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class TradeExecutor:
         Handle generated signal - validate and execute order.
 
         This is the critical trading logic that:
-        1. Validates signal with RiskManager
+        1. Validates signal with RiskGuard
         2. For entry signals: Calculates position size and executes with TP/SL
         3. For exit signals: Uses position quantity and executes with reduce_only
 
@@ -78,11 +78,11 @@ class TradeExecutor:
         )
 
         try:
-            # Step 2: Get current position from OrderManager (fresh query for execution)
-            current_position = self._order_manager.get_position(signal.symbol)
+            # Step 2: Get current position from OrderGateway (fresh query for execution)
+            current_position = self._order_gateway.get_position(signal.symbol)
 
-            # Step 3: Validate signal with RiskManager
-            is_valid = self._risk_manager.validate_risk(signal, current_position)
+            # Step 3: Validate signal with RiskGuard
+            is_valid = self._risk_guard.validate_risk(signal, current_position)
 
             if not is_valid:
                 self.logger.warning(
@@ -116,7 +116,7 @@ class TradeExecutor:
 
             # Entry signal: calculate position size and execute with TP/SL
             # Step 5: Get account balance
-            account_balance = self._order_manager.get_account_balance()
+            account_balance = self._order_gateway.get_account_balance()
 
             if account_balance <= 0:
                 self.logger.error(
@@ -124,23 +124,23 @@ class TradeExecutor:
                 )
                 return
 
-            # Step 6: Calculate position size using RiskManager
-            quantity = self._risk_manager.calculate_position_size(
+            # Step 6: Calculate position size using RiskGuard
+            quantity = self._risk_guard.calculate_position_size(
                 account_balance=account_balance,
                 entry_price=signal.entry_price,
                 stop_loss_price=signal.stop_loss,
                 leverage=self._config_manager.trading_config.leverage,
-                symbol_info=None,  # OrderManager will handle rounding internally
+                symbol_info=None,  # OrderGateway will handle rounding internally
             )
 
-            # Step 7: Execute signal via OrderManager
+            # Step 7: Execute signal via OrderGateway
             # Returns (entry_order, [tp_order, sl_order])
-            entry_order, tpsl_orders = self._order_manager.execute_signal(
+            entry_order, tpsl_orders = self._order_gateway.execute_signal(
                 signal=signal, quantity=quantity
             )
 
             # Invalidate position cache after order execution
-            self._position_cache.invalidate(signal.symbol)
+            self._position_cache_manager.invalidate(signal.symbol)
 
             # Step 7: Log successful trade execution
             self.logger.info(
@@ -227,7 +227,7 @@ class TradeExecutor:
 
             # Step 1: Cancel any existing TP/SL orders first
             try:
-                cancelled_count = self._order_manager.cancel_all_orders(signal.symbol)
+                cancelled_count = self._order_gateway.cancel_all_orders(signal.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"Cancelled {cancelled_count} existing orders before exit"
@@ -242,7 +242,7 @@ class TradeExecutor:
             )
 
             # Execute close order with reduce_only via async method
-            result = await self._order_manager.execute_market_close(
+            result = await self._order_gateway.execute_market_close(
                 symbol=signal.symbol,
                 position_amt=position.quantity,
                 side=close_side,
@@ -250,7 +250,7 @@ class TradeExecutor:
             )
 
             # Step 3: Invalidate position cache
-            self._position_cache.invalidate(signal.symbol)
+            self._position_cache_manager.invalidate(signal.symbol)
 
             # Step 4: Check result and log
             if result.get("success"):
@@ -438,7 +438,7 @@ class TradeExecutor:
             )
 
             try:
-                cancelled_count = self._order_manager.cancel_all_orders(order.symbol)
+                cancelled_count = self._order_gateway.cancel_all_orders(order.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"TP/SL hit: cancelled {cancelled_count} remaining orders "

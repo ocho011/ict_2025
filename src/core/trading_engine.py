@@ -9,7 +9,7 @@ Coordinates:
 
 Refactored (Issue #110): Delegates to specialized modules:
 - PositionCacheManager: Position state caching with TTL
-- TradeExecutor: Signal validation and order execution
+- TradeCoordinator: Signal validation and order execution
 - EventDispatcher: Candle routing and strategy analysis
 """
 
@@ -23,19 +23,19 @@ if TYPE_CHECKING:
     from src.main import TradingBot
 
 from src.core.data_collector import BinanceDataCollector
-from src.core.event_handler import EventBus
+from src.core.event_bus import EventBus
 from src.core.exceptions import EngineState
-from src.core.position_cache import PositionCacheManager
+from src.core.position_cache_manager import PositionCacheManager
 from src.core.event_dispatcher import EventDispatcher
-from src.execution.order_manager import OrderExecutionManager
-from src.execution.trade_executor import TradeExecutor
+from src.execution.order_gateway import OrderGateway
+from src.execution.trade_coordinator import TradeCoordinator
 from src.models.candle import Candle
 from src.models.event import Event, EventType, QueueType
 from src.models.order import Order
 from src.models.signal import Signal
-from src.risk.manager import RiskManager
+from src.risk.risk_guard import RiskGuard
 from src.strategies.base import BaseStrategy
-from src.utils.config import ConfigManager
+from src.utils.config_manager import ConfigManager
 
 
 class TradingEngine:
@@ -43,14 +43,14 @@ class TradingEngine:
     Main application orchestrator for event-driven trading system.
 
     Responsibilities (after Issue #110 refactor):
-    1. Component lifecycle management (EventBus, DataCollector, Strategy, OrderManager)
+    1. Component lifecycle management (EventBus, DataCollector, Strategy, OrderGateway)
     2. Delegate event handling to specialized modules
     3. WebSocket callback bridging (_on_order_fill_from_websocket, _on_order_update_from_websocket)
     4. Graceful startup and shutdown with pending event processing
 
     Delegates to:
     - PositionCacheManager: Position state caching and WebSocket updates
-    - TradeExecutor: Signal-to-order execution coordination
+    - TradeCoordinator: Signal-to-order execution coordination
     - EventDispatcher: Candle event routing and strategy execution
     """
 
@@ -75,13 +75,13 @@ class TradingEngine:
         self.event_bus: Optional[EventBus] = None
         self.data_collector: Optional[BinanceDataCollector] = None
         self.strategies: dict[str, BaseStrategy] = {}  # Issue #8: Multi-coin support
-        self.order_manager: Optional[OrderExecutionManager] = None
-        self.risk_manager: Optional[RiskManager] = None
+        self.order_gateway: Optional[OrderGateway] = None
+        self.risk_guard: Optional[RiskGuard] = None
         self.config_manager: Optional[ConfigManager] = None
 
         # Extracted modules (Issue #110)
-        self.position_cache: Optional[PositionCacheManager] = None
-        self.trade_executor: Optional[TradeExecutor] = None
+        self.position_cache_manager: Optional[PositionCacheManager] = None
+        self.trade_coordinator: Optional[TradeCoordinator] = None
         self.event_dispatcher: Optional[EventDispatcher] = None
 
         # Runtime state
@@ -115,12 +115,12 @@ class TradingEngine:
         Component Creation Order:
             1. ConfigManager injection
             2. EventBus injection
-            3. OrderExecutionManager
-            4. RiskManager
+            3. OrderGateway
+            4. RiskGuard
             5. Strategy (via StrategyFactory)
             6. BinanceDataCollector
             7. PositionCacheManager (Issue #110 Phase 1)
-            8. TradeExecutor (Issue #110 Phase 2)
+            8. TradeCoordinator (Issue #110 Phase 2)
             9. EventDispatcher (Issue #110 Phase 3)
             10. Strategy-DataCollector compatibility validation (Issue #24)
             11. Event handler registration
@@ -151,20 +151,20 @@ class TradingEngine:
             is_testnet=is_testnet,
         )
 
-        # Step 2: Initialize OrderExecutionManager
-        self.logger.info("Creating OrderExecutionManager...")
-        from src.execution.order_manager import OrderExecutionManager
+        # Step 2: Initialize OrderGateway
+        self.logger.info("Creating OrderGateway...")
+        from src.execution.order_gateway import OrderGateway
 
-        self.order_manager = OrderExecutionManager(
+        self.order_gateway = OrderGateway(
             audit_logger=self.audit_logger,
             binance_service=self.binance_service,
         )
 
-        # Step 3: Initialize RiskManager
-        self.logger.info("Creating RiskManager...")
-        from src.risk.manager import RiskManager
+        # Step 3: Initialize RiskGuard
+        self.logger.info("Creating RiskGuard...")
+        from src.risk.risk_guard import RiskGuard
 
-        self.risk_manager = RiskManager(
+        self.risk_guard = RiskGuard(
             config={
                 "max_risk_per_trade": trading_config.max_risk_per_trade,
                 "default_leverage": trading_config.leverage,
@@ -249,27 +249,27 @@ class TradingEngine:
         self.logger.info("Creating extracted modules (Issue #110)...")
 
         # Phase 1: PositionCacheManager
-        self.position_cache = PositionCacheManager(
-            order_manager=self.order_manager,
+        self.position_cache_manager = PositionCacheManager(
+            order_gateway=self.order_gateway,
             config_manager=self.config_manager,
         )
 
-        # Phase 2: TradeExecutor
-        self.trade_executor = TradeExecutor(
-            order_manager=self.order_manager,
-            risk_manager=self.risk_manager,
+        # Phase 2: TradeCoordinator
+        self.trade_coordinator = TradeCoordinator(
+            order_gateway=self.order_gateway,
+            risk_guard=self.risk_guard,
             config_manager=self.config_manager,
             audit_logger=self.audit_logger,
-            position_cache=self.position_cache,
+            position_cache_manager=self.position_cache_manager,
         )
 
         # Phase 3: EventDispatcher
         self.event_dispatcher = EventDispatcher(
             strategies=self.strategies,
-            position_cache=self.position_cache,
+            position_cache_manager=self.position_cache_manager,
             event_bus=self.event_bus,
             audit_logger=self.audit_logger,
-            order_manager=self.order_manager,
+            order_gateway=self.order_gateway,
             engine_state_getter=lambda: self._engine_state,
             event_loop_getter=lambda: self._event_loop,
             log_live_data=self._log_live_data,
@@ -285,14 +285,14 @@ class TradingEngine:
         # Step 8: Configure leverage and margin type for each symbol (Issue #8)
         self.logger.info("Configuring leverage and margin type...")
         for symbol in trading_config.symbols:
-            success = self.order_manager.set_leverage(symbol, trading_config.leverage)
+            success = self.order_gateway.set_leverage(symbol, trading_config.leverage)
             if not success:
                 self.logger.warning(
                     f"Failed to set leverage to {trading_config.leverage}x for {symbol}. "
                     "Using current account leverage."
                 )
 
-            success = self.order_manager.set_margin_type(
+            success = self.order_gateway.set_margin_type(
                 symbol, trading_config.margin_type
             )
             if not success:
@@ -443,20 +443,20 @@ class TradingEngine:
 
         Delegates to extracted modules (Issue #110):
         - CANDLE_CLOSED → EventDispatcher.on_candle_closed
-        - SIGNAL_GENERATED → TradeExecutor.on_signal_generated
-        - ORDER_FILLED → TradeExecutor.on_order_filled
-        - ORDER_PARTIALLY_FILLED → TradeExecutor.on_order_partially_filled
+        - SIGNAL_GENERATED → TradeCoordinator.on_signal_generated
+        - ORDER_FILLED → TradeCoordinator.on_order_filled
+        - ORDER_PARTIALLY_FILLED → TradeCoordinator.on_order_partially_filled
         """
         self.event_bus.subscribe(EventType.CANDLE_CLOSED, self.event_dispatcher.on_candle_closed)
-        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self.trade_executor.on_signal_generated)
-        self.event_bus.subscribe(EventType.ORDER_FILLED, self.trade_executor.on_order_filled)
-        self.event_bus.subscribe(EventType.ORDER_PARTIALLY_FILLED, self.trade_executor.on_order_partially_filled)
+        self.event_bus.subscribe(EventType.SIGNAL_GENERATED, self.trade_coordinator.on_signal_generated)
+        self.event_bus.subscribe(EventType.ORDER_FILLED, self.trade_coordinator.on_order_filled)
+        self.event_bus.subscribe(EventType.ORDER_PARTIALLY_FILLED, self.trade_coordinator.on_order_partially_filled)
 
         self.logger.info("✅ Event handlers registered (Issue #110 - delegated):")
         self.logger.info("  - CANDLE_CLOSED → EventDispatcher.on_candle_closed")
-        self.logger.info("  - SIGNAL_GENERATED → TradeExecutor.on_signal_generated")
-        self.logger.info("  - ORDER_FILLED → TradeExecutor.on_order_filled")
-        self.logger.info("  - ORDER_PARTIALLY_FILLED → TradeExecutor.on_order_partially_filled")
+        self.logger.info("  - SIGNAL_GENERATED → TradeCoordinator.on_signal_generated")
+        self.logger.info("  - ORDER_FILLED → TradeCoordinator.on_order_filled")
+        self.logger.info("  - ORDER_PARTIALLY_FILLED → TradeCoordinator.on_order_partially_filled")
 
     def _on_order_update_from_websocket(
         self, symbol: str, order_id: str, order_status: str, order_data: dict
@@ -464,13 +464,13 @@ class TradingEngine:
         """
         Handle order updates from WebSocket ORDER_TRADE_UPDATE events.
 
-        Updates order cache in order_manager directly from WebSocket data.
+        Updates order cache in order_gateway directly from WebSocket data.
         """
-        if self.order_manager is None:
+        if self.order_gateway is None:
             return
 
         try:
-            self.order_manager.update_order_cache_from_websocket(
+            self.order_gateway.update_order_cache_from_websocket(
                 symbol=symbol,
                 order_id=order_id,
                 order_status=order_status,
@@ -637,8 +637,8 @@ class TradingEngine:
 
         Delegates to PositionCacheManager (Issue #110 Phase 1).
         """
-        if self.position_cache is not None:
-            self.position_cache.update_from_websocket(
+        if self.position_cache_manager is not None:
+            self.position_cache_manager.update_from_websocket(
                 position_updates=position_updates,
                 allowed_symbols=set(self.strategies.keys()),
             )
@@ -698,35 +698,35 @@ class TradingEngine:
     @property
     def _position_cache(self) -> dict:
         """Backward-compatible access to position cache dict for tests."""
-        if self.position_cache is not None:
-            return self.position_cache.cache
+        if self.position_cache_manager is not None:
+            return self.position_cache_manager.cache
         return {}
 
     @property
     def _position_cache_ttl(self) -> float:
         """Backward-compatible access to position cache TTL for tests."""
-        if self.position_cache is not None:
-            return self.position_cache._ttl
+        if self.position_cache_manager is not None:
+            return self.position_cache_manager._ttl
         return 60.0
 
     @property
     def _position_entry_data(self) -> Dict:
         """Backward-compatible access to position entry data for tests."""
-        if self.trade_executor is not None:
-            return self.trade_executor._position_entry_data
+        if self.trade_coordinator is not None:
+            return self.trade_coordinator._position_entry_data
         return {}
 
     @_position_entry_data.setter
     def _position_entry_data(self, value: Dict) -> None:
         """Backward-compatible setter for position entry data."""
-        if self.trade_executor is not None:
-            self.trade_executor._position_entry_data = value
+        if self.trade_coordinator is not None:
+            self.trade_coordinator._position_entry_data = value
 
     @property
     def _last_signal_time(self) -> Dict:
         """Backward-compatible access to signal cooldown times."""
-        if self.position_cache is not None:
-            return self.position_cache._last_signal_time
+        if self.position_cache_manager is not None:
+            return self.position_cache_manager._last_signal_time
         return {}
 
     # ── Backward compatibility delegate methods (Issue #110) ────────────
@@ -738,21 +738,21 @@ class TradingEngine:
         await self.event_dispatcher.on_candle_closed(event)
 
     async def _on_signal_generated(self, event: Event) -> None:
-        """Delegate to TradeExecutor (backward compatibility)."""
-        await self.trade_executor.on_signal_generated(event)
+        """Delegate to TradeCoordinator (backward compatibility)."""
+        await self.trade_coordinator.on_signal_generated(event)
 
     async def _on_order_filled(self, event: Event) -> None:
-        """Delegate to TradeExecutor (backward compatibility)."""
-        await self.trade_executor.on_order_filled(event)
+        """Delegate to TradeCoordinator (backward compatibility)."""
+        await self.trade_coordinator.on_order_filled(event)
 
     async def _on_order_partially_filled(self, event: Event) -> None:
-        """Delegate to TradeExecutor (backward compatibility)."""
-        await self.trade_executor.on_order_partially_filled(event)
+        """Delegate to TradeCoordinator (backward compatibility)."""
+        await self.trade_coordinator.on_order_partially_filled(event)
 
     def _get_cached_position(self, symbol: str):
         """Delegate to PositionCacheManager (backward compatibility)."""
-        return self.position_cache.get(symbol)
+        return self.position_cache_manager.get(symbol)
 
     def _invalidate_position_cache(self, symbol: str) -> None:
         """Delegate to PositionCacheManager (backward compatibility)."""
-        self.position_cache.invalidate(symbol)
+        self.position_cache_manager.invalidate(symbol)

@@ -3,7 +3,7 @@ Unit tests for Exit Signal Separation - Issue #25
 
 Tests for:
 1. Signal model with optional TP/SL for exit signals
-2. RiskManager exit signal validation
+2. RiskGuard exit signal validation
 3. BaseStrategy check_exit() method
 4. MultiTimeframeStrategy check_exit_mtf() method
 """
@@ -17,7 +17,7 @@ import pytest
 from src.models.candle import Candle
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
-from src.risk.manager import RiskManager
+from src.risk.risk_guard import RiskGuard
 
 
 class TestSignalModelExitSupport:
@@ -171,8 +171,8 @@ class TestSignalModelExitSupport:
         assert signal.risk_reward_ratio == pytest.approx(2.0, rel=0.01)
 
 
-class TestRiskManagerExitValidation:
-    """Test suite for RiskManager exit signal validation"""
+class TestRiskGuardExitValidation:
+    """Test suite for RiskGuard exit signal validation"""
 
     @pytest.fixture
     def mock_audit_logger(self):
@@ -181,14 +181,14 @@ class TestRiskManagerExitValidation:
 
     @pytest.fixture
     def risk_manager(self, mock_audit_logger):
-        """Setup RiskManager with standard config"""
+        """Setup RiskGuard with standard config"""
         config = {
             "max_risk_per_trade": 0.01,
             "max_leverage": 20,
             "default_leverage": 10,
             "max_position_size_percent": 0.1,
         }
-        return RiskManager(config, audit_logger=mock_audit_logger)
+        return RiskGuard(config, audit_logger=mock_audit_logger)
 
     def test_close_long_with_long_position_valid(self, risk_manager):
         """CLOSE_LONG signal with LONG position is valid"""
