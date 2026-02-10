@@ -6,15 +6,18 @@ of trading strategies for the automated trading system.
 
 Exports:
     BaseStrategy: Abstract base class defining strategy interface
+    ComposableStrategy: Modular strategy assembled from pluggable determiners
     MockSMACrossoverStrategy: SMA crossover strategy for testing
     AlwaysSignalStrategy: Test strategy that always generates signals
     StrategyFactory: Factory for creating strategy instances
 """
 
-from typing import Dict, List, Type
+from typing import Dict, List, Optional, Type
 
+from src.pricing.base import StrategyModuleConfig
 from src.strategies.always_signal import AlwaysSignalStrategy
 from src.strategies.base import BaseStrategy
+from src.strategies.composable import ComposableStrategy
 from src.strategies.ict_strategy import ICTStrategy
 from src.strategies.mock_strategy import MockSMACrossoverStrategy
 
@@ -135,6 +138,39 @@ class StrategyFactory:
         return name in cls._strategies
 
     @classmethod
+    def create_composed(
+        cls,
+        symbol: str,
+        config: dict,
+        module_config: StrategyModuleConfig,
+        intervals: Optional[List[str]] = None,
+        min_rr_ratio: float = 1.5,
+    ) -> ComposableStrategy:
+        """
+        Create a ComposableStrategy with injected module determiners.
+
+        Unlike create(), this accepts a StrategyModuleConfig for full
+        modular assembly of entry/exit/pricing determiners.
+
+        Args:
+            symbol: Trading pair (e.g., 'BTCUSDT')
+            config: Strategy configuration dict
+            module_config: StrategyModuleConfig with all 4 determiners
+            intervals: Optional list of intervals to track
+            min_rr_ratio: Minimum risk-reward ratio filter (default 1.5)
+
+        Returns:
+            ComposableStrategy instance
+        """
+        return ComposableStrategy(
+            symbol=symbol,
+            config=config,
+            module_config=module_config,
+            intervals=intervals,
+            min_rr_ratio=min_rr_ratio,
+        )
+
+    @classmethod
     def register(cls, name: str, strategy_class: Type[BaseStrategy]) -> None:
         """
         Register a new strategy class dynamically.
@@ -174,4 +210,10 @@ class StrategyFactory:
         cls._strategies[name] = strategy_class
 
 
-__all__ = ["BaseStrategy", "MockSMACrossoverStrategy", "AlwaysSignalStrategy", "StrategyFactory"]
+__all__ = [
+    "BaseStrategy",
+    "ComposableStrategy",
+    "MockSMACrossoverStrategy",
+    "AlwaysSignalStrategy",
+    "StrategyFactory",
+]

@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from typing import Optional, Tuple
 import time
 
+from src.entry.base import EntryDeterminer
+from src.exit.base import ExitDeterminer
+
 
 @dataclass(frozen=True)
 class PriceContext:
@@ -76,3 +79,16 @@ class PriceDeterminerConfig:
     """Configuration bundle for strategy injection."""
     stop_loss_determiner: StopLossDeterminer
     take_profit_determiner: TakeProfitDeterminer
+
+
+@dataclass(frozen=True)
+class StrategyModuleConfig:
+    """
+    Complete module bundle for composable strategy assembly.
+
+    Extends PriceDeterminerConfig with entry and exit determiners.
+    """
+    entry_determiner: EntryDeterminer
+    stop_loss_determiner: StopLossDeterminer
+    take_profit_determiner: TakeProfitDeterminer
+    exit_determiner: ExitDeterminer  # Default: NullExitDeterminer
