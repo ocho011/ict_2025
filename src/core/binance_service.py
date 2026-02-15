@@ -329,7 +329,7 @@ class BinanceServiceClient:
         """
         Query open algo orders (conditional orders).
 
-        GET /fapi/v1/algoOrder/openOrders
+        GET /fapi/v1/openAlgoOrders
 
         Args:
             symbol: Optional trading pair symbol to filter by (e.g., "BTCUSDT")
@@ -347,7 +347,7 @@ class BinanceServiceClient:
 
         response = self.client.sign_request(
             http_method="GET",
-            url_path="/fapi/v1/algoOrder/openOrders",
+            url_path="/fapi/v1/openAlgoOrders",
             payload=payload,
         )
         return self._handle_response(response)
@@ -411,5 +411,42 @@ class BinanceServiceClient:
                     results.append(result)
                 except Exception as e:
                     self.logger.warning(f"Failed to cancel algo order {algo_id}: {e}")
+
+        return results
+
+    def cancel_algo_orders_by_type(
+        self, symbol: str, order_types: list[str]
+    ) -> list:
+        """
+        Cancel only algo orders matching specified orderType(s) for a symbol.
+
+        Queries open algo orders and selectively cancels those whose orderType
+        matches one of the provided types, preserving other orders (e.g., TP).
+
+        Args:
+            symbol: Trading pair symbol (e.g., "BTCUSDT")
+            order_types: List of orderType values to cancel
+                         (e.g., ["STOP", "STOP_MARKET"])
+
+        Returns:
+            List of cancellation results
+        """
+        open_orders = self.query_open_algo_orders(symbol)
+
+        if not open_orders:
+            return []
+
+        results = []
+        for order in open_orders:
+            algo_id = order.get("algoId")
+            order_type = order.get("orderType", "")
+            if algo_id and order_type in order_types:
+                try:
+                    result = self.cancel_algo_order(symbol, algo_id)
+                    results.append(result)
+                except Exception as e:
+                    self.logger.warning(
+                        f"Failed to cancel algo order {algo_id} ({order_type}): {e}"
+                    )
 
         return results

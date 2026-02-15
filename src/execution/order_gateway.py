@@ -958,12 +958,13 @@ class OrderGateway:
                 if new_stop_price - mark_price < min_buffer:
                     new_stop_price = mark_price + min_buffer
 
-            # 3. Cancel existing algo orders (SL/TP) for the symbol
+            # 3. Cancel existing SL algo orders only (preserve TP)
             try:
-                algo_results = self.client.cancel_all_algo_orders(symbol)
+                sl_types = ["STOP", "STOP_MARKET"]
+                algo_results = self.client.cancel_algo_orders_by_type(symbol, sl_types)
                 cancelled = len(algo_results) if algo_results else 0
                 self.logger.info(
-                    f"Cancelled {cancelled} existing algo orders for {symbol} before SL update"
+                    f"Cancelled {cancelled} existing SL algo orders for {symbol} before SL update"
                 )
             except Exception as e:
                 self.logger.error(f"Failed to cancel existing algo orders for SL update: {e}")
