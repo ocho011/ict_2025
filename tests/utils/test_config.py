@@ -265,11 +265,7 @@ class TestExitConfig:
         with pytest.raises(ConfigurationError) as exc_info:
             ExitConfig(exit_strategy="trailing_stop", trailing_distance=0.0)
 
-        assert "trailing_stop strategy requires trailing_distance > 0" in str(
-            exc_info.value
-        ) or "trailing_stop strategy requires trailing_distance > 0" in str(
-            exc_info.value
-        )
+        assert "trailing_distance must be 0.001-0.1" in str(exc_info.value)
 
     def test_timed_strategy_consistency(self):
         """Test timed strategy consistency validation."""

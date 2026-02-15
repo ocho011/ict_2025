@@ -203,3 +203,12 @@ class ComposableStrategy(BaseStrategy):
         )
 
         return self.module_config.exit_determiner.should_exit(exit_context)
+
+    @property
+    def trailing_levels(self) -> dict[str, float]:
+        """Trailing stop levels — delegates to exit determiner if supported."""
+        from src.strategies.trailing_level_protocol import TrailingLevelProvider
+        exit_det = self.module_config.exit_determiner
+        if isinstance(exit_det, TrailingLevelProvider):
+            return exit_det.trailing_levels
+        return {}

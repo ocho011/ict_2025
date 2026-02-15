@@ -201,14 +201,25 @@ class TradingEngine:
                 f"strategy={trading_config.exit_config.exit_strategy}"
             )
 
-        # Step 4.5: Create strategy instances per symbol (Issue #8 Phase 2)
+        # Step 4.5: Create composable strategy instances per symbol
+        from src.strategies.module_config_builder import build_module_config
+
         self.logger.info(
-            f"Creating {len(trading_config.symbols)} strategy instances..."
+            f"Creating {len(trading_config.symbols)} composable strategy instances..."
         )
         self.strategies = {}
         for symbol in trading_config.symbols:
-            self.strategies[symbol] = StrategyFactory.create(
-                name=trading_config.strategy, symbol=symbol, config=strategy_config
+            module_config, intervals_override, min_rr_ratio = build_module_config(
+                strategy_name=trading_config.strategy,
+                strategy_config=strategy_config,
+                exit_config=trading_config.exit_config,
+            )
+            self.strategies[symbol] = StrategyFactory.create_composed(
+                symbol=symbol,
+                config=strategy_config,
+                module_config=module_config,
+                intervals=intervals_override,
+                min_rr_ratio=min_rr_ratio,
             )
             self.logger.info(f"  ✅ Strategy created for {symbol}")
 

@@ -56,6 +56,11 @@ class ICTExitDeterminer(ExitDeterminer):
         # Trailing stop level persistence across candles (Issue #99)
         self._trailing_levels: dict[str, float] = {}
 
+    @property
+    def trailing_levels(self) -> dict[str, float]:
+        """Trailing stop levels for TrailingLevelProvider protocol."""
+        return self._trailing_levels
+
     def should_exit(self, context: ExitContext) -> Optional[Signal]:
         """
         Evaluate whether position should be exited using ICT exit logic.
