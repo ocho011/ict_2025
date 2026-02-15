@@ -21,7 +21,6 @@ async def event_bus_with_queues():
     # Initialize queues directly (mimics what start() does)
     # Must be async to create queues in the test's event loop
     bus._queues = {
-        QueueType.DATA: asyncio.Queue(maxsize=1000),
         QueueType.CANDLE_UPDATE: asyncio.Queue(maxsize=1000),
         QueueType.CANDLE_CLOSED: asyncio.Queue(maxsize=100),
         QueueType.SIGNAL: asyncio.Queue(maxsize=100),
@@ -248,54 +247,54 @@ class TestEventBusQueues:
 
         stats = bus.get_queue_stats()
 
-        assert QueueType.DATA in stats
         assert QueueType.CANDLE_UPDATE in stats
         assert QueueType.CANDLE_CLOSED in stats
         assert QueueType.SIGNAL in stats
         assert QueueType.ORDER in stats
 
-        assert stats[QueueType.DATA]["maxsize"] == 1000
         assert stats[QueueType.CANDLE_UPDATE]["maxsize"] == 1000
         assert stats[QueueType.CANDLE_CLOSED]["maxsize"] == 100
         assert stats[QueueType.SIGNAL]["maxsize"] == 100
         assert stats[QueueType.ORDER]["maxsize"] == 50
 
         # All queues start empty
-        assert stats[QueueType.DATA]["size"] == 0
+        assert stats[QueueType.CANDLE_UPDATE]["size"] == 0
+        assert stats[QueueType.CANDLE_CLOSED]["size"] == 0
         assert stats[QueueType.SIGNAL]["size"] == 0
         assert stats[QueueType.ORDER]["size"] == 0
 
         # No drops initially
-        assert stats[QueueType.DATA]["drops"] == 0
+        assert stats[QueueType.CANDLE_UPDATE]["drops"] == 0
+        assert stats[QueueType.CANDLE_CLOSED]["drops"] == 0
         assert stats[QueueType.SIGNAL]["drops"] == 0
         assert stats[QueueType.ORDER]["drops"] == 0
 
     @pytest.mark.asyncio
-    async def test_data_queue_drops_events_when_full(self, event_bus_with_queues):
-        """Verify data queue drops events after timeout when full."""
+    async def test_candle_update_queue_drops_events_when_full(self, event_bus_with_queues):
+        """Verify candle update queue drops events after timeout when full."""
         bus = event_bus_with_queues
 
-        # Fill data queue to capacity (1000 events)
+        # Fill candle update queue to capacity (1000 events)
         for i in range(1000):
             event = Event(EventType.CANDLE_UPDATE, {"id": i}, source="test")
-            await bus.publish(event, queue_type=QueueType.DATA)
+            await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
         # Verify queue is full
         stats = bus.get_queue_stats()
-        assert stats[QueueType.DATA]["size"] == 1000
+        assert stats[QueueType.CANDLE_UPDATE]["size"] == 1000
 
         # Attempt to publish one more (should drop due to timeout)
         overflow_event = Event(EventType.CANDLE_UPDATE, {"id": 1000}, source="test")
 
         # Should not raise exception (drops gracefully)
-        await bus.publish(overflow_event, queue_type=QueueType.DATA)
+        await bus.publish(overflow_event, queue_type=QueueType.CANDLE_UPDATE)
 
         # Verify drop was counted
         stats_after = bus.get_queue_stats()
-        assert stats_after[QueueType.DATA]["drops"] == 1
+        assert stats_after[QueueType.CANDLE_UPDATE]["drops"] == 1
 
         # Queue still at capacity (event was dropped, not added)
-        assert stats_after[QueueType.DATA]["size"] == 1000
+        assert stats_after[QueueType.CANDLE_UPDATE]["size"] == 1000
 
     @pytest.mark.asyncio
     async def test_signal_queue_raises_timeout_when_full(self, event_bus_with_queues):
@@ -363,7 +362,7 @@ class TestEventBusQueues:
             await bus.publish(event, queue_type="invalid_queue")
 
         assert "Invalid queue_type 'invalid_queue'" in str(exc_info.value)
-        assert "QueueType.DATA" in str(exc_info.value)
+        assert "QueueType.CANDLE_UPDATE" in str(exc_info.value)
         assert "QueueType.SIGNAL" in str(exc_info.value)
         assert "QueueType.ORDER" in str(exc_info.value)
 
@@ -374,17 +373,17 @@ class TestEventBusQueues:
 
         # Initial state
         stats = bus.get_queue_stats()
-        assert stats[QueueType.DATA]["size"] == 0
+        assert stats[QueueType.CANDLE_UPDATE]["size"] == 0
 
-        # Publish 10 events to data queue
+        # Publish 10 events to candle update queue
         for i in range(10):
             event = Event(EventType.CANDLE_UPDATE, {"id": i}, source="test")
-            await bus.publish(event, queue_type=QueueType.DATA)
+            await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
         # Verify stats updated
         stats_after = bus.get_queue_stats()
-        assert stats_after[QueueType.DATA]["size"] == 10
-        assert stats_after[QueueType.DATA]["drops"] == 0
+        assert stats_after[QueueType.CANDLE_UPDATE]["size"] == 10
+        assert stats_after[QueueType.CANDLE_UPDATE]["drops"] == 0
 
         # Publish 5 to signal, 2 to order
         for i in range(5):
@@ -398,7 +397,7 @@ class TestEventBusQueues:
 
         # Verify all queues tracked independently
         final_stats = bus.get_queue_stats()
-        assert final_stats[QueueType.DATA]["size"] == 10
+        assert final_stats[QueueType.CANDLE_UPDATE]["size"] == 10
         assert final_stats[QueueType.SIGNAL]["size"] == 5
         assert final_stats[QueueType.ORDER]["size"] == 2
 
@@ -423,10 +422,10 @@ class TestEventBusProcessors:
 
         # Publish event to data queue
         event = Event(EventType.CANDLE_CLOSED, {"test": "data"}, source="test")
-        await bus.publish(event, queue_type=QueueType.DATA)
+        await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
         # Start processor (will process 1 event then we stop it)
-        processor_task = asyncio.create_task(bus._process_queue(QueueType.DATA))
+        processor_task = asyncio.create_task(bus._process_queue(QueueType.CANDLE_UPDATE))
         await asyncio.sleep(0.05)  # Let it process
         bus._running = False
         await processor_task
@@ -449,9 +448,9 @@ class TestEventBusProcessors:
         bus.subscribe(EventType.CANDLE_CLOSED, sync_handler)
 
         event = Event(EventType.CANDLE_CLOSED, {"test": "sync"}, source="test")
-        await bus.publish(event, queue_type=QueueType.DATA)
+        await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
-        processor_task = asyncio.create_task(bus._process_queue(QueueType.DATA))
+        processor_task = asyncio.create_task(bus._process_queue(QueueType.CANDLE_UPDATE))
         await asyncio.sleep(0.05)
         bus._running = False
         await processor_task
@@ -483,9 +482,9 @@ class TestEventBusProcessors:
         bus.subscribe(EventType.CANDLE_CLOSED, handler_3)
 
         event = Event(EventType.CANDLE_CLOSED, {}, source="test")
-        await bus.publish(event, queue_type=QueueType.DATA)
+        await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
-        processor_task = asyncio.create_task(bus._process_queue(QueueType.DATA))
+        processor_task = asyncio.create_task(bus._process_queue(QueueType.CANDLE_UPDATE))
         await asyncio.sleep(0.05)
         bus._running = False
         await processor_task
@@ -512,9 +511,9 @@ class TestEventBusProcessors:
         # Publish 3 events
         for i in range(3):
             event = Event(EventType.CANDLE_CLOSED, {"id": i}, source="test")
-            await bus.publish(event, queue_type=QueueType.DATA)
+            await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
-        processor_task = asyncio.create_task(bus._process_queue(QueueType.DATA))
+        processor_task = asyncio.create_task(bus._process_queue(QueueType.CANDLE_UPDATE))
         await asyncio.sleep(0.1)  # Let it process all 3
         bus._running = False
         await processor_task
@@ -529,7 +528,7 @@ class TestEventBusProcessors:
         bus._running = True
 
         # Start processor on empty queue
-        processor_task = asyncio.create_task(bus._process_queue(QueueType.DATA))
+        processor_task = asyncio.create_task(bus._process_queue(QueueType.CANDLE_UPDATE))
 
         # Let it run for a bit (will hit TimeoutError multiple times)
         await asyncio.sleep(0.3)  # 3x the 0.1s timeout
@@ -547,7 +546,7 @@ class TestEventBusProcessors:
         bus = event_bus_with_queues
         bus._running = True
 
-        processor_task = asyncio.create_task(bus._process_queue(QueueType.DATA))
+        processor_task = asyncio.create_task(bus._process_queue(QueueType.CANDLE_UPDATE))
         await asyncio.sleep(0.05)  # Let it start
 
         # Stop processor
@@ -582,9 +581,9 @@ class TestEventBusProcessors:
         bus.subscribe(EventType.CANDLE_CLOSED, handler_2)
 
         event = Event(EventType.CANDLE_CLOSED, {}, source="test")
-        await bus.publish(event, queue_type=QueueType.DATA)
+        await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
-        processor_task = asyncio.create_task(bus._process_queue(QueueType.DATA))
+        processor_task = asyncio.create_task(bus._process_queue(QueueType.CANDLE_UPDATE))
         await asyncio.sleep(0.05)
         bus._running = False
         await processor_task
@@ -598,20 +597,19 @@ class TestEventBusLifecycle:
 
     @pytest.mark.asyncio
     async def test_start_creates_processor_tasks(self):
-        """Verify start() spawns 3 processor tasks with names."""
+        """Verify start() spawns 4 processor tasks with names."""
         bus = EventBus()
 
         # Start in background
         start_task = asyncio.create_task(bus.start())
         await asyncio.sleep(0.1)  # Let processors start
 
-        # Verify 5 tasks created
-        assert len(bus._processor_tasks) == 5
+        # Verify 4 tasks created
+        assert len(bus._processor_tasks) == 4
 
         # Verify task names
         task_names = {task.get_name() for task in bus._processor_tasks}
         assert task_names == {
-            "data_processor",
             "candle_update_processor",
             "candle_closed_processor",
             "signal_processor",
@@ -701,7 +699,7 @@ class TestEventBusLifecycle:
         # Publish events
         for i in range(3):
             event = Event(EventType.CANDLE_CLOSED, {"id": i}, source="test")
-            await bus.publish(event, queue_type=QueueType.DATA)
+            await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
         # Shutdown gracefully
         await bus.shutdown(timeout=2.0)
@@ -729,7 +727,7 @@ class TestEventBusLifecycle:
 
         # Publish event
         event = Event(EventType.CANDLE_CLOSED, {}, source="test")
-        await bus.publish(event, queue_type=QueueType.DATA)
+        await bus.publish(event, queue_type=QueueType.CANDLE_UPDATE)
 
         # Shutdown with short timeout
         with caplog.at_level(logging.WARNING):
@@ -739,7 +737,7 @@ class TestEventBusLifecycle:
 
         # Verify warning logged
         assert "didn't drain" in caplog.text
-        assert "data" in caplog.text
+        assert "candle_update" in caplog.text
 
     @pytest.mark.asyncio
     async def test_integration_start_publish_stop(self):
@@ -762,7 +760,7 @@ class TestEventBusLifecycle:
         # Publish to multiple queues
         for i in range(5):
             await bus.publish(
-                Event(EventType.CANDLE_CLOSED, {"candle": i}, source="test"), queue_type=QueueType.DATA
+                Event(EventType.CANDLE_CLOSED, {"candle": i}, source="test"), queue_type=QueueType.CANDLE_UPDATE
             )
 
         for i in range(3):
@@ -779,5 +777,5 @@ class TestEventBusLifecycle:
 
         # Verify queue stats
         stats = bus.get_queue_stats()
-        assert stats[QueueType.DATA]["size"] == 0
+        assert stats[QueueType.CANDLE_UPDATE]["size"] == 0
         assert stats[QueueType.SIGNAL]["size"] == 0

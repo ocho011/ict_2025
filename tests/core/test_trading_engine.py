@@ -599,7 +599,7 @@ class TestIntegration:
         # Track published events
         published_events = []
 
-        async def capture_publish(event, queue_type=QueueType.DATA):
+        async def capture_publish(event, queue_type=QueueType.CANDLE_UPDATE):
             published_events.append((event, queue_type))
 
         trading_engine.event_bus.publish = capture_publish
