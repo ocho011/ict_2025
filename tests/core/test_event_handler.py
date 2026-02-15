@@ -22,6 +22,8 @@ async def event_bus_with_queues():
     # Must be async to create queues in the test's event loop
     bus._queues = {
         QueueType.DATA: asyncio.Queue(maxsize=1000),
+        QueueType.CANDLE_UPDATE: asyncio.Queue(maxsize=1000),
+        QueueType.CANDLE_CLOSED: asyncio.Queue(maxsize=100),
         QueueType.SIGNAL: asyncio.Queue(maxsize=100),
         QueueType.ORDER: asyncio.Queue(maxsize=50),
     }
@@ -247,10 +249,14 @@ class TestEventBusQueues:
         stats = bus.get_queue_stats()
 
         assert QueueType.DATA in stats
+        assert QueueType.CANDLE_UPDATE in stats
+        assert QueueType.CANDLE_CLOSED in stats
         assert QueueType.SIGNAL in stats
         assert QueueType.ORDER in stats
 
         assert stats[QueueType.DATA]["maxsize"] == 1000
+        assert stats[QueueType.CANDLE_UPDATE]["maxsize"] == 1000
+        assert stats[QueueType.CANDLE_CLOSED]["maxsize"] == 100
         assert stats[QueueType.SIGNAL]["maxsize"] == 100
         assert stats[QueueType.ORDER]["maxsize"] == 50
 
@@ -599,12 +605,18 @@ class TestEventBusLifecycle:
         start_task = asyncio.create_task(bus.start())
         await asyncio.sleep(0.1)  # Let processors start
 
-        # Verify 3 tasks created
-        assert len(bus._processor_tasks) == 3
+        # Verify 5 tasks created
+        assert len(bus._processor_tasks) == 5
 
         # Verify task names
         task_names = {task.get_name() for task in bus._processor_tasks}
-        assert task_names == {"data_processor", "signal_processor", "order_processor"}
+        assert task_names == {
+            "data_processor",
+            "candle_update_processor",
+            "candle_closed_processor",
+            "signal_processor",
+            "order_processor",
+        }
 
         # Verify tasks running
         for task in bus._processor_tasks:

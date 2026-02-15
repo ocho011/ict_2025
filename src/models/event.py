@@ -25,7 +25,9 @@ class EventType(Enum):
 class QueueType(Enum):
     """Queue types for event distribution priority."""
 
-    DATA = "data"
+    DATA = "data"  # Keep for backward compatibility (unused after migration)
+    CANDLE_UPDATE = "candle_update"  # High freq, can drop
+    CANDLE_CLOSED = "candle_closed"  # Low freq, critical
     SIGNAL = "signal"
     ORDER = "order"
 
