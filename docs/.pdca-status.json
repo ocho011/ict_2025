@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-02-15T16:01:51.401Z",
+  "lastUpdated": "2026-02-15T22:09:01.100Z",
   "activeFeatures": [
     "ict_2025",
     "strategies",
@@ -34,9 +34,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-10T17:23:55.265Z",
-        "lastUpdated": "2026-02-15T08:21:48.467Z"
+        "lastUpdated": "2026-02-15T22:09:01.100Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/strategies/__init__.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/strategies/base.py"
     },
     "exit": {
       "phase": "do",
@@ -60,9 +60,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-10T17:27:41.775Z",
-        "lastUpdated": "2026-02-15T16:01:51.401Z"
+        "lastUpdated": "2026-02-15T16:17:58.895Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/core/event_bus.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/core/trading_engine.py"
     },
     "tests": {
       "phase": "do",
@@ -112,7 +112,7 @@
   "session": {
     "startedAt": "2026-02-10T07:56:09.875Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-02-15T16:01:51.401Z"
+    "lastActivity": "2026-02-15T22:09:01.100Z"
   },
   "history": [
     {
@@ -580,6 +580,30 @@
     {
       "timestamp": "2026-02-15T16:01:51.401Z",
       "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-15T16:17:28.009Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-15T16:17:53.583Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-15T16:17:58.895Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-15T22:09:01.100Z",
+      "feature": "strategies",
       "phase": "do",
       "action": "updated"
     }

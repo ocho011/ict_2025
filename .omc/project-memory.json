@@ -260,27 +260,39 @@
     },
     {
       "path": "src",
-      "accessCount": 8,
-      "lastAccessed": 1771160735237,
+      "accessCount": 11,
+      "lastAccessed": 1771193324813,
       "type": "directory"
     },
     {
+      "path": "src/core/trading_engine.py",
+      "accessCount": 10,
+      "lastAccessed": 1771172278925,
+      "type": "file"
+    },
+    {
       "path": "src/models/event.py",
-      "accessCount": 8,
-      "lastAccessed": 1771171135816,
+      "accessCount": 9,
+      "lastAccessed": 1771171786530,
       "type": "directory"
+    },
+    {
+      "path": "src/strategies/base.py",
+      "accessCount": 9,
+      "lastAccessed": 1771193345733,
+      "type": "directory"
+    },
+    {
+      "path": "src/strategies/composable.py",
+      "accessCount": 7,
+      "lastAccessed": 1771193300794,
+      "type": "file"
     },
     {
       "path": "tests/test_feature_cache.py",
       "accessCount": 6,
       "lastAccessed": 1771143772434,
       "type": "directory"
-    },
-    {
-      "path": "src/core/trading_engine.py",
-      "accessCount": 5,
-      "lastAccessed": 1771144378887,
-      "type": "file"
     },
     {
       "path": "src/execution/order_gateway.py",
@@ -313,12 +325,6 @@
       "type": "directory"
     },
     {
-      "path": "src/strategies/base.py",
-      "accessCount": 3,
-      "lastAccessed": 1771144074224,
-      "type": "directory"
-    },
-    {
       "path": "src/strategies/__init__.py",
       "accessCount": 2,
       "lastAccessed": 1771143708509,
@@ -328,12 +334,6 @@
       "path": "tests/strategies/test_factory.py",
       "accessCount": 2,
       "lastAccessed": 1771143734103,
-      "type": "file"
-    },
-    {
-      "path": "src/strategies/composable.py",
-      "accessCount": 2,
-      "lastAccessed": 1771144047027,
       "type": "file"
     },
     {
@@ -395,6 +395,18 @@
       "accessCount": 1,
       "lastAccessed": 1771152367839,
       "type": "file"
+    },
+    {
+      "path": "src/main.py",
+      "accessCount": 1,
+      "lastAccessed": 1771172230665,
+      "type": "directory"
+    },
+    {
+      "path": "src/strategies",
+      "accessCount": 1,
+      "lastAccessed": 1771193306265,
+      "type": "directory"
     }
   ],
   "userDirectives": []
