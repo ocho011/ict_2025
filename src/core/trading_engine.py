@@ -364,19 +364,19 @@ class TradingEngine:
         """
         if not self.strategies:
             self.logger.warning(
-                "[TradingEngine] No strategies initialized, skipping historical data initialization"
+                "No strategies initialized, skipping historical data initialization"
             )
             return
 
         if not self.data_collector:
             self.logger.warning(
-                "[TradingEngine] DataCollector not injected, "
+                "DataCollector not injected, "
                 "skipping historical data initialization"
             )
             return
 
         self.logger.info(
-            f"[TradingEngine] Initializing {len(self.strategies)} strategies "
+            f"Initializing {len(self.strategies)} strategies "
             f"with {limit} historical candles per interval (sequential to avoid rate limits)"
         )
 
@@ -386,12 +386,12 @@ class TradingEngine:
             symbol_count += 1
             try:
                 self.logger.info(
-                    f"[TradingEngine] [{symbol_count}/{len(self.strategies)}] "
+                    f"[{symbol_count}/{len(self.strategies)}] "
                     f"Initializing strategy for {symbol}..."
                 )
 
                 self.logger.info(
-                    f"[TradingEngine] Initializing strategy intervals: "
+                    f"Initializing strategy intervals: "
                     f"{strategy.intervals} for {symbol}"
                 )
 
@@ -404,7 +404,7 @@ class TradingEngine:
 
                         if candles:
                             self.logger.info(
-                                f"[TradingEngine] Fetched {len(candles)} candles "
+                                f"Fetched {len(candles)} candles "
                                 f"for {symbol} {interval}"
                             )
 
@@ -414,28 +414,28 @@ class TradingEngine:
                             initialized_count += 1
                         else:
                             self.logger.warning(
-                                f"[TradingEngine] No candles returned for {symbol} {interval}"
+                                f"No candles returned for {symbol} {interval}"
                             )
 
                     except Exception as e:
                         self.logger.error(
-                            f"[TradingEngine] Failed to fetch {symbol} {interval}: {e}"
+                            f"Failed to fetch {symbol} {interval}: {e}"
                         )
 
                 if initialized_count > 0:
                     self.logger.info(
-                        f"[TradingEngine] ✅ Strategy initialization complete: "
+                        f"✅ Strategy initialization complete: "
                         f"{initialized_count}/{len(strategy.intervals)} intervals "
                         f"initialized for {symbol}"
                     )
                 else:
                     self.logger.warning(
-                        f"[TradingEngine] No intervals initialized for strategy '{symbol}'"
+                        f"No intervals initialized for strategy '{symbol}'"
                     )
 
             except Exception as e:
                 self.logger.error(
-                    f"[TradingEngine] ❌ Failed to initialize strategy for {symbol}: {e}",
+                    f"❌ Failed to initialize strategy for {symbol}: {e}",
                     exc_info=True,
                 )
 
@@ -443,7 +443,7 @@ class TradingEngine:
             if symbol_count < len(self.strategies):
                 delay = 0.5
                 self.logger.debug(
-                    f"[TradingEngine] Waiting {delay}s before next symbol "
+                    f"Waiting {delay}s before next symbol "
                     f"(rate limit protection)..."
                 )
                 await asyncio.sleep(delay)

@@ -293,7 +293,7 @@ class BaseStrategy(ABC):
         # Validate interval is registered
         if target_interval not in self.buffers:
             self.logger.warning(
-                f"[{self.__class__.__name__}] Interval '{target_interval}' not registered "
+                f"Interval '{target_interval}' not registered "
                 f"for {self.symbol}. Registered: {self.intervals}. "
                 f"Creating new buffer for this interval."
             )
@@ -304,14 +304,14 @@ class BaseStrategy(ABC):
 
         if not candles:
             self.logger.warning(
-                f"[{self.__class__.__name__}] No historical candles provided "
+                f"No historical candles provided "
                 f"for {self.symbol} {target_interval}. Strategy will start with empty buffer."
             )
             self._initialized[target_interval] = True
             return
 
         self.logger.info(
-            f"[{self.__class__.__name__}] Initializing {self.symbol} {target_interval} buffer "
+            f"Initializing {self.symbol} {target_interval} buffer "
             f"with {len(candles)} historical candles"
         )
 
@@ -327,7 +327,7 @@ class BaseStrategy(ABC):
         self._initialized[target_interval] = True
 
         self.logger.info(
-            f"[{self.__class__.__name__}] {self.symbol} {target_interval} initialization complete: "
+            f"{self.symbol} {target_interval} initialization complete: "
             f"{len(self.buffers[target_interval])} candles in buffer"
         )
 
@@ -341,7 +341,7 @@ class BaseStrategy(ABC):
                 target_interval, list(self.buffers[target_interval])
             )
             self.logger.info(
-                f"[{self.__class__.__name__}] {self.symbol} {target_interval} indicators initialized: "
+                f"{self.symbol} {target_interval} indicators initialized: "
                 f"OBs={indicator_counts.get('order_blocks', 0)}, "
                 f"FVGs={indicator_counts.get('fvgs', 0)}"
             )
@@ -412,7 +412,7 @@ class BaseStrategy(ABC):
         if interval not in self.buffers:
             # Auto-register unknown interval (for flexibility)
             self.logger.debug(
-                f"[{self.__class__.__name__}] Auto-registering interval '{interval}' "
+                f"Auto-registering interval '{interval}' "
                 f"for {self.symbol}"
             )
             self.intervals.append(interval)
@@ -593,7 +593,7 @@ class BaseStrategy(ABC):
         """
         self._indicator_cache = cache
         self.logger.info(
-            f"[{self.__class__.__name__}] Indicator cache configured for {self.symbol}"
+            f"Indicator cache configured for {self.symbol}"
         )
 
     def _update_feature_cache(self, candle: Candle) -> None:
