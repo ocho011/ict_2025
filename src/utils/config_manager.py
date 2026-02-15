@@ -204,6 +204,7 @@ class TradingConfig:
     max_symbols: int = (
         10  # Maximum symbols allowed (Issue #69: configurable MAX_SYMBOLS)
     )
+    strategy_type: str = "composable"  # "composable" | "monolithic"
 
     def __post_init__(self):
         # Validation
@@ -280,6 +281,12 @@ class TradingConfig:
                     f"Invalid interval: {interval}. "
                     f"Must be one of {sorted(valid_intervals)}"
                 )
+
+        # Validate strategy_type
+        if self.strategy_type not in ("composable", "monolithic"):
+            raise ConfigurationError(
+                f"strategy_type must be 'composable' or 'monolithic', got {self.strategy_type}"
+            )
 
 
 @dataclass
@@ -737,6 +744,7 @@ class ConfigManager:
             ict_config=ict_config,
             exit_config=exit_config,
             max_symbols=trading.getint("max_symbols", 10),
+            strategy_type=trading.get("strategy_type", "composable"),
         )
 
         # Validate max_symbols range (Issue #69)

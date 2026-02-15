@@ -119,11 +119,13 @@ class TestTradingEngineInit:
     @patch("src.core.binance_service.BinanceServiceClient")
     @patch("src.execution.order_gateway.OrderGateway")
     @patch("src.risk.risk_guard.RiskGuard")
-    @patch("src.strategies.StrategyFactory.create")
+    @patch("src.strategies.StrategyFactory.create_composed")
+    @patch("src.strategies.module_config_builder.build_module_config")
     @patch("src.core.data_collector.BinanceDataCollector")
     def test_initialize_components_success(
         self,
         mock_collector_cls,
+        mock_build_module_config,
         mock_strategy_factory,
         mock_risk_cls,
         mock_order_cls,
@@ -145,6 +147,7 @@ class TestTradingEngineInit:
         mock_config_manager.trading_config.stop_loss_percent = 0.01
         mock_config_manager.trading_config.ict_config = {"use_killzones": True}
         mock_config_manager.trading_config.max_risk_per_trade = 0.02
+        mock_config_manager.trading_config.exit_config = MagicMock()
 
         mock_event_bus = Mock()
         mock_event_bus.subscribe = Mock()
@@ -164,6 +167,7 @@ class TestTradingEngineInit:
         mock_strategy = Mock()
         # Ensure strategy intervals match config so validation passes
         mock_strategy.intervals = ["1h"]
+        mock_build_module_config.return_value = (MagicMock(), ["1h"], 1.5)
         mock_strategy_factory.return_value = mock_strategy
 
         mock_collector = Mock()
@@ -841,13 +845,15 @@ class TestInitializationOrder:
                 "src.execution.order_gateway.OrderGateway"
             ) as mock_order_cls,
             patch("src.risk.risk_guard.RiskGuard") as mock_risk_cls,
-            patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
+            patch("src.strategies.module_config_builder.build_module_config") as mock_build_module_config,
+            patch("src.strategies.StrategyFactory.create_composed") as mock_strategy_factory,
             patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
         ):
             # Setup mocks
             mock_service_cls.return_value = MagicMock()
             mock_order_cls.return_value = MagicMock()
             mock_risk_cls.return_value = MagicMock()
+            mock_build_module_config.return_value = (MagicMock(), ["5m", "1h", "4h"], 1.5)
 
             # Create MTF strategy that requires ['5m', '1h', '4h']
             mock_strategy = MagicMock(spec=BaseStrategy)
@@ -912,7 +918,8 @@ class TestInitializationOrder:
                 "src.execution.order_gateway.OrderGateway"
             ) as mock_order_cls,
             patch("src.risk.risk_guard.RiskGuard") as mock_risk_cls,
-            patch("src.strategies.StrategyFactory.create") as mock_strategy_factory,
+            patch("src.strategies.module_config_builder.build_module_config") as mock_build_module_config,
+            patch("src.strategies.StrategyFactory.create_composed") as mock_strategy_factory,
             patch("src.core.data_collector.BinanceDataCollector") as mock_collector_cls,
         ):
             # Setup mocks
@@ -924,6 +931,7 @@ class TestInitializationOrder:
             mock_order_cls.return_value = mock_order_gateway
 
             mock_risk_cls.return_value = MagicMock()
+            mock_build_module_config.return_value = (MagicMock(), ["5m", "1h", "4h"], 1.5)
 
             # Create MTF strategy that requires ['5m', '1h', '4h']
             mock_strategy = MagicMock(spec=BaseStrategy)

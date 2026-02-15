@@ -226,12 +226,18 @@ class EventDispatcher:
         """
         Sync exchange SL with strategy's trailing stop level (Issue #104).
 
-        If the strategy has a persisted trailing level that differs from the
-        original SL by more than 0.1%, update the exchange SL order.
+        If the strategy implements TrailingLevelProvider and has a persisted
+        trailing level that differs from the original SL by more than 0.1%,
+        update the exchange SL order.
         """
         try:
-            # Only applies to strategies with trailing level persistence
-            trailing_levels = getattr(strategy, "_trailing_levels", None)
+            from src.strategies.trailing_level_protocol import TrailingLevelProvider
+
+            # Only applies to strategies implementing TrailingLevelProvider
+            if not isinstance(strategy, TrailingLevelProvider):
+                return
+
+            trailing_levels = strategy.trailing_levels
             if not trailing_levels:
                 return
 
