@@ -1,0 +1,401 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1771139258701,
+  "projectRoot": "/Users/osangwon/github/ict_2025",
+  "techStack": {
+    "languages": [
+      {
+        "name": "Python",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "pyproject.toml",
+          "requirements.txt"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "pytest",
+        "version": null,
+        "category": "testing"
+      }
+    ],
+    "packageManager": "pip",
+    "runtime": null
+  },
+  "build": {
+    "buildCommand": null,
+    "testCommand": "pytest",
+    "lintCommand": "ruff check",
+    "devCommand": null,
+    "scripts": {}
+  },
+  "conventions": {
+    "namingStyle": null,
+    "importStyle": null,
+    "testPattern": null,
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "docs",
+      "scripts",
+      "src",
+      "tests"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "analysis_log": {
+      "path": "analysis_log",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1771139258693,
+      "keyFiles": []
+    },
+    "configs": {
+      "path": "configs",
+      "purpose": null,
+      "fileCount": 6,
+      "lastAccessed": 1771139258693,
+      "keyFiles": [
+        "api_keys.ini",
+        "api_keys.ini.example",
+        "dynamic_exit_examples.yaml",
+        "trading_config.ini",
+        "trading_config.ini.example"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 2,
+      "lastAccessed": 1771139258694,
+      "keyFiles": []
+    },
+    "htmlcov": {
+      "path": "htmlcov",
+      "purpose": null,
+      "fileCount": 112,
+      "lastAccessed": 1771139258694,
+      "keyFiles": [
+        "class_index.html",
+        "coverage_html_cb_6fb7b396.js",
+        "coverage_html_cb_dd2e7eb5.js",
+        "favicon_32_cb_58284776.png",
+        "favicon_32_cb_c827f16f.png"
+      ]
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1771139258694,
+      "keyFiles": [
+        "trading.log"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 11,
+      "lastAccessed": 1771139258695,
+      "keyFiles": [
+        "analyze_ict_conditions.py",
+        "benchmark_metrics.py",
+        "debug_aggregator.py",
+        "example_metrics_usage.py",
+        "measure_slots_memory.py"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 2,
+      "lastAccessed": 1771139258695,
+      "keyFiles": [
+        "__init__.py",
+        "main.py"
+      ]
+    },
+    "temp": {
+      "path": "temp",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1771139258695,
+      "keyFiles": [
+        "circuit_breaker_analysis.md",
+        "ordertype관련.txt",
+        "지표 생명 주기 설계.txt"
+      ]
+    },
+    "tests": {
+      "path": "tests",
+      "purpose": "Test files",
+      "fileCount": 26,
+      "lastAccessed": 1771139258695,
+      "keyFiles": [
+        "analysis_script.py",
+        "test_audit_logger.py",
+        "test_backfill.py",
+        "test_config_environments.py",
+        "test_config_validation.py"
+      ]
+    },
+    "venv": {
+      "path": "venv",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1771139258695,
+      "keyFiles": [
+        "pyvenv.cfg"
+      ]
+    },
+    "src/config": {
+      "path": "src/config",
+      "purpose": "Configuration files",
+      "fileCount": 3,
+      "lastAccessed": 1771139258696,
+      "keyFiles": [
+        "__init__.py",
+        "ict_profiles.py",
+        "symbol_config.py"
+      ]
+    },
+    "src/models": {
+      "path": "src/models",
+      "purpose": "Data models",
+      "fileCount": 9,
+      "lastAccessed": 1771139258696,
+      "keyFiles": [
+        "__init__.py",
+        "account.py",
+        "candle.py"
+      ]
+    },
+    "tests/data": {
+      "path": "tests/data",
+      "purpose": "Data files",
+      "fileCount": 0,
+      "lastAccessed": 1771139258696,
+      "keyFiles": []
+    },
+    "tests/models": {
+      "path": "tests/models",
+      "purpose": "Data models",
+      "fileCount": 1,
+      "lastAccessed": 1771139258696,
+      "keyFiles": [
+        "test_enriched_candle.py"
+      ]
+    },
+    "venv/bin": {
+      "path": "venv/bin",
+      "purpose": "Executable scripts",
+      "fileCount": 12,
+      "lastAccessed": 1771139258697,
+      "keyFiles": [
+        "Activate.ps1",
+        "activate",
+        "activate.csh"
+      ]
+    },
+    "venv/lib": {
+      "path": "venv/lib",
+      "purpose": "Library code",
+      "fileCount": 0,
+      "lastAccessed": 1771139258697,
+      "keyFiles": []
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src/core/event_bus.py",
+      "accessCount": 32,
+      "lastAccessed": 1771171315368,
+      "type": "directory"
+    },
+    {
+      "path": "tests/core/test_trading_engine.py",
+      "accessCount": 23,
+      "lastAccessed": 1771171246342,
+      "type": "file"
+    },
+    {
+      "path": "tests/core/test_event_handler.py",
+      "accessCount": 21,
+      "lastAccessed": 1771171241386,
+      "type": "file"
+    },
+    {
+      "path": "tests/integration/test_composable_pipeline.py",
+      "accessCount": 13,
+      "lastAccessed": 1771144211591,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_dynamic_exit.py",
+      "accessCount": 13,
+      "lastAccessed": 1771144453899,
+      "type": "directory"
+    },
+    {
+      "path": "src/core/event_dispatcher.py",
+      "accessCount": 13,
+      "lastAccessed": 1771168746785,
+      "type": "file"
+    },
+    {
+      "path": "src/core/binance_service.py",
+      "accessCount": 11,
+      "lastAccessed": 1771160721003,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 8,
+      "lastAccessed": 1771160735237,
+      "type": "directory"
+    },
+    {
+      "path": "src/models/event.py",
+      "accessCount": 8,
+      "lastAccessed": 1771171135816,
+      "type": "directory"
+    },
+    {
+      "path": "tests/test_feature_cache.py",
+      "accessCount": 6,
+      "lastAccessed": 1771143772434,
+      "type": "directory"
+    },
+    {
+      "path": "src/core/trading_engine.py",
+      "accessCount": 5,
+      "lastAccessed": 1771144378887,
+      "type": "file"
+    },
+    {
+      "path": "src/execution/order_gateway.py",
+      "accessCount": 5,
+      "lastAccessed": 1771160741215,
+      "type": "file"
+    },
+    {
+      "path": "configs/trading_config.ini",
+      "accessCount": 4,
+      "lastAccessed": 1771143655252,
+      "type": "directory"
+    },
+    {
+      "path": "tests/utils/test_config.py",
+      "accessCount": 4,
+      "lastAccessed": 1771144569619,
+      "type": "directory"
+    },
+    {
+      "path": "",
+      "accessCount": 4,
+      "lastAccessed": 1771151332078,
+      "type": "directory"
+    },
+    {
+      "path": "src/utils/config_manager.py",
+      "accessCount": 3,
+      "lastAccessed": 1771143668476,
+      "type": "directory"
+    },
+    {
+      "path": "src/strategies/base.py",
+      "accessCount": 3,
+      "lastAccessed": 1771144074224,
+      "type": "directory"
+    },
+    {
+      "path": "src/strategies/__init__.py",
+      "accessCount": 2,
+      "lastAccessed": 1771143708509,
+      "type": "file"
+    },
+    {
+      "path": "tests/strategies/test_factory.py",
+      "accessCount": 2,
+      "lastAccessed": 1771143734103,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/composable.py",
+      "accessCount": 2,
+      "lastAccessed": 1771144047027,
+      "type": "file"
+    },
+    {
+      "path": "tests",
+      "accessCount": 2,
+      "lastAccessed": 1771144286835,
+      "type": "directory"
+    },
+    {
+      "path": "src/execution",
+      "accessCount": 2,
+      "lastAccessed": 1771152333312,
+      "type": "directory"
+    },
+    {
+      "path": "src/core",
+      "accessCount": 2,
+      "lastAccessed": 1771152388830,
+      "type": "directory"
+    },
+    {
+      "path": "src/execution/trade_coordinator.py",
+      "accessCount": 2,
+      "lastAccessed": 1771152401625,
+      "type": "directory"
+    },
+    {
+      "path": "tests/integration/test_dynamic_exit_integration.py",
+      "accessCount": 1,
+      "lastAccessed": 1771143752405,
+      "type": "directory"
+    },
+    {
+      "path": "scripts",
+      "accessCount": 1,
+      "lastAccessed": 1771143804685,
+      "type": "directory"
+    },
+    {
+      "path": "src/entry",
+      "accessCount": 1,
+      "lastAccessed": 1771144042244,
+      "type": "directory"
+    },
+    {
+      "path": "src/models/signal.py",
+      "accessCount": 1,
+      "lastAccessed": 1771144127737,
+      "type": "directory"
+    },
+    {
+      "path": "src/core/exceptions.py",
+      "accessCount": 1,
+      "lastAccessed": 1771144417047,
+      "type": "directory"
+    },
+    {
+      "path": "logs/trading.log",
+      "accessCount": 1,
+      "lastAccessed": 1771152367839,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

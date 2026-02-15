@@ -397,9 +397,13 @@ class EventDispatcher:
         event = Event(event_type, candle)
 
         # Step 5: Publish to EventBus (thread-safe)
+        # Route to separate queues based on event type (Issue #118)
+        candle_queue = (
+            QueueType.CANDLE_CLOSED if candle.is_closed else QueueType.CANDLE_UPDATE
+        )
         try:
             asyncio.run_coroutine_threadsafe(
-                self._event_bus.publish(event, queue_type=QueueType.DATA),
+                self._event_bus.publish(event, queue_type=candle_queue),
                 event_loop,
             )
 

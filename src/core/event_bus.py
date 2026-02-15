@@ -63,14 +63,16 @@ class EventBus:
 
         # Monitoring: track dropped events per queue
         self._drop_count: Dict[QueueType, int] = {
-            QueueType.DATA: 0,
+            QueueType.CANDLE_UPDATE: 0,
+            QueueType.CANDLE_CLOSED: 0,
             QueueType.SIGNAL: 0,
             QueueType.ORDER: 0,
         }
 
         # Define timeout strategy per queue type at class level for reusability and clarity.
         self._TIMEOUT_MAP: Dict[QueueType, Optional[float]] = {
-            QueueType.DATA: 1.0,  # Drop quickly for high-frequency data (e.g., 1 second)
+            QueueType.CANDLE_UPDATE: 1.0,  # High freq, drop quickly
+            QueueType.CANDLE_CLOSED: 5.0,  # Critical, wait longer like SIGNAL
             QueueType.SIGNAL: 5.0,  # Wait longer for important signals (e.g., 5 seconds)
             QueueType.ORDER: None,  # Never timeout for critical orders (block indefinitely)
         }
@@ -143,24 +145,26 @@ class EventBus:
         """
         return self._subscribers[event_type]
 
-    async def publish(self, event: Event, queue_type: QueueType = QueueType.DATA) -> None:
+    async def publish(self, event: Event, queue_type: QueueType = QueueType.CANDLE_UPDATE) -> None:
         """
         Publish event to specified queue with overflow handling.
 
         This method implements the "publish" side of the pub-sub pattern.
-        Events are routed to one of three priority queues based on criticality.
+        Events are routed to one of four priority queues based on criticality.
 
         Args:
             event: Event to publish (from src.models.event.Event)
-            queue_type: Target queue (QueueType.DATA, QueueType.SIGNAL, QueueType.ORDER).
-                        Defaults to QueueType.DATA.
+            queue_type: Target queue (QueueType.CANDLE_UPDATE, QueueType.CANDLE_CLOSED,
+                        QueueType.SIGNAL, QueueType.ORDER).
+                        Defaults to QueueType.CANDLE_UPDATE.
 
         Raises:
             ValueError: If queue_type is invalid
             asyncio.TimeoutError: For signal/order queues if timeout exceeded
 
         Overflow Handling:
-            - DATA queue: Drop event on timeout, log warning, increment drop_count
+            - CANDLE_UPDATE queue: Drop event on timeout, log warning, increment drop_count
+            - CANDLE_CLOSED queue: Block for up to 5s, raise TimeoutError if full
             - SIGNAL queue: Block for up to 5s, raise TimeoutError if full
             - ORDER queue: Block indefinitely (no timeout), never drop
 
@@ -171,7 +175,7 @@ class EventBus:
             # High-frequency data (may drop under load)
             await bus.publish(
                 Event(EventType.CANDLE_UPDATE, candle),
-                queue_type=QueueType.DATA
+                queue_type=QueueType.CANDLE_UPDATE
             )
 
             # Trading signal (must process, creates backpressure)
@@ -188,7 +192,7 @@ class EventBus:
             ```
 
         Notes:
-            - Data queue drops are expected under high load (design feature)
+            - Candle update queue drops are expected under high load (design feature)
             - Signal/order timeouts indicate system overload (needs investigation)
             - Monitor drop_count via get_queue_stats() for operational alerts
         """
@@ -223,8 +227,8 @@ class EventBus:
 
         except asyncio.TimeoutError:
             # Handle timeout based on queue criticality
-            if queue_type == QueueType.DATA:
-                # Data queue: dropping events is acceptable under high load
+            if queue_type == QueueType.CANDLE_UPDATE:
+                # Candle update queue: dropping events is acceptable under high load
                 self.logger.warning(
                     f"Dropped {event.event_type.value} from {queue_type.value} queue "
                     f"(full, timeout={timeout}s). "
@@ -249,7 +253,7 @@ class EventBus:
         registered handlers with comprehensive error isolation.
 
         Args:
-            queue_type: Queue to process (QueueType.DATA, QueueType.SIGNAL, or QueueType.ORDER)
+            queue_type: Queue to process (QueueType.CANDLE_UPDATE, QueueType.CANDLE_CLOSED, QueueType.SIGNAL, or QueueType.ORDER)
 
         Process Flow:
             1. Poll queue with 0.1s timeout (non-blocking)
@@ -275,7 +279,8 @@ class EventBus:
             async def start(self):
                 self._running = True
                 tasks = [
-                    asyncio.create_task(self._process_queue(QueueType.DATA)),
+                    asyncio.create_task(self._process_queue(QueueType.CANDLE_UPDATE)),
+                    asyncio.create_task(self._process_queue(QueueType.CANDLE_CLOSED)),
                     asyncio.create_task(self._process_queue(QueueType.SIGNAL)),
                     asyncio.create_task(self._process_queue(QueueType.ORDER))
                 ]
@@ -345,7 +350,8 @@ class EventBus:
 
         Returns dict with queue sizes, capacities, and drop counts:
         {
-            QueueType.DATA: {'size': 42, 'maxsize': 1000, 'drops': 5},
+            QueueType.CANDLE_UPDATE: {'size': 42, 'maxsize': 1000, 'drops': 5},
+            QueueType.CANDLE_CLOSED: {'size': 1, 'maxsize': 100, 'drops': 0},
             QueueType.SIGNAL: {'size': 3, 'maxsize': 100, 'drops': 0},
             QueueType.ORDER: {'size': 0, 'maxsize': 50, 'drops': 0}
         }
@@ -360,9 +366,9 @@ class EventBus:
             ```python
             stats = bus.get_queue_stats()
 
-            # Alert if DATA queue is consistently full
-            if stats[QueueType.DATA]['size'] > 900:
-                logger.warning("DATA queue near capacity!")
+            # Alert if CANDLE_UPDATE queue is consistently full
+            if stats[QueueType.CANDLE_UPDATE]['size'] > 900:
+                logger.warning("CANDLE_UPDATE queue near capacity!")
 
             # Alert on any SIGNAL drops (should never happen)
             if stats[QueueType.SIGNAL]['drops'] > 0:
@@ -382,7 +388,7 @@ class EventBus:
         """
         Start all queue processors and run until stop() is called.
 
-        Creates three processor tasks (DATA, SIGNAL, ORDER) and runs them
+        Creates four processor tasks (CANDLE_UPDATE, CANDLE_CLOSED, SIGNAL, ORDER) and runs them
         concurrently using asyncio.gather with return_exceptions=True to
         prevent single task failure from crashing the entire EventBus.
 
@@ -425,22 +431,25 @@ class EventBus:
         # Create queues with current event loop (prevents "different loop" errors)
         if not self._queues:
             self._queues = {
-                QueueType.DATA: asyncio.Queue(maxsize=1000),  # High throughput, can drop
+                QueueType.CANDLE_UPDATE: asyncio.Queue(maxsize=1000),  # High freq, can drop
+                QueueType.CANDLE_CLOSED: asyncio.Queue(maxsize=100),  # Low freq, critical
                 QueueType.SIGNAL: asyncio.Queue(maxsize=100),  # Medium priority, must process
                 QueueType.ORDER: asyncio.Queue(maxsize=50),  # Critical, never drop
             }
             self.logger.info(
-                "Created queues with current event loop: DATA(1000), SIGNAL(100), ORDER(50)"
+                "Created queues with current event loop: "
+                "CANDLE_UPDATE(1000), CANDLE_CLOSED(100), SIGNAL(100), ORDER(50)"
             )
 
         self._running = True
         self.logger.info("Starting EventBus processors")
 
         # Create processor tasks with descriptive names
-        # Per-queue event processor (Processors are defined as queue-level event handlers 
+        # Per-queue event processor (Processors are defined as queue-level event handlers
         # responsible for processing events within their respective queues.)
         self._processor_tasks = [
-            asyncio.create_task(self._process_queue(QueueType.DATA), name="data_processor"),
+            asyncio.create_task(self._process_queue(QueueType.CANDLE_UPDATE), name="candle_update_processor"),
+            asyncio.create_task(self._process_queue(QueueType.CANDLE_CLOSED), name="candle_closed_processor"),
             asyncio.create_task(self._process_queue(QueueType.SIGNAL), name="signal_processor"),
             asyncio.create_task(self._process_queue(QueueType.ORDER), name="order_processor"),
         ]
