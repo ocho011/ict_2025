@@ -211,6 +211,11 @@ class EventDispatcher:
         if signal is not None:
             # Record signal time for cooldown (Issue #101)
             self._position_cache_manager._last_signal_time[symbol] = now
+            # Initialize exchange SL tracking with strategy's original SL (Issue #123).
+            # Prevents trailing stop initial_stop from overwriting a better SL price
+            # on the very first candle after entry (when _last_exchange_sl is None).
+            if signal.stop_loss is not None:
+                self._last_exchange_sl[symbol] = signal.stop_loss
             await self.publish_signal_with_audit(
                 signal=signal, candle=candle, operation="candle_analysis"
             )
@@ -264,6 +269,20 @@ class EventDispatcher:
                     self.logger.debug(
                         "Exchange SL update skipped for %s: movement=%.4f%% < threshold=0.1%%",
                         candle.symbol, movement * 100,
+                    )
+                    return
+                # Guard: only update if new SL improves position (Issue #123).
+                # LONG: SL must move UP (higher = less risk). SHORT: SL must move DOWN (lower = less risk).
+                if position.side == "LONG" and current_trailing <= last_sl:
+                    self.logger.debug(
+                        "Exchange SL update skipped for %s: trailing %.4f would worsen LONG SL %.4f",
+                        candle.symbol, current_trailing, last_sl,
+                    )
+                    return
+                if position.side == "SHORT" and current_trailing >= last_sl:
+                    self.logger.debug(
+                        "Exchange SL update skipped for %s: trailing %.4f would worsen SHORT SL %.4f",
+                        candle.symbol, current_trailing, last_sl,
                     )
                     return
 

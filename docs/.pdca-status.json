@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-02-15T22:09:01.100Z",
+  "lastUpdated": "2026-02-17T19:21:41.894Z",
   "activeFeatures": [
     "ict_2025",
     "strategies",
@@ -60,9 +60,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-10T17:27:41.775Z",
-        "lastUpdated": "2026-02-15T16:17:58.895Z"
+        "lastUpdated": "2026-02-17T19:21:03.110Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/core/trading_engine.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/core/event_dispatcher.py"
     },
     "tests": {
       "phase": "do",
@@ -86,7 +86,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-15T08:26:40.116Z",
-        "lastUpdated": "2026-02-15T08:30:07.476Z"
+        "lastUpdated": "2026-02-17T19:21:41.894Z"
       },
       "lastFile": "/Users/osangwon/github/ict_2025/tests/integration/test_composable_pipeline.py"
     },
@@ -112,7 +112,7 @@
   "session": {
     "startedAt": "2026-02-10T07:56:09.875Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-02-15T22:09:01.100Z"
+    "lastActivity": "2026-02-17T19:21:41.894Z"
   },
   "history": [
     {
@@ -604,6 +604,24 @@
     {
       "timestamp": "2026-02-15T22:09:01.100Z",
       "feature": "strategies",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-17T19:20:49.122Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-17T19:21:03.110Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-17T19:21:41.894Z",
+      "feature": "integration",
       "phase": "do",
       "action": "updated"
     }

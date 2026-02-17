@@ -270,6 +270,166 @@ class TestDynamicSLSync:
         assert call_kwargs["new_stop_price"] == 49500.0
 
 
+class TestIssue123TrailingStopInitialSL:
+    """Test Issue #123: trailing stop initial_stop must not overwrite a better SL."""
+
+    @pytest.mark.asyncio
+    async def test_entry_signal_initializes_last_exchange_sl(self):
+        """process_entry_strategy stores signal.stop_loss in _last_exchange_sl (Issue #123)."""
+        strategy = _make_composable_strategy()
+        event_bus = MagicMock()
+        event_bus.publish = AsyncMock()
+
+        dispatcher = _make_dispatcher(
+            strategies={"BTCUSDT": strategy},
+            event_bus=event_bus,
+        )
+
+        candle = _make_candle(close=50000.0)
+        event = Event(event_type=EventType.CANDLE_CLOSED, data=candle)
+
+        # No position -> runs process_entry_strategy -> generates LONG signal
+        await dispatcher.on_candle_closed(event)
+
+        # _last_exchange_sl must be seeded with the strategy's original SL
+        assert "BTCUSDT" in dispatcher._last_exchange_sl
+        original_sl = dispatcher._last_exchange_sl["BTCUSDT"]
+        # PercentageStopLoss default 1% below entry 50000 -> ~49500
+        assert original_sl < 50000.0, "LONG SL must be below entry"
+
+    @pytest.mark.asyncio
+    async def test_short_trailing_initial_stop_does_not_worsen_sl(self):
+        """Direction guard blocks trailing initial_stop from moving SHORT SL higher (Issue #123).
+
+        Scenario (DOGEUSDT SHORT from the bug report):
+          Original SL  : 0.10117  (entry * 1.005 — tight, 0.5% above entry)
+          Trailing init: 0.10267  (entry * 1.020 — trailing_distance=2%, worse for SHORT)
+        Expected: exchange SL stays at 0.10117, update_stop_loss NOT called.
+        """
+        from src.utils.config_manager import ExitConfig
+
+        exit_config = ExitConfig(
+            exit_strategy="trailing_stop",
+            trailing_distance=0.02,
+            trailing_activation=0.01,
+        )
+        exit_det = ICTExitDeterminer(
+            exit_config=exit_config,
+            swing_lookback=5,
+            displacement_ratio=1.5,
+            mtf_interval="1h",
+            htf_interval="4h",
+        )
+        entry_price = 0.10066
+        # Simulate trailing initial_stop for SHORT: entry * (1 + 0.02) = 0.10267
+        initial_stop = entry_price * (1 + exit_config.trailing_distance)  # 0.10267
+        exit_det._trailing_levels["DOGEUSDT_SHORT"] = initial_stop
+
+        module_config = StrategyModuleConfig(
+            entry_determiner=AlwaysEntryDeterminer(),
+            stop_loss_determiner=PercentageStopLoss(),
+            take_profit_determiner=RiskRewardTakeProfit(),
+            exit_determiner=exit_det,
+        )
+        strategy = StrategyFactory.create_composed(
+            symbol="DOGEUSDT",
+            config={"rr_ratio": 2.0},
+            module_config=module_config,
+            intervals=["5m"],
+        )
+        strategy._initialized["5m"] = True
+
+        position = Position(
+            symbol="DOGEUSDT", side="SHORT", entry_price=entry_price,
+            quantity=100.0, leverage=10, entry_time=datetime.now(timezone.utc),
+        )
+        order_gateway = MagicMock()
+        order_gateway.update_stop_loss.return_value = True
+
+        pcm = _make_position_cache_manager()
+        pcm.get.return_value = position
+        pcm.cache = {"DOGEUSDT": (position, time.time())}
+
+        dispatcher = _make_dispatcher(
+            strategies={"DOGEUSDT": strategy},
+            pcm=pcm,
+            order_gateway=order_gateway,
+        )
+        # Seed _last_exchange_sl with the strategy's tight original SL (entry * 1.005)
+        original_sl = entry_price * 1.005  # 0.10117
+        dispatcher._last_exchange_sl["DOGEUSDT"] = original_sl
+
+        candle = _make_candle(symbol="DOGEUSDT", close=entry_price)
+        await dispatcher.maybe_update_exchange_sl(candle, strategy, position)
+
+        # Direction guard must block the worsening update
+        order_gateway.update_stop_loss.assert_not_called()
+        # _last_exchange_sl must remain at the tight original SL
+        assert dispatcher._last_exchange_sl["DOGEUSDT"] == original_sl
+
+    @pytest.mark.asyncio
+    async def test_short_trailing_improvement_is_allowed(self):
+        """Direction guard allows exchange SL update when trailing moves SHORT SL lower (Issue #123)."""
+        from src.utils.config_manager import ExitConfig
+
+        exit_config = ExitConfig(
+            exit_strategy="trailing_stop",
+            trailing_distance=0.02,
+            trailing_activation=0.01,
+        )
+        exit_det = ICTExitDeterminer(
+            exit_config=exit_config,
+            swing_lookback=5,
+            displacement_ratio=1.5,
+            mtf_interval="1h",
+            htf_interval="4h",
+        )
+        entry_price = 0.10066
+        original_sl = entry_price * 1.005   # 0.10117  (original, wider)
+        improved_sl = entry_price * 0.990   # ~0.09965 (ratcheted lower = better for SHORT)
+        exit_det._trailing_levels["DOGEUSDT_SHORT"] = improved_sl
+
+        module_config = StrategyModuleConfig(
+            entry_determiner=AlwaysEntryDeterminer(),
+            stop_loss_determiner=PercentageStopLoss(),
+            take_profit_determiner=RiskRewardTakeProfit(),
+            exit_determiner=exit_det,
+        )
+        strategy = StrategyFactory.create_composed(
+            symbol="DOGEUSDT",
+            config={"rr_ratio": 2.0},
+            module_config=module_config,
+            intervals=["5m"],
+        )
+        strategy._initialized["5m"] = True
+
+        position = Position(
+            symbol="DOGEUSDT", side="SHORT", entry_price=entry_price,
+            quantity=100.0, leverage=10, entry_time=datetime.now(timezone.utc),
+        )
+        order_gateway = MagicMock()
+        order_gateway.update_stop_loss.return_value = True
+
+        pcm = _make_position_cache_manager()
+        pcm.get.return_value = position
+        pcm.cache = {"DOGEUSDT": (position, time.time())}
+
+        dispatcher = _make_dispatcher(
+            strategies={"DOGEUSDT": strategy},
+            pcm=pcm,
+            order_gateway=order_gateway,
+        )
+        dispatcher._last_exchange_sl["DOGEUSDT"] = original_sl
+
+        candle = _make_candle(symbol="DOGEUSDT", close=entry_price * 0.985)
+        await dispatcher.maybe_update_exchange_sl(candle, strategy, position)
+
+        # Improvement (lower SL for SHORT) must be allowed
+        order_gateway.update_stop_loss.assert_called_once()
+        call_kwargs = order_gateway.update_stop_loss.call_args[1]
+        assert call_kwargs["new_stop_price"] == improved_sl
+
+
 class TestSignalCooldown:
     """Test 4: Signal cooldown - two rapid candles -> only first generates signal."""
 
