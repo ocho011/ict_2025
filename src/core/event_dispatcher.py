@@ -235,15 +235,25 @@ class EventDispatcher:
 
             # Only applies to strategies implementing TrailingLevelProvider
             if not isinstance(strategy, TrailingLevelProvider):
+                self.logger.debug(
+                    "Strategy does not implement TrailingLevelProvider for %s",
+                    candle.symbol,
+                )
                 return
 
             trailing_levels = strategy.trailing_levels
             if not trailing_levels:
+                self.logger.debug(
+                    "No trailing levels available for %s", candle.symbol,
+                )
                 return
 
             trail_key = f"{candle.symbol}_{position.side}"
             current_trailing = trailing_levels.get(trail_key)
             if current_trailing is None:
+                self.logger.debug(
+                    "No trailing level for key %s", trail_key,
+                )
                 return
 
             # Minimum movement threshold: only update if SL moved by >0.1%
@@ -251,6 +261,10 @@ class EventDispatcher:
             if last_sl is not None:
                 movement = abs(current_trailing - last_sl) / last_sl
                 if movement < 0.001:  # 0.1% threshold
+                    self.logger.debug(
+                        "Exchange SL update skipped for %s: movement=%.4f%% < threshold=0.1%%",
+                        candle.symbol, movement * 100,
+                    )
                     return
 
             # Determine SL order side (opposite of position)

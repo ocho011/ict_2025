@@ -108,6 +108,16 @@ class ICTExitDeterminer(ExitDeterminer):
             exit_config = self.exit_config
             trail_key = f"{context.symbol}_{position.side}"
 
+            pnl_pct = ((candle.close - position.entry_price) / position.entry_price * 100
+                        if position.side == "LONG"
+                        else (position.entry_price - candle.close) / position.entry_price * 100)
+            self.logger.debug(
+                "[%s] Trailing stop analysis: side=%s, entry=%.4f, close=%.4f, "
+                "pnl=%.2f%%, activation_threshold=%.2f%%",
+                context.symbol, position.side, position.entry_price, candle.close,
+                pnl_pct, exit_config.trailing_activation * 100,
+            )
+
             if position.side == "LONG":
                 initial_stop = position.entry_price * (1 - exit_config.trailing_distance)
                 trailing_stop = self._trailing_levels.get(trail_key, initial_stop)
@@ -116,9 +126,29 @@ class ICTExitDeterminer(ExitDeterminer):
                 if candle.close > activation_price:
                     new_stop = candle.close * (1 - exit_config.trailing_distance)
                     if new_stop > trailing_stop:
+                        old_stop = trailing_stop
                         trailing_stop = new_stop
+                        self.logger.debug(
+                            "[%s] Trailing stop ratcheted: %.4f -> %.4f (delta=%.2f%%)",
+                            context.symbol, old_stop, trailing_stop,
+                            (trailing_stop - old_stop) / old_stop * 100,
+                        )
+                else:
+                    self.logger.debug(
+                        "[%s] Trailing stop not activated: close=%.4f < activation=%.4f "
+                        "(need +%.2f%%)",
+                        context.symbol, candle.close, activation_price,
+                        (activation_price - candle.close) / candle.close * 100,
+                    )
 
                 self._trailing_levels[trail_key] = trailing_stop
+
+                distance_pct = (candle.close - trailing_stop) / trailing_stop * 100
+                self.logger.debug(
+                    "[%s] Trailing stop status: level=%.4f, close=%.4f, "
+                    "distance=%.2f%% (trigger when <=0)",
+                    context.symbol, trailing_stop, candle.close, distance_pct,
+                )
 
                 if candle.close <= trailing_stop:
                     self.logger.info(
@@ -144,9 +174,29 @@ class ICTExitDeterminer(ExitDeterminer):
                 if candle.close < activation_price:
                     new_stop = candle.close * (1 + exit_config.trailing_distance)
                     if new_stop < trailing_stop:
+                        old_stop = trailing_stop
                         trailing_stop = new_stop
+                        self.logger.debug(
+                            "[%s] Trailing stop ratcheted: %.4f -> %.4f (delta=%.2f%%)",
+                            context.symbol, old_stop, trailing_stop,
+                            (old_stop - trailing_stop) / old_stop * 100,
+                        )
+                else:
+                    self.logger.debug(
+                        "[%s] Trailing stop not activated: close=%.4f > activation=%.4f "
+                        "(need -%.2f%%)",
+                        context.symbol, candle.close, activation_price,
+                        (candle.close - activation_price) / activation_price * 100,
+                    )
 
                 self._trailing_levels[trail_key] = trailing_stop
+
+                distance_pct = (trailing_stop - candle.close) / trailing_stop * 100
+                self.logger.debug(
+                    "[%s] Trailing stop status: level=%.4f, close=%.4f, "
+                    "distance=%.2f%% (trigger when <=0)",
+                    context.symbol, trailing_stop, candle.close, distance_pct,
+                )
 
                 if candle.close >= trailing_stop:
                     self.logger.info(
@@ -183,6 +233,16 @@ class ICTExitDeterminer(ExitDeterminer):
             breakeven_level = position.entry_price
             profit_threshold = position.entry_price * exit_config.breakeven_offset
 
+            pnl_pct = ((candle.close - position.entry_price) / position.entry_price * 100
+                        if position.side == "LONG"
+                        else (position.entry_price - candle.close) / position.entry_price * 100)
+            self.logger.debug(
+                "[%s] Breakeven analysis: side=%s, entry=%.4f, close=%.4f, "
+                "pnl=%.2f%%, breakeven_offset=%.2f%%",
+                context.symbol, position.side, position.entry_price, candle.close,
+                pnl_pct, exit_config.breakeven_offset * 100,
+            )
+
             if position.side == "LONG":
                 if candle.close > position.entry_price + profit_threshold:
                     if candle.close <= breakeven_level:
@@ -199,6 +259,13 @@ class ICTExitDeterminer(ExitDeterminer):
                             timestamp=datetime.now(timezone.utc),
                             exit_reason="breakeven",
                         )
+                else:
+                    self.logger.debug(
+                        "[%s] Breakeven not activated: close=%.4f, "
+                        "need > entry+threshold=%.4f (threshold=%.4f)",
+                        context.symbol, candle.close,
+                        position.entry_price + profit_threshold, profit_threshold,
+                    )
 
             else:  # SHORT position
                 if candle.close < position.entry_price - profit_threshold:
@@ -216,6 +283,13 @@ class ICTExitDeterminer(ExitDeterminer):
                             timestamp=datetime.now(timezone.utc),
                             exit_reason="breakeven",
                         )
+                else:
+                    self.logger.debug(
+                        "[%s] Breakeven not activated: close=%.4f, "
+                        "need < entry-threshold=%.4f (threshold=%.4f)",
+                        context.symbol, candle.close,
+                        position.entry_price - profit_threshold, profit_threshold,
+                    )
 
         except Exception as e:
             self.logger.error(f"[{context.symbol}] Error in breakeven check: {e}")
