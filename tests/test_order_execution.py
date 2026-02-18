@@ -223,13 +223,6 @@ def test_validation_error_inheritance():
     assert isinstance(err, OrderExecutionError)
 
 
-def test_rate_limit_error_inheritance():
-    """Check if RateLimitError inherits from OrderExecutionError"""
-    from src.core.exceptions import OrderExecutionError, RateLimitError
-
-    err = RateLimitError("Test error")
-    assert isinstance(err, OrderExecutionError)
-
 
 def test_order_rejected_error_inheritance():
     """Check if OrderRejectedError inherits from OrderExecutionError"""

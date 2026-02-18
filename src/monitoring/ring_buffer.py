@@ -5,9 +5,8 @@ Zero-allocation, single-producer-single-consumer (SPSC) ring buffer
 optimized for microsecond-latency metric recording in hot path.
 """
 
-import time
 from enum import IntEnum
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 import numpy as np
 

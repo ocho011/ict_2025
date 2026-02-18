@@ -28,11 +28,7 @@ from src.core.trading_engine import TradingEngine
 from src.execution.liquidation_manager import LiquidationManager
 from src.utils.config_manager import ConfigManager, LiquidationConfig
 from src.execution.order_gateway import OrderGateway
-from src.models.candle import Candle
-from src.models.event import Event, EventType
 from src.risk.risk_guard import RiskGuard
-from src.strategies import StrategyFactory
-from src.strategies.base import BaseStrategy
 from src.utils.logger import TradingLogger
 
 

@@ -50,7 +50,6 @@ class TestTradingBotInitialization:
     @patch("src.main.BinanceDataCollector")
     @patch("src.main.OrderGateway")
     @patch("src.main.RiskGuard")
-    @patch("src.main.StrategyFactory")
     @patch("src.main.EventBus")
     @patch("src.main.TradingEngine")
     @patch("logging.getLogger")
@@ -60,7 +59,6 @@ class TestTradingBotInitialization:
         mock_get_logger,
         mock_trading_engine,
         mock_event_bus,
-        mock_strategy_factory,
         mock_risk_guard_guard,
         mock_order_gateway_gateway,
         mock_data_collector,
@@ -183,7 +181,6 @@ class TestTradingBotInitialization:
             patch("src.main.BinanceDataCollector"),
             patch("src.main.OrderGateway") as mock_order_gateway,
             patch("src.main.RiskGuard"),
-            patch("src.main.StrategyFactory"),
             patch("src.main.EventBus"),
             patch("src.main.LiquidationManager"),
         ):

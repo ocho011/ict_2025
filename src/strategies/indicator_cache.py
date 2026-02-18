@@ -19,7 +19,6 @@ Performance Characteristics:
 
 import logging
 from collections import deque
-from datetime import datetime
 from typing import Deque, Dict, List, Optional, Union
 
 from src.models.candle import Candle

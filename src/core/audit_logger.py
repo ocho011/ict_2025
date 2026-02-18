@@ -16,10 +16,8 @@ from datetime import datetime
 from enum import Enum
 from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from typing import Any, Dict, Optional
 
-if TYPE_CHECKING:
-    from typing import ClassVar
 
 
 class AuditEventType(Enum):

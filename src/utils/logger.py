@@ -194,25 +194,3 @@ def log_execution_time(operation: str) -> Generator[None, None, None]:
     finally:
         elapsed = time.perf_counter() - start
         logging.debug(f"{operation} completed in {elapsed:.3f}s")
-
-
-# Deprecated function for backwards compatibility
-def setup_logger(name: str, level: str = "INFO") -> logging.Logger:
-    """
-    DEPRECATED: Use TradingLogger class instead
-
-    Temporary wrapper for backwards compatibility
-
-    Args:
-        name: Logger name
-        level: Logging level (DEBUG, INFO, WARNING, ERROR)
-
-    Returns:
-        Configured logger instance
-    """
-    import warnings
-
-    warnings.warn(
-        "setup_logger() is deprecated. Use TradingLogger class.", DeprecationWarning, stacklevel=2
-    )
-    return logging.getLogger(name)

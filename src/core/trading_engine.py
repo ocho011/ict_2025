@@ -31,8 +31,6 @@ from src.execution.order_gateway import OrderGateway
 from src.execution.trade_coordinator import TradeCoordinator
 from src.models.candle import Candle
 from src.models.event import Event, EventType, QueueType
-from src.models.order import Order
-from src.models.signal import Signal
 from src.risk.risk_guard import RiskGuard
 from src.strategies.base import BaseStrategy
 from src.utils.config_manager import ConfigManager

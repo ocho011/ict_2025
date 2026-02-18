@@ -6,7 +6,6 @@ following the composition pattern for BinanceDataCollector (Issue #57).
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional
 
 
 class IDataStreamer(ABC):
