@@ -56,7 +56,7 @@ class TestTradingConfigValidation:
     def test_valid_trading_config(self):
         """Valid configuration should not raise"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m", "5m"],
             strategy="MockStrategy",
             leverage=10,
@@ -65,14 +65,14 @@ class TestTradingConfigValidation:
             stop_loss_percent=0.02,
         )
         assert config.leverage == 10
-        assert config.symbol == "BTCUSDT"
+        assert config.symbols == ["BTCUSDT"]
         assert len(config.intervals) == 2
 
     # Leverage validation tests
     def test_leverage_minimum_valid(self):
         """Leverage of 1 should be valid"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -85,7 +85,7 @@ class TestTradingConfigValidation:
     def test_leverage_maximum_valid(self):
         """Leverage of 125 should be valid"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=125,
@@ -99,7 +99,7 @@ class TestTradingConfigValidation:
         """Leverage < 1 should raise"""
         with pytest.raises(ConfigurationError, match="Leverage must be between 1-125"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=0,
@@ -112,7 +112,7 @@ class TestTradingConfigValidation:
         """Negative leverage should raise"""
         with pytest.raises(ConfigurationError, match="Leverage must be between 1-125"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=-5,
@@ -125,7 +125,7 @@ class TestTradingConfigValidation:
         """Leverage > 125 should raise"""
         with pytest.raises(ConfigurationError, match="Leverage must be between 1-125"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=126,
@@ -138,7 +138,7 @@ class TestTradingConfigValidation:
     def test_risk_minimum_valid(self):
         """Minimum valid risk (just above 0) should work"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -151,7 +151,7 @@ class TestTradingConfigValidation:
     def test_risk_maximum_valid(self):
         """Risk of exactly 10% should be valid"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -165,7 +165,7 @@ class TestTradingConfigValidation:
         """Risk = 0 should raise"""
         with pytest.raises(ConfigurationError, match="Max risk per trade must be 0-10%"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -178,7 +178,7 @@ class TestTradingConfigValidation:
         """Negative risk should raise"""
         with pytest.raises(ConfigurationError, match="Max risk per trade must be 0-10%"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -191,7 +191,7 @@ class TestTradingConfigValidation:
         """Risk > 10% should raise"""
         with pytest.raises(ConfigurationError, match="Max risk per trade must be 0-10%"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -204,7 +204,7 @@ class TestTradingConfigValidation:
     def test_take_profit_positive_valid(self):
         """Positive take profit ratio should be valid"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -218,7 +218,7 @@ class TestTradingConfigValidation:
         """Zero take profit ratio should raise"""
         with pytest.raises(ConfigurationError, match="Take profit ratio must be positive"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -231,7 +231,7 @@ class TestTradingConfigValidation:
         """Negative take profit ratio should raise"""
         with pytest.raises(ConfigurationError, match="Take profit ratio must be positive"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -244,7 +244,7 @@ class TestTradingConfigValidation:
     def test_stop_loss_minimum_valid(self):
         """Minimum valid stop loss (just above 0) should work"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -257,7 +257,7 @@ class TestTradingConfigValidation:
     def test_stop_loss_maximum_valid(self):
         """Stop loss of exactly 50% should be valid"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -271,7 +271,7 @@ class TestTradingConfigValidation:
         """Stop loss = 0 should raise"""
         with pytest.raises(ConfigurationError, match="Stop loss percent must be 0-50%"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -284,7 +284,7 @@ class TestTradingConfigValidation:
         """Negative stop loss should raise"""
         with pytest.raises(ConfigurationError, match="Stop loss percent must be 0-50%"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -297,7 +297,7 @@ class TestTradingConfigValidation:
         """Stop loss > 50% should raise"""
         with pytest.raises(ConfigurationError, match="Stop loss percent must be 0-50%"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -312,7 +312,7 @@ class TestTradingConfigValidation:
         symbols = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT"]
         for symbol in symbols:
             config = TradingConfig(
-                symbol=symbol,
+                symbols=[symbol],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -320,13 +320,13 @@ class TestTradingConfigValidation:
                 take_profit_ratio=2.0,
                 stop_loss_percent=0.02,
             )
-            assert config.symbol == symbol
+            assert config.symbols == [symbol]
 
     def test_invalid_symbol_format_raises(self):
         """Symbol not ending with USDT should raise"""
         with pytest.raises(ConfigurationError, match="Invalid symbol format"):
             TradingConfig(
-                symbol="BTCBUSD",
+                symbols=["BTCBUSD"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -339,7 +339,7 @@ class TestTradingConfigValidation:
         """Empty symbol should raise"""
         with pytest.raises(ConfigurationError, match="Invalid symbol format"):
             TradingConfig(
-                symbol="",
+                symbols=[""],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -352,7 +352,7 @@ class TestTradingConfigValidation:
         """Lowercase symbol should raise"""
         with pytest.raises(ConfigurationError, match="Invalid symbol format"):
             TradingConfig(
-                symbol="btcusdt",
+                symbols=["btcusdt"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=1,
@@ -365,7 +365,7 @@ class TestTradingConfigValidation:
     def test_valid_single_interval(self):
         """Single valid interval should work"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1h"],
             strategy="test",
             leverage=1,
@@ -379,7 +379,7 @@ class TestTradingConfigValidation:
         """Multiple valid intervals should work"""
         intervals = ["1m", "5m", "15m", "1h", "4h", "1d"]
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=intervals,
             strategy="test",
             leverage=1,
@@ -408,7 +408,7 @@ class TestTradingConfigValidation:
             "1w",
         ]
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=valid_intervals,
             strategy="test",
             leverage=1,
@@ -422,7 +422,7 @@ class TestTradingConfigValidation:
         """Invalid interval format should raise"""
         with pytest.raises(ConfigurationError, match="Invalid interval"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1x"],
                 strategy="test",
                 leverage=1,
@@ -435,7 +435,7 @@ class TestTradingConfigValidation:
         """One invalid interval in list should raise"""
         with pytest.raises(ConfigurationError, match="Invalid interval"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m", "5m", "invalid", "1h"],
                 strategy="test",
                 leverage=1,
@@ -448,7 +448,7 @@ class TestTradingConfigValidation:
         """Unsupported but plausible intervals should raise"""
         with pytest.raises(ConfigurationError, match="Invalid interval"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["2m"],  # Not supported by Binance
                 strategy="test",
                 leverage=1,
@@ -461,7 +461,7 @@ class TestTradingConfigValidation:
     def test_margin_type_isolated_valid(self):
         """ISOLATED margin type should be valid"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=10,
@@ -475,7 +475,7 @@ class TestTradingConfigValidation:
     def test_margin_type_crossed_valid(self):
         """CROSSED margin type should be valid"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=10,
@@ -489,7 +489,7 @@ class TestTradingConfigValidation:
     def test_margin_type_default_isolated(self):
         """Default margin type should be ISOLATED"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=10,
@@ -503,7 +503,7 @@ class TestTradingConfigValidation:
         """Invalid margin type should raise ConfigurationError"""
         with pytest.raises(ConfigurationError, match="Margin type must be 'ISOLATED' or 'CROSSED'"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=10,
@@ -517,7 +517,7 @@ class TestTradingConfigValidation:
         """Lowercase margin type should raise ConfigurationError"""
         with pytest.raises(ConfigurationError, match="Margin type must be 'ISOLATED' or 'CROSSED'"):
             TradingConfig(
-                symbol="BTCUSDT",
+                symbols=["BTCUSDT"],
                 intervals=["1m"],
                 strategy="test",
                 leverage=10,
@@ -584,7 +584,7 @@ api_secret = test_secret_12345678
         trading_config.write_text(
             """
 [trading]
-symbol = BTCUSDT
+symbols = BTCUSDT
 intervals = 1m,5m
 strategy = MockStrategy
 leverage = 1
@@ -616,7 +616,7 @@ api_secret = test_secret_12345678
         trading_config.write_text(
             """
 [trading]
-symbol = BTCUSDT
+symbols = BTCUSDT
 intervals = 1m
 strategy = MockStrategy
 leverage = 10
@@ -656,7 +656,7 @@ api_secret = test_secret
         trading_config.write_text(
             """
 [trading]
-symbol = BTCUSDT
+symbols = BTCUSDT
 intervals = 1m
 strategy = test
 leverage = 1
@@ -689,7 +689,7 @@ api_secret = test_secret_mainnet
         trading_config.write_text(
             """
 [trading]
-symbol = BTCUSDT
+symbols = BTCUSDT
 intervals = 1m
 strategy = test
 leverage = 1
@@ -713,7 +713,7 @@ class TestEdgeCases:
         """Test leverage at exact boundaries"""
         # Test leverage = 1 (minimum)
         config1 = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -725,7 +725,7 @@ class TestEdgeCases:
 
         # Test leverage = 125 (maximum)
         config2 = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=125,
@@ -739,7 +739,7 @@ class TestEdgeCases:
         """Test risk at exact boundaries"""
         # Test minimum (just above 0)
         config1 = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -751,7 +751,7 @@ class TestEdgeCases:
 
         # Test maximum (exactly 10%)
         config2 = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=1,
@@ -764,7 +764,7 @@ class TestEdgeCases:
     def test_empty_intervals_list(self):
         """Empty intervals list should work (will fail elsewhere but validation passes)"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=[],
             strategy="test",
             leverage=1,
@@ -777,7 +777,7 @@ class TestEdgeCases:
     def test_very_high_leverage_and_risk_combination(self):
         """Valid but dangerous configuration should still validate"""
         config = TradingConfig(
-            symbol="BTCUSDT",
+            symbols=["BTCUSDT"],
             intervals=["1m"],
             strategy="test",
             leverage=125,

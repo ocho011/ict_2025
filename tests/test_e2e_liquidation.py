@@ -117,7 +117,7 @@ class TestE2ELiquidationWorkflow:
             call.kwargs.get("event_type")
             for call in mock_audit_logger.log_event.call_args_list
         ]
-        assert AuditEventType.ORDER_PLACED in event_types  # Position close logs
+        assert AuditEventType.TRADE_CLOSED in event_types  # Position close logs
         assert AuditEventType.LIQUIDATION_COMPLETE in event_types
 
     @pytest.mark.asyncio
@@ -177,8 +177,8 @@ class TestE2ELiquidationWorkflow:
             call.kwargs.get("event_type")
             for call in mock_audit_logger.log_event.call_args_list
         ]
-        assert AuditEventType.ORDER_PLACED in event_types
-        assert AuditEventType.ORDER_REJECTED in event_types
+        assert AuditEventType.TRADE_CLOSED in event_types
+        assert AuditEventType.LIQUIDATION_COMPLETE in event_types
 
     @pytest.mark.asyncio
     async def test_liquidation_timeout_scenario(

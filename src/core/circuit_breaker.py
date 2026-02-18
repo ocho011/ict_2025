@@ -57,10 +57,11 @@ class CircuitBreaker:
             if time.time() - self.last_failure_time > self.recovery_timeout:
                 self.state = "HALF_OPEN"
             else:
-                from src.execution.exceptions import OrderExecutionError
+                from src.core.exceptions import OrderExecutionError
 
+                func_name = getattr(func, "__name__", str(func))
                 raise OrderExecutionError(
-                    f"Circuit breaker OPEN for {func.__name__}. "
+                    f"Circuit breaker OPEN for {func_name}. "
                     f"Recovery in {self.recovery_timeout - (time.time() - self.last_failure_time):.1f}s"
                 )
 

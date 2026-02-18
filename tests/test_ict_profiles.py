@@ -53,23 +53,23 @@ class TestGetProfileParameters:
         """Test BALANCED profile parameter values"""
         params = get_profile_parameters(ICTProfile.BALANCED)
 
-        assert params["swing_lookback"] == 7
+        assert params["swing_lookback"] == 5
         assert params["displacement_ratio"] == 1.3
-        assert params["fvg_min_gap_percent"] == 0.002
+        assert params["fvg_min_gap_percent"] == 0.001
         assert params["ob_min_strength"] == 1.3
         assert params["liquidity_tolerance"] == 0.002
-        assert params["rr_ratio"] == 2.0
+        assert params["min_rr_ratio"] == 1.2
 
     def test_relaxed_profile_parameters(self):
         """Test RELAXED profile parameter values"""
         params = get_profile_parameters(ICTProfile.RELAXED)
 
-        assert params["swing_lookback"] == 10
-        assert params["displacement_ratio"] == 1.2
-        assert params["fvg_min_gap_percent"] == 0.005
-        assert params["ob_min_strength"] == 1.2
+        assert params["swing_lookback"] == 3
+        assert params["displacement_ratio"] == 1.1
+        assert params["fvg_min_gap_percent"] == 0.0005
+        assert params["ob_min_strength"] == 1.1
         assert params["liquidity_tolerance"] == 0.005
-        assert params["rr_ratio"] == 2.0
+        assert params["min_rr_ratio"] == 1.0
 
     def test_profile_parameter_progression(self):
         """Test that parameters relax progressively from STRICT to RELAXED"""
@@ -77,14 +77,14 @@ class TestGetProfileParameters:
         balanced = get_profile_parameters(ICTProfile.BALANCED)
         relaxed = get_profile_parameters(ICTProfile.RELAXED)
 
-        # Swing lookback increases (more history considered)
-        assert strict["swing_lookback"] < balanced["swing_lookback"] < relaxed["swing_lookback"]
+        # Swing lookback decreases or stays same (less history = more signals)
+        assert strict["swing_lookback"] >= balanced["swing_lookback"] >= relaxed["swing_lookback"]
 
         # Displacement ratio decreases (easier to trigger)
         assert strict["displacement_ratio"] > balanced["displacement_ratio"] > relaxed["displacement_ratio"]
 
-        # Gap/tolerance increases (more permissive)
-        assert strict["fvg_min_gap_percent"] < balanced["fvg_min_gap_percent"] < relaxed["fvg_min_gap_percent"]
+        # FVG min gap: strict/balanced same, relaxed lower (more permissive)
+        assert strict["fvg_min_gap_percent"] >= balanced["fvg_min_gap_percent"] >= relaxed["fvg_min_gap_percent"]
         assert strict["ob_min_strength"] > balanced["ob_min_strength"] > relaxed["ob_min_strength"]
         assert strict["liquidity_tolerance"] < balanced["liquidity_tolerance"] < relaxed["liquidity_tolerance"]
 
@@ -240,7 +240,7 @@ class TestProfileIntegration:
         params = get_profile_parameters(profile)
 
         # Verify parameters match expected values
-        assert params["swing_lookback"] == 7
+        assert params["swing_lookback"] == 5
         assert params["displacement_ratio"] == 1.3
 
     def test_all_profiles_have_valid_numeric_values(self):

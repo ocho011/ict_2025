@@ -422,7 +422,7 @@ class TestIndicatorCount:
         """Test indicator count with no indicators."""
         enriched = EnrichedCandle(candle=sample_candle)
 
-        assert enriched.indicator_count == 0
+        assert enriched.detector_count == 0
 
     def test_indicator_count_all(
         self,
@@ -441,7 +441,7 @@ class TestIndicatorCount:
             structure_break=sample_structure_break,
         )
 
-        assert enriched.indicator_count == 4
+        assert enriched.detector_count == 4
 
     def test_is_high_conviction_true(
         self,

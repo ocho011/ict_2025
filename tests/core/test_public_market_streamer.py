@@ -141,12 +141,12 @@ class TestPublicMarketStreamerURLConstants:
     def test_testnet_ws_url(self):
         """Verify TESTNET_WS_URL constant value."""
         assert (
-            PublicMarketStreamer.TESTNET_WS_URL == "wss://stream.binancefuture.com"
+            PublicMarketStreamer.DEFAULT_TESTNET_WS_URL == "wss://stream.binancefuture.com"
         )
 
     def test_mainnet_ws_url(self):
         """Verify MAINNET_WS_URL constant value."""
-        assert PublicMarketStreamer.MAINNET_WS_URL == "wss://fstream.binance.com"
+        assert PublicMarketStreamer.DEFAULT_MAINNET_WS_URL == "wss://fstream.binance.com"
 
 
 # =============================================================================

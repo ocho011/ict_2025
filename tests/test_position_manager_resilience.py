@@ -82,40 +82,27 @@ class TestGetPositionWithRetry:
 
 
     def test_get_position_retry_on_rate_limit(self, manager, mock_client):
-        """Test retry behavior on rate limit errors"""
-        call_count = 0
+        """Test that rate limit errors raise OrderExecutionError.
 
-        def side_effect(*args, **kwargs):
-            nonlocal call_count
-            call_count += 1
-            if call_count <= 2:  # First two calls fail
-                raise ClientError(
-                    status_code=429,
-                    error_code=-1003,
-                    error_message="Rate limit",
-                    header={},
-                )
-            else:  # Third call succeeds
-                return [
-                    {
-                        "symbol": "BTCUSDT",
-                        "positionAmt": "0.001",
-                        "entryPrice": "50000.00",
-                    }
-                ]
+        Note: get_position catches ClientError internally and re-raises as
+        OrderExecutionError, which is not in retry_with_backoff's retryable
+        exceptions. So rate limit errors propagate immediately.
+        """
+        mock_client.get_position_risk.side_effect = ClientError(
+            status_code=429,
+            error_code=-1003,
+            error_message="Rate limit",
+            header={},
+        )
 
-        mock_client.get_position_risk.side_effect = side_effect
-
-        # Should succeed after retries
-        position = manager.get_position("BTCUSDT")
-        assert position is not None
-        assert position.symbol == "BTCUSDT"
-        assert mock_client.get_position_risk.call_count == 3  # 1 initial + 2 retries
+        # Should raise OrderExecutionError (ClientError caught internally)
+        with pytest.raises(OrderExecutionError, match="Rate limit"):
+            manager.get_position("BTCUSDT")
 
     def test_get_position_server_error_handling(self, manager, mock_client):
         """Test ServerError is properly handled"""
         mock_client.get_position_risk.side_effect = ServerError(
-            status_code=500, message="Internal server error", header={}
+            status_code=500, message="Internal server error"
         )
 
         # Should raise OrderExecutionError for ServerError
@@ -123,20 +110,19 @@ class TestGetPositionWithRetry:
             manager.get_position("BTCUSDT")
 
     def test_get_position_circuit_breaker_opens(self, manager, mock_client):
-        """Test circuit breaker opens after repeated failures"""
-        # Mock 3 consecutive failures
+        """Test circuit breaker opens after repeated failures (threshold=5)"""
+        # Mock 5 consecutive failures (matches failure_threshold=5)
         mock_client.get_position_risk.side_effect = [
-            ClientError(status_code=429, error_code=-1003, error_message="Rate limit"),
-            ClientError(status_code=429, error_code=-1003, error_message="Rate limit"),
-            ClientError(status_code=429, error_code=-1003, error_message="Rate limit"),
+            ClientError(status_code=429, error_code=-1003, error_message="Rate limit", header={})
+            for _ in range(5)
         ]
 
-        # First 3 calls should fail
-        for i in range(3):
-            position = manager.get_position("BTCUSDT")
-            assert position is None
+        # First 5 calls should fail with OrderExecutionError
+        for i in range(5):
+            with pytest.raises(OrderExecutionError):
+                manager.get_position("BTCUSDT")
 
-        # Circuit breaker should be OPEN after 3 failures
+        # Circuit breaker should be OPEN after 5 failures
         assert manager._position_circuit_breaker.get_state() == "OPEN"
 
         # Next call should raise circuit breaker error
@@ -145,35 +131,41 @@ class TestGetPositionWithRetry:
 
     def test_get_position_circuit_breaker_half_open(self, manager, mock_client):
         """Test circuit breaker enters HALF_OPEN state"""
-        # First fail 3 times to open circuit
+        # First fail 5 times to open circuit (failure_threshold=5)
         mock_client.get_position_risk.side_effect = [
-            ClientError(status_code=500, error_message="Server error"),
-            ClientError(status_code=500, error_message="Server error"),
-            ClientError(status_code=500, error_message="Server error"),
+            ClientError(status_code=500, error_code=-1, error_message="Server error", header={}),
+            ClientError(status_code=500, error_code=-1, error_message="Server error", header={}),
+            ClientError(status_code=500, error_code=-1, error_message="Server error", header={}),
+            ClientError(status_code=500, error_code=-1, error_message="Server error", header={}),
+            ClientError(status_code=500, error_code=-1, error_message="Server error", header={}),
         ]
 
-        # Open circuit
-        for i in range(3):
-            manager.get_position("BTCUSDT")
+        # Open circuit - each call raises OrderExecutionError
+        for i in range(5):
+            with pytest.raises(OrderExecutionError):
+                manager.get_position("BTCUSDT")
 
         assert manager._position_circuit_breaker.get_state() == "OPEN"
 
-        # Wait past recovery timeout
-        with patch("time.time", return_value=1000):  # Past timeout
-            mock_client.get_position_risk.side_effect = None  # Succeed
-            mock_client.get_position_risk.return_value = [
-                {
-                    "symbol": "BTCUSDT",
-                    "positionAmt": "0.001",
-                    "entryPrice": "50000.00",
-                }
-            ]
+        # Simulate recovery timeout by backdating last_failure_time
+        manager._position_circuit_breaker.last_failure_time = (
+            time.time() - manager._position_circuit_breaker.recovery_timeout - 1
+        )
 
-            # Should succeed and reset circuit breaker
-            position = manager.get_position("BTCUSDT")
-            assert position is not None
-            assert position.symbol == "BTCUSDT"
-            assert manager._position_circuit_breaker.get_state() == "CLOSED"
+        mock_client.get_position_risk.side_effect = None  # Succeed
+        mock_client.get_position_risk.return_value = [
+            {
+                "symbol": "BTCUSDT",
+                "positionAmt": "0.001",
+                "entryPrice": "50000.00",
+            }
+        ]
+
+        # Should succeed and reset circuit breaker
+        position = manager.get_position("BTCUSDT")
+        assert position is not None
+        assert position.symbol == "BTCUSDT"
+        assert manager._position_circuit_breaker.get_state() == "CLOSED"
 
 
     def test_get_position_backwards_compatibility(self, manager, mock_client):

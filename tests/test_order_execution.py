@@ -686,10 +686,13 @@ class TestTPSLPlacement:
     @pytest.fixture
     def manager(self, mock_binance_service):
         """OrderGateway instance (using mock service)"""
-        return OrderGateway(
+        mgr = OrderGateway(
             audit_logger=MagicMock(),
             binance_service=mock_binance_service
         )
+        # Mock get_mark_price to return realistic mark price for TP/SL validation
+        mock_binance_service.get_mark_price = MagicMock(return_value=50000.0)
+        return mgr
 
     @pytest.fixture
     def long_entry_signal(self):
@@ -1736,11 +1739,11 @@ class TestQueryMethods:
         mock_client.get_orders.side_effect = [initial_orders] + [remaining_orders] * 10
         mock_client.cancel_order.return_value = {"status": "NEW"}  # Failed to cancel
 
-        with caplog.at_level(logging.ERROR):
+        with caplog.at_level(logging.WARNING):
             cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=2)
 
-        # Should log error about remaining orders
-        assert "CRITICAL" in caplog.text or "remain" in caplog.text.lower()
+        # Should log warning about remaining orders
+        assert "still open" in caplog.text.lower() or "remain" in caplog.text.lower()
 
     def test_cancel_all_orders_verify_false_with_orders(self, manager, mock_client, mock_cancel_with_orders):
         """verify=False still checks for open orders first (Issue #65)"""
