@@ -1,6 +1,4 @@
 """
-Real-time market data collection using Binance WebSocket.
-
 This module provides the BinanceDataCollector class as a facade for managing
 data collection from Binance USDT-M Futures markets. It coordinates:
 - PublicMarketStreamer: Real-time candlestick data via WebSocket
@@ -159,6 +157,9 @@ class BinanceDataCollector:
 
         Delegates to PublicMarketStreamer for actual WebSocket management.
 
+        Note: Event creation and publishing is handled by TradingEngine via callbacks.
+        PublicMarketStreamer is a pure data relay (Issue #96, #107).
+
         Raises:
             ConnectionError: If WebSocket connection fails
         """
@@ -168,7 +169,9 @@ class BinanceDataCollector:
             return
 
         try:
-            self.logger.info("Starting market data streaming via PublicMarketStreamer...")
+            self.logger.info(
+                "Starting market data streaming via PublicMarketStreamer..."
+            )
 
             # Delegate to market streamer
             await self.market_streamer.start()

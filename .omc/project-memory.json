@@ -217,9 +217,93 @@
   },
   "hotPaths": [
     {
+      "path": "",
+      "accessCount": 165,
+      "lastAccessed": 1771423834670,
+      "type": "directory"
+    },
+    {
+      "path": "src/execution/order_gateway.py",
+      "accessCount": 25,
+      "lastAccessed": 1771424178607,
+      "type": "file"
+    },
+    {
+      "path": "src/core/trading_engine.py",
+      "accessCount": 13,
+      "lastAccessed": 1771405841978,
+      "type": "file"
+    },
+    {
       "path": "src/core/event_dispatcher.py",
+      "accessCount": 9,
+      "lastAccessed": 1771390622413,
+      "type": "file"
+    },
+    {
+      "path": "src/main.py",
+      "accessCount": 9,
+      "lastAccessed": 1771405787974,
+      "type": "file"
+    },
+    {
+      "path": "src/core/circuit_breaker.py",
+      "accessCount": 9,
+      "lastAccessed": 1771424305659,
+      "type": "file"
+    },
+    {
+      "path": "src/core/audit_logger.py",
+      "accessCount": 8,
+      "lastAccessed": 1771391669596,
+      "type": "file"
+    },
+    {
+      "path": "src/utils/config_manager.py",
+      "accessCount": 8,
+      "lastAccessed": 1771423659297,
+      "type": "file"
+    },
+    {
+      "path": "src/core/data_collector.py",
+      "accessCount": 8,
+      "lastAccessed": 1771424056811,
+      "type": "file"
+    },
+    {
+      "path": "src/monitoring/ring_buffer.py",
+      "accessCount": 7,
+      "lastAccessed": 1771405789656,
+      "type": "file"
+    },
+    {
+      "path": "src/core/exceptions.py",
       "accessCount": 6,
-      "lastAccessed": 1771356063145,
+      "lastAccessed": 1771391646543,
+      "type": "file"
+    },
+    {
+      "path": "src/config/ict_profiles.py",
+      "accessCount": 6,
+      "lastAccessed": 1771423652324,
+      "type": "file"
+    },
+    {
+      "path": "src/detectors/base.py",
+      "accessCount": 5,
+      "lastAccessed": 1771390805128,
+      "type": "file"
+    },
+    {
+      "path": "src/core/streamer_protocol.py",
+      "accessCount": 5,
+      "lastAccessed": 1771391639432,
+      "type": "file"
+    },
+    {
+      "path": "src/utils/logger.py",
+      "accessCount": 5,
+      "lastAccessed": 1771391652179,
       "type": "file"
     },
     {
@@ -229,21 +313,207 @@
       "type": "file"
     },
     {
-      "path": "src/exit/ict_exit.py",
-      "accessCount": 1,
-      "lastAccessed": 1771355814716,
+      "path": "src/core/event_bus.py",
+      "accessCount": 4,
+      "lastAccessed": 1771390622056,
       "type": "file"
     },
     {
-      "path": "src/exit/base.py",
-      "accessCount": 1,
-      "lastAccessed": 1771355836559,
+      "path": "src/execution/trade_coordinator.py",
+      "accessCount": 4,
+      "lastAccessed": 1771390647853,
+      "type": "file"
+    },
+    {
+      "path": "src/models/__init__.py",
+      "accessCount": 4,
+      "lastAccessed": 1771390783914,
+      "type": "file"
+    },
+    {
+      "path": "src/monitoring/event_ids.py",
+      "accessCount": 4,
+      "lastAccessed": 1771390791352,
+      "type": "file"
+    },
+    {
+      "path": "src/core/public_market_streamer.py",
+      "accessCount": 4,
+      "lastAccessed": 1771408885930,
+      "type": "file"
+    },
+    {
+      "path": "src/models/enriched_candle.py",
+      "accessCount": 4,
+      "lastAccessed": 1771408914181,
+      "type": "file"
+    },
+    {
+      "path": "src/core/retry.py",
+      "accessCount": 4,
+      "lastAccessed": 1771424016416,
+      "type": "file"
+    },
+    {
+      "path": "src/core/__init__.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390621357,
+      "type": "file"
+    },
+    {
+      "path": "src/core/binance_service.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390622459,
+      "type": "file"
+    },
+    {
+      "path": "src/core/enriched_buffer.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390634875,
+      "type": "file"
+    },
+    {
+      "path": "src/core/listen_key_manager.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390635515,
+      "type": "file"
+    },
+    {
+      "path": "src/core/position_cache_manager.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390636054,
+      "type": "file"
+    },
+    {
+      "path": "src/core/private_user_streamer.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390637098,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/base.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390645134,
+      "type": "file"
+    },
+    {
+      "path": "src/execution/liquidation_manager.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390648400,
+      "type": "file"
+    },
+    {
+      "path": "src/execution/config_validator.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390648636,
       "type": "file"
     },
     {
       "path": "src/models/position.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390781375,
+      "type": "file"
+    },
+    {
+      "path": "src/models/account.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390781818,
+      "type": "file"
+    },
+    {
+      "path": "src/risk/risk_guard.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390790068,
+      "type": "file"
+    },
+    {
+      "path": "src/monitoring/aggregator.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390790887,
+      "type": "file"
+    },
+    {
+      "path": "src/monitoring/metrics_collector.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390791819,
+      "type": "file"
+    },
+    {
+      "path": "src/monitoring/stats.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390792664,
+      "type": "file"
+    },
+    {
+      "path": "src/config/symbol_config.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390799640,
+      "type": "file"
+    },
+    {
+      "path": "src/detectors/ict_fvg.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390805627,
+      "type": "file"
+    },
+    {
+      "path": "src/detectors/ict_killzones.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390806093,
+      "type": "file"
+    },
+    {
+      "path": "src/exit/base.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390819021,
+      "type": "file"
+    },
+    {
+      "path": "src/exit/ict_exit.py",
+      "accessCount": 3,
+      "lastAccessed": 1771390819384,
+      "type": "file"
+    },
+    {
+      "path": "src/models/candle.py",
+      "accessCount": 2,
+      "lastAccessed": 1771390638441,
+      "type": "file"
+    },
+    {
+      "path": "src/models/signal.py",
+      "accessCount": 2,
+      "lastAccessed": 1771390780488,
+      "type": "file"
+    },
+    {
+      "path": "src/models/order.py",
+      "accessCount": 2,
+      "lastAccessed": 1771390780909,
+      "type": "file"
+    },
+    {
+      "path": "src/models/event.py",
+      "accessCount": 2,
+      "lastAccessed": 1771390782201,
+      "type": "file"
+    },
+    {
+      "path": "src/models/indicators.py",
+      "accessCount": 2,
+      "lastAccessed": 1771390783171,
+      "type": "file"
+    },
+    {
+      "path": "README.md",
       "accessCount": 1,
-      "lastAccessed": 1771355837284,
+      "lastAccessed": 1771369622392,
+      "type": "file"
+    },
+    {
+      "path": "pyproject.toml",
+      "accessCount": 1,
+      "lastAccessed": 1771369622622,
       "type": "file"
     }
   ],

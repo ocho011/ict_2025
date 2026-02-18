@@ -61,7 +61,10 @@
       "Bash(gh pr merge:*)",
       "Bash(git stash:*)",
       "mcp__plugin_oh-my-claudecode_t__state_clear",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(wc -l:*)",
+      "Bash(find:*)",
+      "Bash(test:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

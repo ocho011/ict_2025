@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-02-17T19:21:41.894Z",
+  "lastUpdated": "2026-02-18T14:18:39.491Z",
   "activeFeatures": [
     "ict_2025",
     "strategies",
@@ -8,7 +8,8 @@
     "core",
     "tests",
     "integration",
-    "execution"
+    "execution",
+    "monitoring"
   ],
   "primaryFeature": "ict_2025",
   "features": {
@@ -21,9 +22,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-10T17:23:30.863Z",
-        "lastUpdated": "2026-02-15T15:58:55.776Z"
+        "lastUpdated": "2026-02-18T05:14:13.378Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/models/event.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/__init__.py"
     },
     "strategies": {
       "phase": "do",
@@ -34,9 +35,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-10T17:23:55.265Z",
-        "lastUpdated": "2026-02-15T22:09:01.100Z"
+        "lastUpdated": "2026-02-18T05:14:18.533Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/strategies/base.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/strategies/__init__.py"
     },
     "exit": {
       "phase": "do",
@@ -60,9 +61,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-10T17:27:41.775Z",
-        "lastUpdated": "2026-02-17T19:21:03.110Z"
+        "lastUpdated": "2026-02-18T14:18:25.625Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/core/event_dispatcher.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/core/circuit_breaker.py"
     },
     "tests": {
       "phase": "do",
@@ -73,9 +74,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-15T08:23:13.352Z",
-        "lastUpdated": "2026-02-15T08:36:09.575Z"
+        "lastUpdated": "2026-02-18T14:18:39.491Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/utils/test_config.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/tests/test_position_manager_resilience.py"
     },
     "integration": {
       "phase": "do",
@@ -99,9 +100,22 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-15T13:05:28.814Z",
-        "lastUpdated": "2026-02-15T13:05:28.814Z"
+        "lastUpdated": "2026-02-18T05:13:59.476Z"
       },
       "lastFile": "/Users/osangwon/github/ict_2025/src/execution/order_gateway.py"
+    },
+    "monitoring": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-02-18T05:13:59.556Z",
+        "lastUpdated": "2026-02-18T05:13:59.556Z"
+      },
+      "lastFile": "/Users/osangwon/github/ict_2025/src/monitoring/ring_buffer.py"
     }
   },
   "pipeline": {
@@ -112,7 +126,7 @@
   "session": {
     "startedAt": "2026-02-10T07:56:09.875Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-02-17T19:21:41.894Z"
+    "lastActivity": "2026-02-18T14:18:39.491Z"
   },
   "history": [
     {
@@ -622,6 +636,300 @@
     {
       "timestamp": "2026-02-17T19:21:41.894Z",
       "feature": "integration",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:51.361Z",
+      "feature": "ict_2025",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:59.318Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:59.400Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:59.476Z",
+      "feature": "execution",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:59.556Z",
+      "feature": "monitoring",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:59.645Z",
+      "feature": "strategies",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:59.717Z",
+      "feature": "strategies",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:13:59.793Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:14:06.504Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:14:10.177Z",
+      "feature": "strategies",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:14:12.143Z",
+      "feature": "ict_2025",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:14:13.378Z",
+      "feature": "ict_2025",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:14:18.533Z",
+      "feature": "strategies",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:14:20.498Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T05:14:29.537Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T09:10:22.542Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T09:10:37.467Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T10:02:31.286Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T10:02:34.623Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T10:02:38.304Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T10:02:41.770Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T10:02:50.659Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T10:02:56.654Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:09:16.581Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:09:27.539Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:09:34.368Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:09:39.805Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:09:44.492Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:09:49.416Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:09:54.283Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:10:12.235Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:10:16.689Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:10:23.674Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:10:29.415Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:10:44.799Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:10:56.108Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:11:47.401Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:11:53.812Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:11:59.269Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:12:23.768Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:14:23.883Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:14:36.432Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:14:44.847Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:14:56.699Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:16:27.566Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:17:54.567Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:18:09.585Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:18:25.625Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-02-18T14:18:39.491Z",
+      "feature": "tests",
       "phase": "do",
       "action": "updated"
     }

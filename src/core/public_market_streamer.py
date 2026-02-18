@@ -26,11 +26,14 @@ class PublicMarketStreamer(IDataStreamer):
     data from Binance. Supports multiple symbols with separate connections
     per symbol for reliability.
 
-    Responsibilities:
+    Responsibilities (Issue #96 - Pure Data Relay, #107 - Callback Pattern):
         - WebSocket connection management (one per symbol)
         - Kline message parsing and Candle object creation
         - Connection heartbeat monitoring
         - Graceful cleanup on shutdown
+
+    Note: Event creation and publishing is handled by TradingEngine via callbacks.
+    This streamer is a pure data relay that only parses and forwards Candle objects.
 
     Example:
         >>> streamer = PublicMarketStreamer(
@@ -88,7 +91,9 @@ class PublicMarketStreamer(IDataStreamer):
             self._ws_url = ws_url
         else:
             self._ws_url = (
-                self.DEFAULT_TESTNET_WS_URL if is_testnet else self.DEFAULT_MAINNET_WS_URL
+                self.DEFAULT_TESTNET_WS_URL
+                if is_testnet
+                else self.DEFAULT_MAINNET_WS_URL
             )
 
         # WebSocket clients (one per symbol)
