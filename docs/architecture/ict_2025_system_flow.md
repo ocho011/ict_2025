@@ -148,7 +148,7 @@ flowchart TB
     
     E --> E1[EventBus.start]
     E1 --> E2[DataCollector.start_streaming]
-    E2 --> E3[start_listen_key_service]
+    E2 --> E3[start_user_streaming]
     
     style A fill:#90EE90
     style E fill:#90EE90

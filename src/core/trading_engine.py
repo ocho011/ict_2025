@@ -612,7 +612,7 @@ class TradingEngine:
 
                 # Start User Data Stream for real-time order updates (Issue #54, #107)
                 try:
-                    await self.data_collector.start_listen_key_service(
+                    await self.data_collector.start_user_streaming(
                         position_update_callback=self._on_position_update_from_websocket,
                         order_update_callback=self._on_order_update_from_websocket,
                         order_fill_callback=self._on_order_fill_from_websocket,

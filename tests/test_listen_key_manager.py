@@ -275,30 +275,19 @@ class TestDataCollectorUserDataStream:
         )
 
     @pytest.mark.asyncio
-    async def test_start_listen_key_service(self, data_collector, mock_user_streamer):
-        """Test starting listen key service via facade."""
-        await data_collector.start_listen_key_service(order_fill_callback=lambda d: None)
+    async def test_start_user_streaming(self, data_collector, mock_user_streamer):
+        """Test starting user data streaming via facade (Issue #124)."""
+        await data_collector.start_user_streaming(order_fill_callback=lambda d: None)
 
         # Verify facade delegates to user_streamer
         mock_user_streamer.set_order_fill_callback.assert_called_once()
         mock_user_streamer.start.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_stop_listen_key_service(self, data_collector, mock_user_streamer):
-        """Test stopping listen key service via facade."""
-        await data_collector.start_listen_key_service()
-
-        # Stop the stream
-        await data_collector.stop_listen_key_service()
-
-        # Verify facade delegates to user_streamer
-        mock_user_streamer.stop.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_start_listen_key_service_without_user_streamer(
+    async def test_start_user_streaming_without_user_streamer(
         self, binance_service, mock_market_streamer, caplog
     ):
-        """Test that start_listen_key_service() logs warning when user_streamer is None."""
+        """Test that start_user_streaming() logs warning when user_streamer is None."""
         import logging
 
         data_collector = BinanceDataCollector(
@@ -308,7 +297,7 @@ class TestDataCollectorUserDataStream:
         )
 
         with caplog.at_level(logging.WARNING):
-            await data_collector.start_listen_key_service()
+            await data_collector.start_user_streaming()
 
         assert "PrivateUserStreamer not configured" in caplog.text
 

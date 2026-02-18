@@ -56,7 +56,7 @@ class BinanceDataCollector:
         ...     user_streamer=user_streamer
         ... )
         >>> await collector.start_streaming()
-        >>> await collector.start_listen_key_service(order_fill_callback=on_fill)
+        >>> await collector.start_user_streaming(order_fill_callback=on_fill)
         >>> # ... data collection active ...
         >>> await collector.stop()
 
@@ -408,19 +408,20 @@ class BinanceDataCollector:
         # Don't re-raise - best effort cleanup
 
     # =========================================================================
-    # Listen Key Service Methods (Issue #54, #57)
+    # User Data Streaming Methods (Issue #54, #57, #124)
     # =========================================================================
 
-    async def start_listen_key_service(
+    async def start_user_streaming(
         self,
         position_update_callback: Optional[Callable] = None,
         order_update_callback: Optional[Callable] = None,
         order_fill_callback: Optional[Callable] = None,
     ) -> None:
         """
-        Start listen key service WebSocket for real-time order updates.
+        Start user data stream WebSocket for real-time order updates.
 
         Delegates to PrivateUserStreamer for actual WebSocket management.
+        Naming aligned with start_streaming() for API consistency (Issue #124).
 
         Note: Event creation and publishing is handled by TradingEngine via callbacks.
         PrivateUserStreamer is a pure data relay (Issue #96, #107).
@@ -457,16 +458,3 @@ class BinanceDataCollector:
 
         # Start the streamer
         await self.user_streamer.start()
-
-    async def stop_listen_key_service(self) -> None:
-        """
-        Stop listen key service and cleanup resources.
-
-        Delegates to PrivateUserStreamer for cleanup.
-
-        Note:
-            - Method is idempotent - safe to call multiple times
-            - Called automatically by stop() method
-        """
-        if self.user_streamer:
-            await self.user_streamer.stop()
