@@ -218,8 +218,8 @@
   "hotPaths": [
     {
       "path": "",
-      "accessCount": 165,
-      "lastAccessed": 1771423834670,
+      "accessCount": 166,
+      "lastAccessed": 1771424948330,
       "type": "directory"
     },
     {
@@ -230,8 +230,14 @@
     },
     {
       "path": "src/core/trading_engine.py",
-      "accessCount": 13,
-      "lastAccessed": 1771405841978,
+      "accessCount": 15,
+      "lastAccessed": 1771425006432,
+      "type": "file"
+    },
+    {
+      "path": "src/core/data_collector.py",
+      "accessCount": 11,
+      "lastAccessed": 1771425001915,
       "type": "file"
     },
     {
@@ -262,12 +268,6 @@
       "path": "src/utils/config_manager.py",
       "accessCount": 8,
       "lastAccessed": 1771423659297,
-      "type": "file"
-    },
-    {
-      "path": "src/core/data_collector.py",
-      "accessCount": 8,
-      "lastAccessed": 1771424056811,
       "type": "file"
     },
     {

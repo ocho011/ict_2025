@@ -146,7 +146,14 @@ class BinanceDataCollector:
 
     @property
     def on_candle_callback(self) -> Optional[Callable[[Candle], None]]:
-        """Get candle callback from market streamer."""
+        """
+        Get candle callback from market streamer.
+
+        Note:
+            This property is primarily used for testing and debugging to
+            verify delegation. The actual callback execution happens within
+            PublicMarketStreamer.
+        """
         if self.market_streamer:
             return self.market_streamer.on_candle_callback
         return None
@@ -187,6 +194,62 @@ class BinanceDataCollector:
             )
             await self.stop()
             raise ConnectionError(f"WebSocket initialization failed: {e}")
+
+    # =========================================================================
+    # User Data Streaming Methods (Issue #54, #57, #124)
+    # =========================================================================
+
+    async def start_user_streaming(
+        self,
+        position_update_callback: Optional[Callable] = None,
+        order_update_callback: Optional[Callable] = None,
+        order_fill_callback: Optional[Callable] = None,
+    ) -> None:
+        """
+        Start user data stream WebSocket for real-time order updates.
+
+        Delegates to PrivateUserStreamer for actual WebSocket management.
+        Naming aligned with start_streaming() for API consistency (Issue #124).
+
+        Note: Event creation and publishing is handled by TradingEngine via callbacks.
+        PrivateUserStreamer is a pure data relay (Issue #96, #107).
+
+        Args:
+            position_update_callback: Optional callback for position updates from
+                ACCOUNT_UPDATE events (Issue #41 rate limit fix)
+            order_update_callback: Optional callback for order updates from
+                ORDER_TRADE_UPDATE events (Issue #41 rate limit fix)
+            order_fill_callback: Optional callback for order fill events from
+                ORDER_TRADE_UPDATE events (Issue #107 - callback pattern alignment)
+
+        Raises:
+            ConnectionError: If WebSocket connection fails
+            Exception: If listen key creation fails
+        """
+        if self.user_streamer is None:
+            self.logger.warning(
+                "PrivateUserStreamer not configured, skipping user data stream"
+            )
+            return
+
+        # Configure position update callback (Issue #41 rate limit fix)
+        if position_update_callback:
+            self.user_streamer.set_position_update_callback(position_update_callback)
+
+        # Configure order update callback (Issue #41 rate limit fix)
+        if order_update_callback:
+            self.user_streamer.set_order_update_callback(order_update_callback)
+
+        # Configure order fill callback (Issue #107 - callback pattern alignment)
+        if order_fill_callback:
+            self.user_streamer.set_order_fill_callback(order_fill_callback)
+
+        # Start the streamer
+        await self.user_streamer.start()
+
+    # =========================================================================
+    # REST API Methods
+    # =========================================================================
 
     def _parse_rest_kline(self, kline: List) -> Candle:
         """
@@ -405,56 +468,3 @@ class BinanceDataCollector:
 
         # Don't suppress exceptions from the context
         return None
-        # Don't re-raise - best effort cleanup
-
-    # =========================================================================
-    # User Data Streaming Methods (Issue #54, #57, #124)
-    # =========================================================================
-
-    async def start_user_streaming(
-        self,
-        position_update_callback: Optional[Callable] = None,
-        order_update_callback: Optional[Callable] = None,
-        order_fill_callback: Optional[Callable] = None,
-    ) -> None:
-        """
-        Start user data stream WebSocket for real-time order updates.
-
-        Delegates to PrivateUserStreamer for actual WebSocket management.
-        Naming aligned with start_streaming() for API consistency (Issue #124).
-
-        Note: Event creation and publishing is handled by TradingEngine via callbacks.
-        PrivateUserStreamer is a pure data relay (Issue #96, #107).
-
-        Args:
-            position_update_callback: Optional callback for position updates from
-                ACCOUNT_UPDATE events (Issue #41 rate limit fix)
-            order_update_callback: Optional callback for order updates from
-                ORDER_TRADE_UPDATE events (Issue #41 rate limit fix)
-            order_fill_callback: Optional callback for order fill events from
-                ORDER_TRADE_UPDATE events (Issue #107 - callback pattern alignment)
-
-        Raises:
-            ConnectionError: If WebSocket connection fails
-            Exception: If listen key creation fails
-        """
-        if self.user_streamer is None:
-            self.logger.warning(
-                "PrivateUserStreamer not configured, skipping user data stream"
-            )
-            return
-
-        # Configure position update callback (Issue #41 rate limit fix)
-        if position_update_callback:
-            self.user_streamer.set_position_update_callback(position_update_callback)
-
-        # Configure order update callback (Issue #41 rate limit fix)
-        if order_update_callback:
-            self.user_streamer.set_order_update_callback(order_update_callback)
-
-        # Configure order fill callback (Issue #107 - callback pattern alignment)
-        if order_fill_callback:
-            self.user_streamer.set_order_fill_callback(order_fill_callback)
-
-        # Start the streamer
-        await self.user_streamer.start()
