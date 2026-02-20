@@ -239,7 +239,7 @@ class TestEventHandlers:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler (delegates to EventDispatcher)
-        await trading_engine._on_candle_closed(event)
+        await trading_engine.event_dispatcher.on_candle_closed(event)
 
         # Verify strategy called
         trading_engine.strategy.analyze.assert_called_once_with(candle)
@@ -275,7 +275,7 @@ class TestEventHandlers:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler
-        await trading_engine._on_candle_closed(event)
+        await trading_engine.event_dispatcher.on_candle_closed(event)
 
         # Verify signal published
         trading_engine.event_bus.publish.assert_called_once()
@@ -310,7 +310,7 @@ class TestEventHandlers:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler
-        await trading_engine._on_candle_closed(event)
+        await trading_engine.event_dispatcher.on_candle_closed(event)
 
         # Verify no signal published
         trading_engine.event_bus.publish.assert_not_called()
@@ -330,7 +330,7 @@ class TestEventHandlers:
         event = Event(EventType.SIGNAL_GENERATED, signal)
 
         # Call handler (delegates to TradeCoordinator)
-        await trading_engine._on_signal_generated(event)
+        await trading_engine.trade_coordinator.on_signal_generated(event)
 
         # Verify risk validation called
         trading_engine.risk_guard.validate_risk.assert_called_once()
@@ -356,7 +356,7 @@ class TestEventHandlers:
         event = Event(EventType.SIGNAL_GENERATED, signal)
 
         # Call handler
-        await trading_engine._on_signal_generated(event)
+        await trading_engine.trade_coordinator.on_signal_generated(event)
 
         # Verify order NOT executed
         trading_engine.order_gateway.execute_signal.assert_not_called()
@@ -377,7 +377,7 @@ class TestEventHandlers:
         event = Event(EventType.ORDER_FILLED, mock_order)
 
         # Call handler (delegates to TradeCoordinator)
-        await trading_engine._on_order_filled(event)
+        await trading_engine.trade_coordinator.on_order_filled(event)
 
         # TradeCoordinator has its own logger - verify it ran without error
         # (the mock order_type needs to support 'in' check for OrderType enum)
@@ -405,11 +405,11 @@ class TestEventHandlers:
         )
 
         # Process the partial fill event (delegates to TradeCoordinator)
-        await trading_engine._on_order_partially_filled(event)
+        await trading_engine.trade_coordinator.on_order_partially_filled(event)
 
-        # Verify position entry data was tracked (via backward-compat property)
-        assert "BTCUSDT" in trading_engine._position_entry_data
-        entry_data = trading_engine._position_entry_data["BTCUSDT"]
+        # Verify position entry data was tracked (via trade_coordinator directly)
+        assert "BTCUSDT" in trading_engine.trade_coordinator._position_entry_data
+        entry_data = trading_engine.trade_coordinator._position_entry_data["BTCUSDT"]
         assert entry_data.entry_price == 50000.0
         assert entry_data.quantity == 0.5  # Should use filled_quantity, not total
         assert entry_data.side == "LONG"  # BUY = LONG
@@ -526,7 +526,7 @@ class TestEventHandlers:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Call handler - should not raise
-        await trading_engine._on_candle_closed(event)
+        await trading_engine.event_dispatcher.on_candle_closed(event)
 
         # EventDispatcher has its own logger - error is isolated
 
@@ -638,7 +638,7 @@ class TestIntegration:
         candle_event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Process candle → signal (via EventDispatcher)
-        await trading_engine._on_candle_closed(candle_event)
+        await trading_engine.event_dispatcher.on_candle_closed(candle_event)
 
         # Verify signal published
         assert len(published_events) == 1
@@ -648,7 +648,7 @@ class TestIntegration:
         assert queue_type == QueueType.SIGNAL
 
         # Process signal → order (via TradeCoordinator)
-        await trading_engine._on_signal_generated(signal_event)
+        await trading_engine.trade_coordinator.on_signal_generated(signal_event)
 
         # After Issue #97: ORDER_FILLED events come from WebSocket confirmation,
         # not from signal processing. Only SIGNAL_GENERATED is published here.
@@ -1022,7 +1022,7 @@ class TestIntervalFiltering:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Process candle
-        await engine._on_candle_closed(event)
+        await engine.event_dispatcher.on_candle_closed(event)
 
         # Verify analyze() was called (not filtered)
         engine.strategy.analyze.assert_called_once_with(candle)
@@ -1087,7 +1087,7 @@ class TestIntervalFiltering:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Process candle
-        await engine._on_candle_closed(event)
+        await engine.event_dispatcher.on_candle_closed(event)
 
         # Verify analyze() was NOT called (filtered)
         engine.strategy.analyze.assert_not_called()
@@ -1145,7 +1145,7 @@ class TestIntervalFiltering:
         )
 
         event = Event(EventType.CANDLE_CLOSED, candle)
-        await engine._on_candle_closed(event)
+        await engine.event_dispatcher.on_candle_closed(event)
 
         engine.strategy.analyze.assert_called_once_with(candle)
 
@@ -1202,7 +1202,7 @@ class TestIntervalFiltering:
         )
 
         event = Event(EventType.CANDLE_CLOSED, candle)
-        await engine._on_candle_closed(event)
+        await engine.event_dispatcher.on_candle_closed(event)
 
         engine.strategy.analyze.assert_not_called()
 
@@ -1378,7 +1378,7 @@ class TestIssue41PositionUncertainty:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Process candle - should skip analysis because refresh fails and returns None
-        await engine._on_candle_closed(event)
+        await engine.event_dispatcher.on_candle_closed(event)
 
         # Verify strategy.analyze() was NEVER called
         engine.strategy.analyze.assert_not_called()
@@ -1439,7 +1439,7 @@ class TestIssue41PositionUncertainty:
         event = Event(EventType.CANDLE_CLOSED, candle)
 
         # Process candle - should proceed to analysis
-        await engine._on_candle_closed(event)
+        await engine.event_dispatcher.on_candle_closed(event)
 
         # Verify strategy.analyze() WAS called
         engine.strategy.analyze.assert_called_once_with(candle)
@@ -1490,12 +1490,3 @@ class TestIssue110ExtractedModules:
             allowed_symbols=set(trading_engine.strategies.keys()),
         )
 
-    def test_backward_compat_position_cache_property(self, trading_engine):
-        """Verify backward-compatible _position_cache property works."""
-        # The property should return the position_cache's internal dict
-        assert trading_engine._position_cache is trading_engine.position_cache_manager.cache
-
-    def test_backward_compat_position_entry_data_property(self, trading_engine):
-        """Verify backward-compatible _position_entry_data property works."""
-        # The property should return trade_executor's entry data dict
-        assert trading_engine._position_entry_data is trading_engine.trade_coordinator._position_entry_data

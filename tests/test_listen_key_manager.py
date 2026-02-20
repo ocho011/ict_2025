@@ -480,7 +480,7 @@ class TestPositionClosureAuditLogging:
 
         Issue #96: PrivateUserStreamer is now a pure data relay.
         Issue #107: Uses callback pattern instead of EventBus.
-        Audit logging is handled by TradingEngine._on_order_filled.
+        Audit logging is handled by TradeCoordinator.on_order_filled.
         """
         mock_callback = Mock()
         user_streamer.set_order_fill_callback(mock_callback)

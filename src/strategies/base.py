@@ -650,7 +650,7 @@ class BaseStrategy(ABC):
             ```
 
         Contract:
-            - Called by TradingEngine._on_candle_closed() for each candle
+            - Called by EventDispatcher.on_candle_closed() for each candle
             - Must be async (supports I/O operations if needed)
             - Returns Signal object if trading opportunity detected
             - Returns None if no signal conditions met or invalid state
@@ -906,7 +906,7 @@ class BaseStrategy(ABC):
         Integration with TradingEngine:
             ```python
             # In TradingEngine event handler
-            async def _on_candle_closed(self, candle: Candle):
+            async def on_candle_closed(self, event: Event):
                 position = self.position_manager.get_position(candle.symbol)
 
                 if position:

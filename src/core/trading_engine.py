@@ -315,6 +315,139 @@ class TradingEngine:
 
         self.logger.info("✅ TradingEngine components initialized successfully")
 
+    async def wait_until_ready(self, timeout: float = 5.0) -> bool:
+        """
+        Wait until TradingEngine has captured its event loop.
+
+        Prevents race condition where DataCollector starts sending candles
+        before run() has executed and captured the event loop reference.
+        """
+        try:
+            await asyncio.wait_for(self._ready_event.wait(), timeout=timeout)
+            self.logger.info("TradingEngine is ready")
+            return True
+        except asyncio.TimeoutError:
+            self.logger.error(f"TradingEngine failed to become ready within {timeout}s")
+            raise TimeoutError(f"Engine not ready after {timeout}s")
+
+    async def run(self) -> None:
+        """
+        Start the trading engine and run until interrupted.
+
+        Process Flow:
+            1. Capture event loop
+            2. Set _engine_state = RUNNING
+            3. Signal _ready_event
+            4. Start EventBus and DataCollector concurrently
+            5. Run until interrupted
+            6. Trigger graceful shutdown
+        """
+        # Capture event loop FIRST (Phase 2.1 - prevents race condition)
+        self._event_loop = asyncio.get_running_loop()
+        self._engine_state = EngineState.RUNNING
+        self._ready_event.set()  # Signal ready to DataCollector
+
+        self.logger.info(f"TradingEngine event loop captured: {self._event_loop}")
+
+        self._running = True
+        self.logger.info("Starting TradingEngine")
+
+        try:
+            # Start all components concurrently
+            tasks = [
+                # EventBus always runs
+                asyncio.create_task(self.event_bus.start(), name="eventbus")
+            ]
+
+            # Add DataCollector (should always be configured)
+            if self.data_collector:
+                tasks.append(
+                    asyncio.create_task(
+                        self.data_collector.start_streaming(), name="datacollector"
+                    )
+                )
+                self.logger.info("DataCollector streaming enabled")
+
+                # Start User Data Stream for real-time order updates (Issue #54, #107)
+                try:
+                    await self.data_collector.start_user_streaming(
+                        position_update_callback=self._on_position_update_from_websocket,
+                        order_update_callback=self._on_order_update_from_websocket,
+                        order_fill_callback=self._on_order_fill_from_websocket,
+                    )
+                    self.logger.info(
+                        "User Data Stream enabled for order updates, position cache, and order cache"
+                    )
+                except Exception as e:
+                    self.logger.error(
+                        f"Failed to start User Data Stream: {e}. "
+                        f"TP/SL orphan prevention will NOT work.",
+                        exc_info=True,
+                    )
+
+            # Run until interrupted
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        except asyncio.CancelledError:
+            self.logger.info("Shutdown requested (CancelledError)")
+
+        except Exception as e:
+            self.logger.error(f"Unexpected error in run(): {e}", exc_info=True)
+
+        finally:
+            # Always shutdown gracefully
+            await self.shutdown()
+
+    async def shutdown(self) -> None:
+        """
+        Gracefully shutdown all components with pending event processing.
+
+        Shutdown Sequence:
+        1. Transition to STOPPING state
+        2. Stop DataCollector (no new candle events)
+        3. EventBus.shutdown(timeout=10) drains all queues
+        4. All pending events processed or timeout logged
+        5. Transition to STOPPED state
+        6. Clear ready event
+        """
+        # Idempotency check - safe to call multiple times
+        if not self._running:
+            return
+
+        # State transition: RUNNING → STOPPING
+        self._engine_state = EngineState.STOPPING
+
+        self._running = False
+        self.logger.info("Shutting down TradingEngine")
+
+        try:
+            # Stop data collector first (no new events)
+            if self.data_collector:
+                self.logger.info("Stopping DataCollector")
+                await self.data_collector.stop()
+
+            # Wait briefly for final events to publish
+            await asyncio.sleep(0.5)
+
+            # Shutdown EventBus (drains all queues)
+            self.logger.info("Shutting down EventBus")
+            await self.event_bus.shutdown(timeout=10.0)
+
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {e}", exc_info=True)
+
+        finally:
+            # Stop AuditLogger to flush remaining audit logs
+            if self.audit_logger:
+                self.logger.info("Stopping AuditLogger and flushing audit logs...")
+                self.audit_logger.stop()
+
+            # State transition: STOPPING → STOPPED
+            self._engine_state = EngineState.STOPPED
+            self._ready_event.clear()
+
+            self.logger.info("TradingEngine shutdown complete")
+
     def _validate_strategy_compatibility(self) -> None:
         """
         Validate strategy-DataCollector interval compatibility (Issue #7 Phase 2, #8 Phase 2).
@@ -467,6 +600,14 @@ class TradingEngine:
         self.logger.info("  - ORDER_FILLED → TradeCoordinator.on_order_filled")
         self.logger.info("  - ORDER_PARTIALLY_FILLED → TradeCoordinator.on_order_partially_filled")
 
+    def on_candle_received(self, candle: Candle) -> None:
+        """
+        Callback from BinanceDataCollector on every candle update.
+
+        Delegates to EventDispatcher.on_candle_received() (Issue #110 Phase 3).
+        """
+        self.event_dispatcher.on_candle_received(candle)
+
     def _on_order_update_from_websocket(
         self, symbol: str, order_id: str, order_status: str, order_data: dict
     ) -> None:
@@ -549,97 +690,6 @@ class TradingEngine:
                 f"Event loop not available"
             )
 
-    def on_candle_received(self, candle: Candle) -> None:
-        """
-        Callback from BinanceDataCollector on every candle update.
-
-        Delegates to EventDispatcher.on_candle_received() (Issue #110 Phase 3).
-        """
-        self.event_dispatcher.on_candle_received(candle)
-
-    async def wait_until_ready(self, timeout: float = 5.0) -> bool:
-        """
-        Wait until TradingEngine has captured its event loop.
-
-        Prevents race condition where DataCollector starts sending candles
-        before run() has executed and captured the event loop reference.
-        """
-        try:
-            await asyncio.wait_for(self._ready_event.wait(), timeout=timeout)
-            self.logger.info("TradingEngine is ready")
-            return True
-        except asyncio.TimeoutError:
-            self.logger.error(f"TradingEngine failed to become ready within {timeout}s")
-            raise TimeoutError(f"Engine not ready after {timeout}s")
-
-    async def run(self) -> None:
-        """
-        Start the trading engine and run until interrupted.
-
-        Process Flow:
-            1. Capture event loop
-            2. Set _engine_state = RUNNING
-            3. Signal _ready_event
-            4. Start EventBus and DataCollector concurrently
-            5. Run until interrupted
-            6. Trigger graceful shutdown
-        """
-        # Capture event loop FIRST (Phase 2.1 - prevents race condition)
-        self._event_loop = asyncio.get_running_loop()
-        self._engine_state = EngineState.RUNNING
-        self._ready_event.set()  # Signal ready to DataCollector
-
-        self.logger.info(f"TradingEngine event loop captured: {self._event_loop}")
-
-        self._running = True
-        self.logger.info("Starting TradingEngine")
-
-        try:
-            # Start all components concurrently
-            tasks = [
-                # EventBus always runs
-                asyncio.create_task(self.event_bus.start(), name="eventbus")
-            ]
-
-            # Add DataCollector (should always be configured)
-            if self.data_collector:
-                tasks.append(
-                    asyncio.create_task(
-                        self.data_collector.start_streaming(), name="datacollector"
-                    )
-                )
-                self.logger.info("DataCollector streaming enabled")
-
-                # Start User Data Stream for real-time order updates (Issue #54, #107)
-                try:
-                    await self.data_collector.start_user_streaming(
-                        position_update_callback=self._on_position_update_from_websocket,
-                        order_update_callback=self._on_order_update_from_websocket,
-                        order_fill_callback=self._on_order_fill_from_websocket,
-                    )
-                    self.logger.info(
-                        "User Data Stream enabled for order updates, position cache, and order cache"
-                    )
-                except Exception as e:
-                    self.logger.error(
-                        f"Failed to start User Data Stream: {e}. "
-                        f"TP/SL orphan prevention will NOT work.",
-                        exc_info=True,
-                    )
-
-            # Run until interrupted
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        except asyncio.CancelledError:
-            self.logger.info("Shutdown requested (CancelledError)")
-
-        except Exception as e:
-            self.logger.error(f"Unexpected error in run(): {e}", exc_info=True)
-
-        finally:
-            # Always shutdown gracefully
-            await self.shutdown()
-
     def _on_position_update_from_websocket(self, position_updates: list) -> None:
         """
         Handle position updates from WebSocket ACCOUNT_UPDATE events.
@@ -651,117 +701,3 @@ class TradingEngine:
                 position_updates=position_updates,
                 allowed_symbols=set(self.strategies.keys()),
             )
-
-    async def shutdown(self) -> None:
-        """
-        Gracefully shutdown all components with pending event processing.
-
-        Shutdown Sequence:
-        1. Transition to STOPPING state
-        2. Stop DataCollector (no new candle events)
-        3. EventBus.shutdown(timeout=10) drains all queues
-        4. All pending events processed or timeout logged
-        5. Transition to STOPPED state
-        6. Clear ready event
-        """
-        # Idempotency check - safe to call multiple times
-        if not self._running:
-            return
-
-        # State transition: RUNNING → STOPPING
-        self._engine_state = EngineState.STOPPING
-
-        self._running = False
-        self.logger.info("Shutting down TradingEngine")
-
-        try:
-            # Stop data collector first (no new events)
-            if self.data_collector:
-                self.logger.info("Stopping DataCollector")
-                await self.data_collector.stop()
-
-            # Wait briefly for final events to publish
-            await asyncio.sleep(0.5)
-
-            # Shutdown EventBus (drains all queues)
-            self.logger.info("Shutting down EventBus")
-            await self.event_bus.shutdown(timeout=10.0)
-
-        except Exception as e:
-            self.logger.error(f"Error during shutdown: {e}", exc_info=True)
-
-        finally:
-            # Stop AuditLogger to flush remaining audit logs
-            if self.audit_logger:
-                self.logger.info("Stopping AuditLogger and flushing audit logs...")
-                self.audit_logger.stop()
-
-            # State transition: STOPPING → STOPPED
-            self._engine_state = EngineState.STOPPED
-            self._ready_event.clear()
-
-            self.logger.info("TradingEngine shutdown complete")
-
-    # ── Backward compatibility properties (Issue #110) ──────────────────
-
-    @property
-    def _position_cache(self) -> dict:
-        """Backward-compatible access to position cache dict for tests."""
-        if self.position_cache_manager is not None:
-            return self.position_cache_manager.cache
-        return {}
-
-    @property
-    def _position_cache_ttl(self) -> float:
-        """Backward-compatible access to position cache TTL for tests."""
-        if self.position_cache_manager is not None:
-            return self.position_cache_manager._ttl
-        return 60.0
-
-    @property
-    def _position_entry_data(self) -> Dict:
-        """Backward-compatible access to position entry data for tests."""
-        if self.trade_coordinator is not None:
-            return self.trade_coordinator._position_entry_data
-        return {}
-
-    @_position_entry_data.setter
-    def _position_entry_data(self, value: Dict) -> None:
-        """Backward-compatible setter for position entry data."""
-        if self.trade_coordinator is not None:
-            self.trade_coordinator._position_entry_data = value
-
-    @property
-    def _last_signal_time(self) -> Dict:
-        """Backward-compatible access to signal cooldown times."""
-        if self.position_cache_manager is not None:
-            return self.position_cache_manager._last_signal_time
-        return {}
-
-    # ── Backward compatibility delegate methods (Issue #110) ────────────
-    # These methods delegate to the extracted modules so that existing tests
-    # and any code referencing the old TradingEngine methods still work.
-
-    async def _on_candle_closed(self, event: Event) -> None:
-        """Delegate to EventDispatcher (backward compatibility)."""
-        await self.event_dispatcher.on_candle_closed(event)
-
-    async def _on_signal_generated(self, event: Event) -> None:
-        """Delegate to TradeCoordinator (backward compatibility)."""
-        await self.trade_coordinator.on_signal_generated(event)
-
-    async def _on_order_filled(self, event: Event) -> None:
-        """Delegate to TradeCoordinator (backward compatibility)."""
-        await self.trade_coordinator.on_order_filled(event)
-
-    async def _on_order_partially_filled(self, event: Event) -> None:
-        """Delegate to TradeCoordinator (backward compatibility)."""
-        await self.trade_coordinator.on_order_partially_filled(event)
-
-    def _get_cached_position(self, symbol: str):
-        """Delegate to PositionCacheManager (backward compatibility)."""
-        return self.position_cache_manager.get(symbol)
-
-    def _invalidate_position_cache(self, symbol: str) -> None:
-        """Delegate to PositionCacheManager (backward compatibility)."""
-        self.position_cache_manager.invalidate(symbol)
