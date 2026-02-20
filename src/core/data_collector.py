@@ -96,8 +96,6 @@ class BinanceDataCollector:
         self.symbols = market_streamer.symbols
         self.intervals = market_streamer.intervals
 
-        # State management
-        self._running = False
 
         # Logging
         self.logger = logging.getLogger(__name__)
@@ -114,7 +112,7 @@ class BinanceDataCollector:
             f"symbols={self.symbols}, "
             f"intervals={self.intervals}, "
             f"is_testnet={self.is_testnet}, "
-            f"running={self._running}, "
+            f"running={self.is_running}, "
             f"market_connected={self.market_streamer.is_connected if self.market_streamer else False})"
         )
 
@@ -145,6 +143,21 @@ class BinanceDataCollector:
         return True
 
     @property
+    def is_running(self) -> bool:
+        """
+        Check if any streaming component is actively running.
+
+        Returns True if market streamer or user streamer is connected.
+        Replaces the previous `_running` flag to reflect actual system state
+        rather than tracking only market streaming state (Issue #126).
+        """
+        if self.market_streamer and self.market_streamer.is_connected:
+            return True
+        if self.user_streamer and self.user_streamer.is_connected:
+            return True
+        return False
+
+    @property
     def on_candle_callback(self) -> Optional[Callable[[Candle], None]]:
         """
         Get candle callback from market streamer.
@@ -171,7 +184,7 @@ class BinanceDataCollector:
             ConnectionError: If WebSocket connection fails
         """
         # Idempotency check
-        if self._running:
+        if self.market_streamer.is_connected:
             self.logger.warning("Streaming already active, ignoring start request")
             return
 
@@ -182,9 +195,6 @@ class BinanceDataCollector:
 
             # Delegate to market streamer
             await self.market_streamer.start()
-
-            # Update state
-            self._running = True
 
             self.logger.info("Market data streaming started successfully")
 
@@ -385,14 +395,11 @@ class BinanceDataCollector:
             - Does not raise exceptions on cleanup failures
         """
         # Idempotency check
-        if not self._running and not self.market_streamer.is_connected:
+        if not self.is_running:
             self.logger.debug("Collector already stopped, ignoring stop request")
             return
 
         self.logger.info("Initiating graceful shutdown...")
-
-        # Update state
-        self._running = False
 
         try:
             # Stop market streamer

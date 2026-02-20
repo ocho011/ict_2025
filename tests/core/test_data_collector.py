@@ -171,9 +171,6 @@ class TestBinanceDataCollectorInitialization:
         assert collector.intervals == mock_market_streamer.intervals
         assert collector.on_candle_callback == test_callback
 
-        # Assert state flags
-        assert collector._running is False
-
         # Assert logger exists
         assert collector.logger is not None
         assert collector.logger.name == "src.core.data_collector"
@@ -229,7 +226,6 @@ class TestBinanceDataCollectorStreaming:
 
         # Assert
         mock_market_streamer.start.assert_called_once()
-        assert collector._running is True
 
     @pytest.mark.asyncio
     async def test_start_streaming_idempotency(
@@ -237,6 +233,11 @@ class TestBinanceDataCollectorStreaming:
     ):
         """Test that start_streaming() is idempotent."""
         # Arrange
+        async def set_connected():
+            mock_market_streamer.is_connected = True
+
+        mock_market_streamer.start.side_effect = set_connected
+
         collector = BinanceDataCollector(
             binance_service=mock_binance_service,
             market_streamer=mock_market_streamer,
@@ -268,7 +269,7 @@ class TestBinanceDataCollectorStreaming:
         with pytest.raises(ConnectionError, match="WebSocket initialization failed"):
             await collector.start_streaming()
 
-        assert collector._running is False
+        assert collector.is_running is False
 
     @pytest.mark.asyncio
     async def test_stop_delegates_to_streamers(
@@ -283,7 +284,6 @@ class TestBinanceDataCollectorStreaming:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        collector._running = True
 
         # Act
         await collector.stop()
@@ -291,7 +291,6 @@ class TestBinanceDataCollectorStreaming:
         # Assert
         mock_market_streamer.stop.assert_called_once()
         mock_user_streamer.stop.assert_called_once()
-        assert collector._running is False
 
     @pytest.mark.asyncio
     async def test_stop_idempotency(
@@ -306,7 +305,6 @@ class TestBinanceDataCollectorStreaming:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        collector._running = False
 
         # Act
         await collector.stop()
@@ -327,7 +325,6 @@ class TestBinanceDataCollectorStreaming:
             market_streamer=mock_market_streamer,
             user_streamer=None,
         )
-        collector._running = True
 
         # Act - Should not raise
         await collector.stop()
@@ -558,7 +555,6 @@ class TestBinanceDataCollectorContextManager:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        collector._running = True
 
         # Act
         await collector.__aexit__(None, None, None)
@@ -579,7 +575,6 @@ class TestBinanceDataCollectorContextManager:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        collector._running = True
 
         # Act
         async with collector as c:

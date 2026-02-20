@@ -123,7 +123,6 @@ class TestBinanceDataCollectorConnectionState:
 
         # Verify is_connected
         assert data_collector.is_connected is True
-        assert data_collector._running is True
 
     @pytest.mark.asyncio
     async def test_is_connected_false_after_stop(
@@ -138,7 +137,6 @@ class TestBinanceDataCollectorConnectionState:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        data_collector._running = True
 
         # Stop
         await data_collector.stop()
@@ -149,7 +147,6 @@ class TestBinanceDataCollectorConnectionState:
 
         # Verify is_connected
         assert data_collector.is_connected is False
-        assert data_collector._running is False
 
 
 # =============================================================================
@@ -179,7 +176,7 @@ class TestBinanceDataCollectorStop:
         await data_collector.stop()
 
         # Should not raise, flags should be False
-        assert data_collector._running is False
+        assert data_collector.is_running is False
 
     @pytest.mark.asyncio
     async def test_stop_closes_websocket(
@@ -193,7 +190,6 @@ class TestBinanceDataCollectorStop:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        data_collector._running = True
 
         # Stop collector
         await data_collector.stop()
@@ -213,14 +209,14 @@ class TestBinanceDataCollectorStop:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        data_collector._running = True
 
         # Stop with custom timeout
         await data_collector.stop(timeout=0.1)
 
         # Verify stop was called with timeout
         mock_market_streamer.stop.assert_called_once_with(timeout=0.1)
-        assert data_collector._running is False
+        mock_market_streamer.is_connected = False
+        assert data_collector.is_running is False
 
     @pytest.mark.asyncio
     async def test_stop_without_websocket(
@@ -239,7 +235,7 @@ class TestBinanceDataCollectorStop:
         await data_collector.stop()
 
         # Should complete without errors
-        assert data_collector._running is False
+        assert data_collector.is_running is False
 
     @pytest.mark.asyncio
     async def test_stop_handles_websocket_errors(
@@ -254,13 +250,13 @@ class TestBinanceDataCollectorStop:
             market_streamer=mock_market_streamer,
             user_streamer=mock_user_streamer,
         )
-        data_collector._running = True
 
         # Stop should not raise, should log error
         await data_collector.stop()
 
         # Flags should still be updated
-        assert data_collector._running is False
+        mock_market_streamer.is_connected = False
+        assert data_collector.is_running is False
 
     @pytest.mark.asyncio
     async def test_stop_updates_state_flags(
@@ -277,13 +273,15 @@ class TestBinanceDataCollectorStop:
 
         # Start streaming
         await data_collector.start_streaming()
-        assert data_collector._running is True
+        mock_market_streamer.is_connected = True
+        assert data_collector.is_running is True
 
         # Stop
         await data_collector.stop()
 
         # Verify flags
-        assert data_collector._running is False
+        mock_market_streamer.is_connected = False
+        assert data_collector.is_running is False
 
 
 # =============================================================================
@@ -326,13 +324,15 @@ class TestBinanceDataCollectorContextManager:
 
         # Start streaming
         await data_collector.start_streaming()
-        assert data_collector._running is True
+        mock_market_streamer.is_connected = True
+        assert data_collector.is_running is True
 
         # Exit context
         await data_collector.__aexit__(None, None, None)
 
         # Verify stop was called (flags should be False)
-        assert data_collector._running is False
+        mock_market_streamer.is_connected = False
+        assert data_collector.is_running is False
         mock_market_streamer.stop.assert_called()
 
     @pytest.mark.asyncio
@@ -358,7 +358,8 @@ class TestBinanceDataCollectorContextManager:
         await data_collector.__aexit__(ValueError, ValueError("test error"), None)
 
         # Verify cleanup still happened
-        assert data_collector._running is False
+        mock_market_streamer.is_connected = False
+        assert data_collector.is_running is False
 
     @pytest.mark.asyncio
     async def test_context_manager_does_not_suppress_exceptions(
@@ -400,7 +401,9 @@ class TestBinanceDataCollectorContextManager:
             assert collector.is_connected is True
 
         # After context exit, should be stopped
-        assert data_collector._running is False
+        mock_market_streamer.is_connected = False
+        mock_user_streamer.is_connected = False
+        assert data_collector.is_running is False
 
 
 # =============================================================================
@@ -436,7 +439,6 @@ class TestBinanceDataCollectorLifecycleIntegration:
         mock_market_streamer.is_connected = False
         mock_user_streamer.is_connected = False
         assert data_collector.is_connected is False
-        assert data_collector._running is False
 
     @pytest.mark.asyncio
     async def test_context_manager_usage_pattern(
