@@ -19,7 +19,7 @@ Flow:
 import logging
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from src.entry.base import EntryContext, EntryDecision
 from src.exit.base import ExitContext
@@ -28,7 +28,6 @@ from src.models.position import Position
 from src.models.signal import Signal, SignalType
 from src.pricing.base import (
     PriceContext,
-    PriceDeterminerConfig,
     StrategyModuleConfig,
 )
 from src.strategies.base import BaseStrategy
@@ -58,19 +57,11 @@ class ComposableStrategy(BaseStrategy):
         intervals: Optional[List[str]] = None,
         min_rr_ratio: float = 1.5,
     ) -> None:
-        # Set module_config BEFORE super().__init__ because
-        # _create_price_config() is called during super().__init__
+        # Set module_config before super().__init__
         self.module_config = module_config
         self.min_rr_ratio = min_rr_ratio
         super().__init__(symbol, config, intervals)
         self.logger = logging.getLogger(__name__)
-
-    def _create_price_config(self, config: Dict[str, Any]) -> PriceDeterminerConfig:
-        """Use module_config's SL/TP determiners instead of defaults."""
-        return PriceDeterminerConfig(
-            stop_loss_determiner=self.module_config.stop_loss_determiner,
-            take_profit_determiner=self.module_config.take_profit_determiner,
-        )
 
     async def analyze(self, candle: Candle) -> Optional[Signal]:
         """
@@ -79,11 +70,10 @@ class ComposableStrategy(BaseStrategy):
         Flow:
             1. Buffer/cache update
             2. EntryDeterminer.analyze() → EntryDecision
-            3. Extract internal metadata (_fvg_zone, _ob_zone, _displacement_size)
-            4. Build PriceContext with zone data
-            5. Calculate SL → Calculate TP (needs SL for RR)
-            6. Validate RR ratio
-            7. Strip internal metadata, assemble Signal
+            3. Build PriceContext with decision.price_extras
+            4. Calculate SL → Calculate TP (needs SL for RR)
+            5. Validate RR ratio
+            6. Assemble Signal with public metadata
         """
         if not candle.is_closed:
             return None
@@ -110,22 +100,15 @@ class ComposableStrategy(BaseStrategy):
         if decision is None:
             return None
 
-        # Extract internal transport metadata (prefixed with _)
-        fvg_zone = decision.metadata.get("_fvg_zone")
-        ob_zone = decision.metadata.get("_ob_zone")
-        displacement_size = decision.metadata.get("_displacement_size")
-
         # Determine side string
         side = "LONG" if decision.signal_type == SignalType.LONG_ENTRY else "SHORT"
 
-        # Build price context with zone data for SL/TP determiners
+        # Build price context - pass price_extras directly (no hardcoded key extraction)
         price_context = PriceContext.from_strategy(
             entry_price=decision.entry_price,
             side=side,
             symbol=self.symbol,
-            fvg_zone=fvg_zone,
-            ob_zone=ob_zone,
-            displacement_size=displacement_size,
+            extras=decision.price_extras,
         )
 
         # Calculate SL first, then TP (TP may need SL distance for RR calc)
@@ -159,10 +142,7 @@ class ComposableStrategy(BaseStrategy):
             )
             return None
 
-        # Strip internal metadata (keys starting with _) for public Signal
-        public_metadata = {
-            k: v for k, v in decision.metadata.items() if not k.startswith("_")
-        }
+        public_metadata = dict(decision.metadata)
         public_metadata["rr_ratio"] = round(rr_ratio, 2)
 
         return Signal(

@@ -20,8 +20,9 @@ class DisplacementTakeProfit(TakeProfitDeterminer):
         sl_distance = abs(context.entry_price - stop_loss)
 
         # Use displacement size if available
-        if context.displacement_size and context.displacement_size > 0:
-            displacement_risk = context.displacement_size
+        displacement_size = context.extras.get("displacement_size")
+        if displacement_size and displacement_size > 0:
+            displacement_risk = displacement_size
         else:
             displacement_risk = context.entry_price * self.fallback_risk_percent
 

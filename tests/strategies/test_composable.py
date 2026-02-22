@@ -28,7 +28,6 @@ from src.models.position import Position
 from src.models.signal import Signal, SignalType
 from src.pricing.base import (
     PriceContext,
-    PriceDeterminerConfig,
     StopLossDeterminer,
     StrategyModuleConfig,
     TakeProfitDeterminer,
@@ -73,11 +72,13 @@ class FixedEntryDeterminer(EntryDeterminer):
         entry_price: float = 50000.0,
         confidence: float = 0.85,
         metadata: Optional[dict] = None,
+        price_extras: Optional[dict] = None,
     ):
         self._signal_type = signal_type
         self._entry_price = entry_price
         self._confidence = confidence
         self._metadata = metadata or {}
+        self._price_extras = price_extras or {}
 
     def analyze(self, context: EntryContext) -> Optional[EntryDecision]:
         return EntryDecision(
@@ -85,6 +86,7 @@ class FixedEntryDeterminer(EntryDeterminer):
             entry_price=self._entry_price,
             confidence=self._confidence,
             metadata=self._metadata,
+            price_extras=self._price_extras,
         )
 
 
@@ -213,15 +215,6 @@ class TestComposableStrategyInit:
         assert "1h" in strategy.buffers
         assert "4h" in strategy.buffers
 
-    def test_price_config_uses_module_determiners(self, composable_strategy):
-        """_create_price_config should use module_config's SL/TP determiners."""
-        assert isinstance(
-            composable_strategy._price_config.stop_loss_determiner, FixedStopLoss
-        )
-        assert isinstance(
-            composable_strategy._price_config.take_profit_determiner, FixedTakeProfit
-        )
-
     def test_inherits_base_strategy(self, composable_strategy):
         from src.strategies.base import BaseStrategy
 
@@ -348,17 +341,19 @@ class TestComposableStrategyAnalyze:
         assert signal.metadata["rr_ratio"] == 3.0
 
     @pytest.mark.asyncio
-    async def test_metadata_stripping_internal_keys(self, closed_candle):
-        """Keys prefixed with _ are stripped from public Signal metadata."""
+    async def test_metadata_no_internal_keys(self, closed_candle):
+        """price_extras are not included in public Signal metadata."""
         module_config = StrategyModuleConfig(
             entry_determiner=FixedEntryDeterminer(
                 metadata={
-                    "_fvg_zone": (49800.0, 49900.0),
-                    "_ob_zone": (49700.0, 49800.0),
-                    "_displacement_size": 500.0,
                     "trend": "bullish",
                     "killzone": "london",
-                }
+                },
+                price_extras={
+                    "fvg_zone": (49800.0, 49900.0),
+                    "ob_zone": (49700.0, 49800.0),
+                    "displacement_size": 500.0,
+                },
             ),
             stop_loss_determiner=FixedStopLoss(pct=0.01),
             take_profit_determiner=FixedTakeProfit(rr=2.0),
@@ -371,10 +366,10 @@ class TestComposableStrategyAnalyze:
         signal = await strategy.analyze(closed_candle)
 
         assert signal is not None
-        # Internal keys stripped
-        assert "_fvg_zone" not in signal.metadata
-        assert "_ob_zone" not in signal.metadata
-        assert "_displacement_size" not in signal.metadata
+        # price_extras not in public Signal metadata
+        assert "fvg_zone" not in signal.metadata
+        assert "ob_zone" not in signal.metadata
+        assert "displacement_size" not in signal.metadata
         # Public keys preserved
         assert signal.metadata["trend"] == "bullish"
         assert signal.metadata["killzone"] == "london"
@@ -400,10 +395,10 @@ class TestComposableStrategyAnalyze:
         sl_determiner = ZoneCaptureSL()
         module_config = StrategyModuleConfig(
             entry_determiner=FixedEntryDeterminer(
-                metadata={
-                    "_fvg_zone": (49800.0, 49900.0),
-                    "_ob_zone": (49700.0, 49800.0),
-                    "_displacement_size": 500.0,
+                price_extras={
+                    "fvg_zone": (49800.0, 49900.0),
+                    "ob_zone": (49700.0, 49800.0),
+                    "displacement_size": 500.0,
                 }
             ),
             stop_loss_determiner=sl_determiner,
@@ -418,9 +413,9 @@ class TestComposableStrategyAnalyze:
 
         ctx = sl_determiner.captured_context
         assert ctx is not None
-        assert ctx.fvg_zone == (49800.0, 49900.0)
-        assert ctx.ob_zone == (49700.0, 49800.0)
-        assert ctx.displacement_size == 500.0
+        assert ctx.extras.get("fvg_zone") == (49800.0, 49900.0)
+        assert ctx.extras.get("ob_zone") == (49700.0, 49800.0)
+        assert ctx.extras.get("displacement_size") == 500.0
         assert ctx.side == "LONG"
         assert ctx.entry_price == 50000.0
 

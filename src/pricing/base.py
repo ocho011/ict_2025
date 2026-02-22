@@ -8,8 +8,8 @@ Real-time Trading Guideline Compliance:
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from typing import Optional, Tuple
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional, Tuple
 import time
 
 from src.entry.base import EntryDeterminer
@@ -21,18 +21,14 @@ class PriceContext:
     """
     Immutable context for price calculations.
 
-    Type-safe design: Indicator data passed as typed fields, not Dict[str, Any].
+    Strategy-specific data passed via extras dict for extensibility.
     Real-time compliance: Uses int timestamp, no datetime parsing.
     """
     entry_price: float
     side: str  # "LONG" | "SHORT"
     symbol: str
     timestamp: int  # Unix timestamp in milliseconds
-
-    # ICT-specific typed fields (optional)
-    fvg_zone: Optional[Tuple[float, float]] = None  # (zone_low, zone_high)
-    ob_zone: Optional[Tuple[float, float]] = None   # (zone_low, zone_high)
-    displacement_size: Optional[float] = None       # For displacement-based TP
+    extras: Dict[str, Any] = field(default_factory=dict)  # Strategy-specific data
 
     @classmethod
     def from_strategy(
@@ -40,9 +36,7 @@ class PriceContext:
         entry_price: float,
         side: str,
         symbol: str,
-        fvg_zone: Optional[Tuple[float, float]] = None,
-        ob_zone: Optional[Tuple[float, float]] = None,
-        displacement_size: Optional[float] = None,
+        extras: Optional[Dict[str, Any]] = None,
     ) -> "PriceContext":
         """Factory method for strategy use."""
         return cls(
@@ -50,9 +44,7 @@ class PriceContext:
             side=side,
             symbol=symbol,
             timestamp=int(time.time() * 1000),
-            fvg_zone=fvg_zone,
-            ob_zone=ob_zone,
-            displacement_size=displacement_size,
+            extras=extras or {},
         )
 
 

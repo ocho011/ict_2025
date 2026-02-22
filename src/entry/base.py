@@ -58,15 +58,17 @@ class EntryDecision:
           -> ComposableStrategy calculates TP/SL
           -> ComposableStrategy assembles final Signal
 
-    metadata carries data needed by downstream TP/SL calculation:
-    - Keys prefixed with '_' are internal transport (stripped from final Signal)
-    - Other keys become part of the public Signal metadata
+    metadata: Public metadata that becomes part of the final Signal.
+    price_extras: Strategy-specific data passed to PriceContext.extras
+                  for downstream SL/TP determiners. Replaces _-prefixed
+                  metadata transport pattern.
     """
 
     signal_type: SignalType  # LONG_ENTRY or SHORT_ENTRY
     entry_price: float
     confidence: float = 1.0
     metadata: Dict[str, Any] = field(default_factory=dict)
+    price_extras: Dict[str, Any] = field(default_factory=dict)
 
 
 class EntryDeterminer(ABC):

@@ -21,7 +21,7 @@ class ZoneBasedStopLoss(StopLossDeterminer):
 
     def calculate_stop_loss(self, context: PriceContext) -> float:
         # Priority: FVG zone > OB zone > fallback percentage
-        zone = context.fvg_zone or context.ob_zone
+        zone = context.extras.get("fvg_zone") or context.extras.get("ob_zone")
 
         if zone:
             return self._apply_buffer(context, zone)
