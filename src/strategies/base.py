@@ -12,7 +12,7 @@ and multi-timeframe strategies. Supports pre-computed detectors (Issue #19).
 import logging
 from abc import ABC, abstractmethod
 from collections import deque
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from src.models.candle import Candle
 from src.models.position import Position
@@ -36,8 +36,6 @@ class BaseStrategy(ABC):
 
     Subclasses must implement:
     - analyze(): Main strategy logic for signal generation
-    - calculate_take_profit(): TP price calculation
-    - calculate_stop_loss(): SL price calculation
 
     Buffer Structure (Issue #27):
         All strategies use self.buffers: Dict[str, deque] where:
@@ -71,21 +69,13 @@ class BaseStrategy(ABC):
                         signal_type=SignalType.LONG_ENTRY,
                         symbol=self.symbol,
                         entry_price=candle.close,
-                        take_profit=self.calculate_take_profit(candle.close, 'LONG'),
-                        stop_loss=self.calculate_stop_loss(candle.close, 'LONG'),
+                        take_profit=candle.close * 1.02,
+                        stop_loss=candle.close * 0.99,
                         strategy_name=self.__class__.__name__,
                         timestamp=datetime.now(timezone.utc)
                     )
 
                 return None
-
-            def calculate_take_profit(self, entry_price: float, side: str) -> float:
-                # ... TP logic ...
-                return tp_price
-
-            def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-                # ... SL logic ...
-                return sl_price
         ```
 
     Integration with TradingEngine:
@@ -154,9 +144,6 @@ class BaseStrategy(ABC):
         self.config: dict = config
         self.buffer_size: int = config.get("buffer_size", 100)
 
-        # Initialize price determiner configuration
-        self._price_config = self._create_price_config(config)
-
         # Issue #27: Unified buffer structure
         # Determine intervals from parameter or config
         if intervals is not None:
@@ -181,49 +168,6 @@ class BaseStrategy(ABC):
         self._indicator_cache: Optional["IndicatorStateCache"] = None
 
         self.logger = logging.getLogger(self.__class__.__name__)
-
-    def _create_price_config(self, config: Dict[str, Any]) -> "PriceDeterminerConfig":
-        """
-        Factory method for price determiner configuration.
-
-        Subclasses can override to provide custom determiners.
-        Default implementation: percentage-based SL + risk-reward TP.
-        """
-        from src.pricing.stop_loss.percentage import PercentageStopLoss
-        from src.pricing.take_profit.risk_reward import RiskRewardTakeProfit
-        from src.pricing.base import PriceDeterminerConfig
-
-        return PriceDeterminerConfig(
-            stop_loss_determiner=PercentageStopLoss(
-                stop_loss_percent=config.get("stop_loss_percent", 0.01)
-            ),
-            take_profit_determiner=RiskRewardTakeProfit(
-                risk_reward_ratio=config.get("risk_reward_ratio", 2.0)
-            ),
-        )
-
-    def _create_price_context(
-        self,
-        entry_price: float,
-        side: str,
-        fvg_zone: Optional[Tuple[float, float]] = None,
-        ob_zone: Optional[Tuple[float, float]] = None,
-        displacement_size: Optional[float] = None,
-    ) -> "PriceContext":
-        """
-        Create PriceContext for determiner calls.
-
-        Provides all required fields (symbol, timestamp) from strategy state.
-        """
-        from src.pricing.base import PriceContext
-        return PriceContext.from_strategy(
-            entry_price=entry_price,
-            side=side,
-            symbol=self.symbol,
-            fvg_zone=fvg_zone,
-            ob_zone=ob_zone,
-            displacement_size=displacement_size,
-        )
 
     def initialize_with_historical_data(
         self, candles: List[Candle], interval: Optional[str] = None
@@ -681,8 +625,8 @@ class BaseStrategy(ABC):
                     signal_type=SignalType.LONG_ENTRY,
                     symbol=self.symbol,
                     entry_price=candle.close,
-                    take_profit=self.calculate_take_profit(candle.close, 'LONG'),
-                    stop_loss=self.calculate_stop_loss(candle.close, 'LONG'),
+                    take_profit=candle.close * 1.02,
+                    stop_loss=candle.close * 0.99,
                     strategy_name=self.__class__.__name__,
                     timestamp=datetime.now(timezone.utc)
                 )
@@ -715,8 +659,8 @@ class BaseStrategy(ABC):
                         signal_type=SignalType.LONG_ENTRY,
                         symbol=self.symbol,
                         entry_price=candle.close,
-                        take_profit=self.calculate_take_profit(candle.close, 'LONG'),
-                        stop_loss=self.calculate_stop_loss(candle.close, 'LONG'),
+                        take_profit=candle.close * 1.02,
+                        stop_loss=candle.close * 0.99,
                         strategy_name='MySMAStrategy',
                         timestamp=datetime.now(timezone.utc)
                     )
@@ -989,146 +933,3 @@ class BaseStrategy(ABC):
             - TradingEngine uses reduce_only=True for exit orders
         """
         return None  # Default: no custom exit logic
-
-    def calculate_take_profit(self, entry_price: float, side: str) -> float:
-        """
-        Calculate take profit price via injected determiner.
-
-        Subclasses can override _create_price_config() to customize.
-
-        Args:
-            entry_price: Position entry price
-            side: 'LONG' or 'SHORT' to determine TP direction
-
-        Returns:
-            Take profit price (float)
-
-        Validation Requirements:
-            - LONG: TP must be > entry_price
-            - SHORT: TP must be < entry_price
-            - Signal model validates this in __post_init__()
-
-        Example Implementations:
-            ```python
-            # Percentage-based TP
-            def calculate_take_profit(self, entry_price: float, side: str) -> float:
-                tp_percent = self.config.get('tp_percent', 0.02)  # 2%
-                if side == 'LONG':
-                    return entry_price * (1 + tp_percent)
-                else:  # SHORT
-                    return entry_price * (1 - tp_percent)
-
-            # Risk-reward ratio TP
-            def calculate_take_profit(self, entry_price: float, side: str) -> float:
-                risk = entry_price * self.stop_loss_percent
-                reward = risk * self.risk_reward_ratio  # e.g., 2:1
-                if side == 'LONG':
-                    return entry_price + reward
-                else:  # SHORT
-                    return entry_price - reward
-
-            # Fixed dollar TP
-            def calculate_take_profit(self, entry_price: float, side: str) -> float:
-                tp_amount = self.config.get('tp_amount', 1000)  # $1000
-                if side == 'LONG':
-                    return entry_price + tp_amount
-                else:  # SHORT
-                    return entry_price - tp_amount
-            ```
-
-        Usage:
-            ```python
-            # Called when creating Signal
-            entry = candle.close
-            tp = self.calculate_take_profit(entry, 'LONG')
-            sl = self.calculate_stop_loss(entry, 'LONG')
-
-            signal = Signal(
-                signal_type=SignalType.LONG_ENTRY,
-                symbol=self.symbol,
-                entry_price=entry,
-                take_profit=tp,  # Calculated TP
-                stop_loss=sl,
-                # ...
-            )
-            ```
-
-        Notes:
-            - Logic varies by strategy (percentage, RR, fixed, dynamic)
-            - Signal.__post_init__() validates TP > entry (LONG) or TP < entry (SHORT)
-        """
-        context = self._create_price_context(entry_price, side)
-        stop_loss = self.calculate_stop_loss(entry_price, side)
-        return self._price_config.take_profit_determiner.calculate_take_profit(context, stop_loss)
-
-    def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-        """
-        Calculate stop loss price via injected determiner.
-
-        Subclasses can override _create_price_config() to customize.
-
-        Args:
-            entry_price: Position entry price
-            side: 'LONG' or 'SHORT' to determine SL direction
-
-        Returns:
-            Stop loss price (float)
-
-        Validation Requirements:
-            - LONG: SL must be < entry_price
-            - SHORT: SL must be > entry_price
-            - Signal model validates this in __post_init__()
-
-        Example Implementations:
-            ```python
-            # Percentage-based SL
-            def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-                sl_percent = self.config.get('sl_percent', 0.01)  # 1%
-                if side == 'LONG':
-                    return entry_price * (1 - sl_percent)
-                else:  # SHORT
-                    return entry_price * (1 + sl_percent)
-
-            # ATR-based SL
-            def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-                atr = self._calculate_atr()  # Average True Range
-                multiplier = self.config.get('atr_multiplier', 1.5)
-                if side == 'LONG':
-                    return entry_price - (atr * multiplier)
-                else:  # SHORT
-                    return entry_price + (atr * multiplier)
-
-            # Support/resistance SL
-            def calculate_stop_loss(self, entry_price: float, side: str) -> float:
-                if side == 'LONG':
-                    support = self._find_nearest_support(entry_price)
-                    return support - (entry_price * 0.001)  # Below support
-                else:  # SHORT
-                    resistance = self._find_nearest_resistance(entry_price)
-                    return resistance + (entry_price * 0.001)  # Above resistance
-            ```
-
-        Usage:
-            ```python
-            # Called when creating Signal
-            entry = candle.close
-            tp = self.calculate_take_profit(entry, 'LONG')
-            sl = self.calculate_stop_loss(entry, 'LONG')
-
-            signal = Signal(
-                signal_type=SignalType.LONG_ENTRY,
-                symbol=self.symbol,
-                entry_price=entry,
-                take_profit=tp,
-                stop_loss=sl,  # Calculated SL
-                # ...
-            )
-            ```
-
-        Notes:
-            - Logic varies by strategy (percentage, ATR, S/R, volatility)
-            - Signal.__post_init__() validates SL < entry (LONG) or SL > entry (SHORT)
-            - Critical for risk management - should be conservative
-        """
-        context = self._create_price_context(entry_price, side)
-        return self._price_config.stop_loss_determiner.calculate_stop_loss(context)

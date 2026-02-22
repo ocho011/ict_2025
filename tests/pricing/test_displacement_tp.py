@@ -15,7 +15,7 @@ class TestDisplacementTakeProfit:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            displacement_size=500.0,  # $500 displacement
+            extras={"displacement_size": 500.0},  # $500 displacement
         )
         result = tp.calculate_take_profit(context, stop_loss=49500.0)
         assert result == 51000.0  # 50000 + (500 * 2)
@@ -27,7 +27,7 @@ class TestDisplacementTakeProfit:
             entry_price=50000.0,
             side="SHORT",
             symbol="BTCUSDT",
-            displacement_size=500.0,  # $500 displacement
+            extras={"displacement_size": 500.0},  # $500 displacement
         )
         result = tp.calculate_take_profit(context, stop_loss=50500.0)
         assert result == 49000.0  # 50000 - (500 * 2)
@@ -39,7 +39,7 @@ class TestDisplacementTakeProfit:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            displacement_size=500.0,
+            extras={"displacement_size": 500.0},
         )
         result = tp.calculate_take_profit(context, stop_loss=49500.0)
         assert result == 51500.0  # 50000 + (500 * 3)
@@ -84,7 +84,7 @@ class TestDisplacementTakeProfit:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            displacement_size=0.0,  # Zero displacement
+            extras={"displacement_size": 0.0},  # Zero displacement
         )
         result = tp.calculate_take_profit(context, stop_loss=49500.0)
         # Fallback: risk = 50000 * 0.01 = 500, reward = 500 * 2 = 1000

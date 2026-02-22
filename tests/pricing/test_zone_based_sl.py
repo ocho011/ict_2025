@@ -16,7 +16,7 @@ class TestZoneBasedStopLoss:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(49000.0, 49500.0),  # Zone below entry (~2%)
+            extras={"fvg_zone": (49000.0, 49500.0)},  # Zone below entry (~2%)
         )
         result = sl.calculate_stop_loss(context)
         expected = 49000.0 - (50000.0 * 0.001)  # zone_low - buffer
@@ -30,7 +30,7 @@ class TestZoneBasedStopLoss:
             entry_price=50000.0,
             side="SHORT",
             symbol="BTCUSDT",
-            fvg_zone=(50500.0, 51000.0),  # Zone above entry (~2%)
+            extras={"fvg_zone": (50500.0, 51000.0)},  # Zone above entry (~2%)
         )
         result = sl.calculate_stop_loss(context)
         expected = 51000.0 + (50000.0 * 0.001)  # zone_high + buffer
@@ -44,7 +44,7 @@ class TestZoneBasedStopLoss:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            ob_zone=(48500.0, 49000.0),  # OB zone below entry (~3%)
+            extras={"ob_zone": (48500.0, 49000.0)},  # OB zone below entry (~3%)
         )
         result = sl.calculate_stop_loss(context)
         expected = 48500.0 - (50000.0 * 0.001)  # zone_low - buffer
@@ -58,8 +58,10 @@ class TestZoneBasedStopLoss:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(49000.0, 49500.0),  # FVG
-            ob_zone=(48000.0, 48500.0),   # OB (should be ignored)
+            extras={
+                "fvg_zone": (49000.0, 49500.0),  # FVG
+                "ob_zone": (48000.0, 48500.0),   # OB (should be ignored)
+            },
         )
         result = sl.calculate_stop_loss(context)
         expected = 49000.0 - (50000.0 * 0.001)  # Uses FVG zone_low
@@ -83,7 +85,7 @@ class TestZoneBasedStopLoss:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(51000.0, 52000.0),  # Zone above entry (invalid for LONG)
+            extras={"fvg_zone": (51000.0, 52000.0)},  # Zone above entry (invalid for LONG)
         )
         result = sl.calculate_stop_loss(context)
         assert result == 49500.0  # Fallback: 50000 * 0.99
@@ -95,7 +97,7 @@ class TestZoneBasedStopLoss:
             entry_price=50000.0,
             side="SHORT",
             symbol="BTCUSDT",
-            fvg_zone=(48000.0, 49000.0),  # Zone below entry (invalid for SHORT)
+            extras={"fvg_zone": (48000.0, 49000.0)},  # Zone below entry (invalid for SHORT)
         )
         result = sl.calculate_stop_loss(context)
         assert result == 50500.0  # Fallback: 50000 * 1.01
@@ -108,7 +110,7 @@ class TestZoneBasedStopLoss:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(49000.0, 49500.0),
+            extras={"fvg_zone": (49000.0, 49500.0)},
         )
         result = sl.calculate_stop_loss(context)
         expected = 49000.0 - (50000.0 * 0.002)  # 0.2% buffer
@@ -132,7 +134,7 @@ class TestMaxSlPercentCap:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(47000.0, 47500.0),  # 5%+ below entry
+            extras={"fvg_zone": (47000.0, 47500.0)},  # 5%+ below entry
         )
         result = sl.calculate_stop_loss(context)
         # Should be capped to 2% below entry
@@ -147,7 +149,7 @@ class TestMaxSlPercentCap:
             entry_price=50000.0,
             side="SHORT",
             symbol="BTCUSDT",
-            fvg_zone=(52500.0, 53000.0),  # 5%+ above entry
+            extras={"fvg_zone": (52500.0, 53000.0)},  # 5%+ above entry
         )
         result = sl.calculate_stop_loss(context)
         # Should be capped to 2% above entry
@@ -162,7 +164,7 @@ class TestMaxSlPercentCap:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(49400.0, 49600.0),  # ~1% below entry
+            extras={"fvg_zone": (49400.0, 49600.0)},  # ~1% below entry
         )
         result = sl.calculate_stop_loss(context)
         # Should NOT be capped, use zone-based SL
@@ -177,7 +179,7 @@ class TestMaxSlPercentCap:
             entry_price=50000.0,
             side="SHORT",
             symbol="BTCUSDT",
-            fvg_zone=(50400.0, 50600.0),  # ~1% above entry
+            extras={"fvg_zone": (50400.0, 50600.0)},  # ~1% above entry
         )
         result = sl.calculate_stop_loss(context)
         # Should NOT be capped, use zone-based SL
@@ -192,7 +194,7 @@ class TestMaxSlPercentCap:
             entry_price=50000.0,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(48000.0, 48500.0),  # 3%+ below entry
+            extras={"fvg_zone": (48000.0, 48500.0)},  # 3%+ below entry
         )
         result = sl.calculate_stop_loss(context)
         # Should be capped to 1.5% below entry
@@ -221,7 +223,7 @@ class TestMaxSlPercentCap:
             entry_price=entry,
             side="LONG",
             symbol="BTCUSDT",
-            fvg_zone=(47400.0, 47500.0),  # ~5% below entry
+            extras={"fvg_zone": (47400.0, 47500.0)},  # ~5% below entry
         )
         sl_price_uncapped = sl_uncapped.calculate_stop_loss(context)
         rr_uncapped = (tp - entry) / (entry - sl_price_uncapped)

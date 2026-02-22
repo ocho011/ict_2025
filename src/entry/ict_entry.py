@@ -345,12 +345,12 @@ class ICTEntryDeterminer(EntryDeterminer):
                 if displacements:
                     displacement_size = displacements[-1].size
 
+                price_extras = {
+                    "fvg_zone": fvg_zone,
+                    "ob_zone": ob_zone,
+                    "displacement_size": displacement_size,
+                }
                 metadata = {
-                    # Internal transport keys (stripped from final Signal)
-                    "_fvg_zone": fvg_zone,
-                    "_ob_zone": ob_zone,
-                    "_displacement_size": displacement_size,
-                    # Public metadata
                     "trend": trend,
                     "zone": "discount",
                     "killzone": (
@@ -369,6 +369,7 @@ class ICTEntryDeterminer(EntryDeterminer):
                     entry_price=entry_price,
                     confidence=1.0,
                     metadata=metadata,
+                    price_extras=price_extras,
                 )
 
         # SHORT Entry Logic
@@ -427,10 +428,12 @@ class ICTEntryDeterminer(EntryDeterminer):
                 if displacements:
                     displacement_size = displacements[-1].size
 
+                price_extras = {
+                    "fvg_zone": fvg_zone,
+                    "ob_zone": ob_zone,
+                    "displacement_size": displacement_size,
+                }
                 metadata = {
-                    "_fvg_zone": fvg_zone,
-                    "_ob_zone": ob_zone,
-                    "_displacement_size": displacement_size,
                     "trend": trend,
                     "zone": "premium",
                     "killzone": (
@@ -449,6 +452,7 @@ class ICTEntryDeterminer(EntryDeterminer):
                     entry_price=entry_price,
                     confidence=1.0,
                     metadata=metadata,
+                    price_extras=price_extras,
                 )
 
         self.logger.debug(
