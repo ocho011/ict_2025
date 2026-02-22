@@ -61,13 +61,14 @@ class ICTEntryDeterminer(EntryDeterminer):
     - RR ratio validation (moved to ComposableStrategy)
 
     What's ADDED:
-    - Zone extraction: get_entry_zone/get_ob_zone -> tuples in metadata
-    - Displacement size extraction -> float in metadata
+    - Zone extraction: get_entry_zone/get_ob_zone -> tuples in price_extras
+    - Displacement size extraction -> float in price_extras
     - Returns EntryDecision instead of Signal
 
-    Metadata convention:
-    - Keys prefixed with '_' are internal transport (stripped from final Signal)
-    - Other keys become part of public Signal metadata
+    Data transport:
+    - price_extras: Strategy-specific data for downstream SL/TP determiners
+      (passed to PriceContext.extras by ComposableStrategy)
+    - metadata: Public metadata that becomes part of final Signal
     """
 
     # ICT parameters (profile defaults)
