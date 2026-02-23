@@ -327,7 +327,7 @@ class TestTradingBotInitialization:
         await bot.initialize()
 
         # Verify backfill was called
-        mock_engine_instance.initialize_strategy_with_backfill.assert_called_once_with(limit=100)
+        mock_engine_instance.initialize_strategy_with_backfill.assert_called_once_with(default_limit=100)
 
 
 class TestTradingBotDelegation:

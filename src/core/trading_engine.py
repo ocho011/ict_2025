@@ -486,12 +486,15 @@ class TradingEngine:
                     f"Single-interval strategy with {list(required_intervals)[0]}"
                 )
 
-    async def initialize_strategy_with_backfill(self, limit: int = 100) -> None:
+    async def initialize_strategy_with_backfill(self, default_limit: int = 100) -> None:
         """
         Initialize strategy with historical data by fetching directly from API.
 
         Called once during system startup to pre-populate strategy buffers
         before WebSocket streaming begins.
+
+        Uses per-interval backfill limits from strategy.data_requirements
+        when available, falling back to default_limit.
         """
         if not self.strategies:
             self.logger.warning(
@@ -508,7 +511,7 @@ class TradingEngine:
 
         self.logger.info(
             f"Initializing {len(self.strategies)} strategies "
-            f"with {limit} historical candles per interval (sequential to avoid rate limits)"
+            f"with default {default_limit} historical candles per interval (sequential to avoid rate limits)"
         )
 
         # Initialize each symbol's strategy sequentially (Issue #8 Phase 3)
@@ -526,9 +529,13 @@ class TradingEngine:
                     f"{strategy.intervals} for {symbol}"
                 )
 
+                # Use per-interval backfill limits from module requirements
+                requirements = strategy.data_requirements
+
                 initialized_count = 0
                 for interval in strategy.intervals:
                     try:
+                        limit = requirements.min_candles.get(interval, default_limit)
                         candles = self.data_collector.get_historical_candles(
                             symbol=symbol, interval=interval, limit=limit
                         )

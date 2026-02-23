@@ -16,6 +16,16 @@ Real-time Trading Guideline Compliance:
 from typing import List, Optional, Tuple
 
 from src.entry import AlwaysEntryDeterminer, ICTEntryDeterminer, SMAEntryDeterminer
+
+# Interval sorting utility
+_INTERVAL_MULTIPLIERS = {"m": 1, "h": 60, "d": 1440, "w": 10080}
+
+
+def _interval_to_minutes(interval: str) -> int:
+    """Convert interval string to minutes for sorting. e.g., '5m'->5, '1h'->60."""
+    unit = interval[-1]
+    value = int(interval[:-1])
+    return value * _INTERVAL_MULTIPLIERS.get(unit, 1)
 from src.exit import ICTExitDeterminer, NullExitDeterminer
 from src.pricing.base import StrategyModuleConfig
 from src.pricing.stop_loss.percentage import PercentageStopLoss
@@ -107,13 +117,6 @@ def _build_ict_config(
         htf_interval=strategy_config.get("htf_interval", "4h"),
     )
 
-    # Multi-timeframe intervals for ICT
-    intervals = [
-        strategy_config.get("ltf_interval", "5m"),
-        strategy_config.get("mtf_interval", "1h"),
-        strategy_config.get("htf_interval", "4h"),
-    ]
-
     min_rr_ratio = strategy_config.get("rr_ratio", 2.0)
 
     module_config = StrategyModuleConfig(
@@ -122,6 +125,10 @@ def _build_ict_config(
         take_profit_determiner=tp,
         exit_determiner=exit_det,
     )
+
+    # Derive intervals from aggregated module requirements
+    agg = module_config.aggregated_requirements
+    intervals = sorted(agg.timeframes, key=_interval_to_minutes) if agg.timeframes else None
 
     return module_config, intervals, min_rr_ratio
 

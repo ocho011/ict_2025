@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from src.entry.base import EntryContext, EntryDecision
+from src.models.module_requirements import ModuleRequirements
 from src.exit.base import ExitContext
 from src.models.candle import Candle
 from src.models.position import Position
@@ -62,6 +63,22 @@ class ComposableStrategy(BaseStrategy):
         self.min_rr_ratio = min_rr_ratio
         super().__init__(symbol, config, intervals)
         self.logger = logging.getLogger(__name__)
+
+        # Validate buffer_size accommodates module requirements
+        reqs = self.data_requirements
+        if reqs.min_candles:
+            max_needed = max(reqs.min_candles.values())
+            if self.buffer_size < max_needed:
+                self.logger.warning(
+                    "[%s] buffer_size=%d < max min_candles=%d. "
+                    "Backfilled data may be truncated. Consider increasing buffer_size.",
+                    symbol, self.buffer_size, max_needed,
+                )
+
+    @property
+    def data_requirements(self) -> ModuleRequirements:
+        """Aggregate requirements from all 4 determiner modules."""
+        return self.module_config.aggregated_requirements
 
     async def analyze(self, candle: Candle) -> Optional[Signal]:
         """

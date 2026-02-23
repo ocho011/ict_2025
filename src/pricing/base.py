@@ -14,6 +14,7 @@ import time
 
 from src.entry.base import EntryDeterminer
 from src.exit.base import ExitDeterminer
+from src.models.module_requirements import ModuleRequirements
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,11 @@ class StopLossDeterminer(ABC):
         """Calculate stop loss price."""
         pass
 
+    @property
+    def requirements(self) -> ModuleRequirements:
+        """Data requirements for this determiner. Override to declare needs."""
+        return ModuleRequirements.empty()
+
 
 class TakeProfitDeterminer(ABC):
     """Abstract base for take profit determination."""
@@ -64,6 +70,11 @@ class TakeProfitDeterminer(ABC):
     def calculate_take_profit(self, context: PriceContext, stop_loss: float) -> float:
         """Calculate take profit price. May use SL distance for risk-reward."""
         pass
+
+    @property
+    def requirements(self) -> ModuleRequirements:
+        """Data requirements for this determiner. Override to declare needs."""
+        return ModuleRequirements.empty()
 
 
 @dataclass(frozen=True)
@@ -84,3 +95,13 @@ class StrategyModuleConfig:
     stop_loss_determiner: StopLossDeterminer
     take_profit_determiner: TakeProfitDeterminer
     exit_determiner: ExitDeterminer  # Default: NullExitDeterminer
+
+    @property
+    def aggregated_requirements(self) -> ModuleRequirements:
+        """Merge all 4 determiners' data requirements."""
+        return ModuleRequirements.merge(
+            self.entry_determiner.requirements,
+            self.stop_loss_determiner.requirements,
+            self.take_profit_determiner.requirements,
+            self.exit_determiner.requirements,
+        )

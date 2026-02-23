@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
 from src.models.candle import Candle
+from src.models.module_requirements import ModuleRequirements
 from src.models.signal import SignalType
 
 
@@ -91,3 +92,8 @@ class EntryDeterminer(ABC):
     def name(self) -> str:
         """Determiner name for logging/metadata."""
         return self.__class__.__name__
+
+    @property
+    def requirements(self) -> ModuleRequirements:
+        """Data requirements for this determiner. Override to declare needs."""
+        return ModuleRequirements.empty()

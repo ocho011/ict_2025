@@ -185,7 +185,7 @@ class TradingBot:
                 f"Backfill configured: {trading_config.backfill_limit} candles per interval"
             )
             self.logger.info("Initializing strategy with historical data...")
-            await self.trading_engine.initialize_strategy_with_backfill(limit=self._backfill_limit)
+            await self.trading_engine.initialize_strategy_with_backfill(default_limit=self._backfill_limit)
             self.logger.info("✅ Strategy initialized with historical data")
         else:
             self.logger.info("Backfilling disabled (backfill_limit=0)")

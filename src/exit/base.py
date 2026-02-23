@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from src.models.candle import Candle
+from src.models.module_requirements import ModuleRequirements
 from src.models.position import Position
 from src.models.signal import Signal
 
@@ -52,6 +53,11 @@ class ExitDeterminer(ABC):
             Signal with CLOSE_LONG/CLOSE_SHORT if exit triggered, None otherwise.
         """
         pass
+
+    @property
+    def requirements(self) -> ModuleRequirements:
+        """Data requirements for this determiner. Override to declare needs."""
+        return ModuleRequirements.empty()
 
 
 class NullExitDeterminer(ExitDeterminer):

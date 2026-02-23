@@ -44,6 +44,7 @@ from src.detectors.ict_smc import (
     find_mitigation_zone,
 )
 from src.entry.base import EntryContext, EntryDecision, EntryDeterminer
+from src.models.module_requirements import ModuleRequirements
 from src.models.signal import SignalType
 
 
@@ -101,6 +102,18 @@ class ICTEntryDeterminer(EntryDeterminer):
     def __post_init__(self):
         self.logger = logging.getLogger(__name__)
         self.min_periods = max(50, self.swing_lookback * 4)
+
+    @property
+    def requirements(self) -> ModuleRequirements:
+        """ICT entry needs 3 timeframes with sufficient history."""
+        return ModuleRequirements(
+            timeframes=frozenset({self.ltf_interval, self.mtf_interval, self.htf_interval}),
+            min_candles={
+                self.ltf_interval: self.min_periods,
+                self.mtf_interval: 50,
+                self.htf_interval: 50,
+            },
+        )
 
     @classmethod
     def from_config(cls, config: dict) -> "ICTEntryDeterminer":

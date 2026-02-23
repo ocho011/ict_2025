@@ -1239,7 +1239,7 @@ class TestBackfillIntervalFix:
         engine.strategies = {"BTCUSDT": mock_strategy}
 
         # Execute backfill
-        await engine.initialize_strategy_with_backfill(limit=100)
+        await engine.initialize_strategy_with_backfill(default_limit=100)
 
         # Verify get_historical_candles was called ONLY for strategy's intervals
         assert mock_data_collector.get_historical_candles.call_count == 3
@@ -1276,7 +1276,7 @@ class TestBackfillIntervalFix:
         engine.strategies = {"BTCUSDT": mock_strategy}
 
         # Execute backfill
-        await engine.initialize_strategy_with_backfill(limit=100)
+        await engine.initialize_strategy_with_backfill(default_limit=100)
 
         # Verify API calls reduced from 5 (data_collector) to 2 (strategy)
         assert mock_data_collector.get_historical_candles.call_count == 2  # Not 5!
@@ -1307,7 +1307,7 @@ class TestBackfillIntervalFix:
         engine.strategies = {"BTCUSDT": mock_strategy}
 
         # Execute backfill (should work because subset is valid)
-        await engine.initialize_strategy_with_backfill(limit=100)
+        await engine.initialize_strategy_with_backfill(default_limit=100)
 
         # Verify calls were made for strategy intervals
         called_intervals = [

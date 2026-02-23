@@ -16,6 +16,7 @@ from typing import Optional
 from src.detectors.ict_market_structure import get_current_trend
 from src.detectors.ict_smc import detect_displacement, detect_inducement
 from src.exit.base import ExitContext, ExitDeterminer
+from src.models.module_requirements import ModuleRequirements
 from src.models.signal import Signal, SignalType
 from src.utils.config_manager import ExitConfig
 
@@ -60,6 +61,17 @@ class ICTExitDeterminer(ExitDeterminer):
     def trailing_levels(self) -> dict[str, float]:
         """Trailing stop levels for TrailingLevelProvider protocol."""
         return self._trailing_levels
+
+    @property
+    def requirements(self) -> ModuleRequirements:
+        """ICT exit needs mtf/htf timeframes for indicator-based exit."""
+        return ModuleRequirements(
+            timeframes=frozenset({self.mtf_interval, self.htf_interval}),
+            min_candles={
+                self.mtf_interval: 50,
+                self.htf_interval: 50,
+            },
+        )
 
     def should_exit(self, context: ExitContext) -> Optional[Signal]:
         """

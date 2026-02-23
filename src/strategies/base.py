@@ -15,6 +15,7 @@ from collections import deque
 from typing import TYPE_CHECKING, Dict, List, Optional
 
 from src.models.candle import Candle
+from src.models.module_requirements import ModuleRequirements
 from src.models.position import Position
 from src.models.signal import Signal
 
@@ -509,6 +510,16 @@ class BaseStrategy(ABC):
             - Prevents analysis with incomplete data
         """
         return all(self._initialized.values())
+
+    @property
+    def data_requirements(self) -> ModuleRequirements:
+        """
+        Aggregated data requirements from all modules.
+
+        Default: empty requirements. ComposableStrategy overrides
+        to aggregate from StrategyModuleConfig.
+        """
+        return ModuleRequirements.empty()
 
     @property
     def indicator_cache(self) -> Optional["IndicatorStateCache"]:
