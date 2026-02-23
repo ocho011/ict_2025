@@ -1,0 +1,7 @@
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"ecomode"}
+{"t":0,"agent":"system","event":"mode_change","mode_from":"none","mode_to":"ecomode"}
+{"t":0,"agent":"a876ece","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a876ece","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":149639}
+{"t":0,"agent":"ab2740f","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ab2740f","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":124990}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:cancel"}

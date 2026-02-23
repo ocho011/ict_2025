@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-02-22T13:29:42.973Z",
+  "lastUpdated": "2026-02-20T21:04:22.705Z",
   "activeFeatures": [
     "ict_2025",
     "strategies",
@@ -9,11 +9,7 @@
     "tests",
     "integration",
     "execution",
-    "monitoring",
-    "pricing",
-    "stop_loss",
-    "take_profit",
-    "entry"
+    "monitoring"
   ],
   "primaryFeature": "ict_2025",
   "features": {
@@ -39,9 +35,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-10T17:23:55.265Z",
-        "lastUpdated": "2026-02-22T13:23:39.680Z"
+        "lastUpdated": "2026-02-20T00:43:43.025Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/strategies/test_composable.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/strategies/base.py"
     },
     "exit": {
       "phase": "do",
@@ -120,58 +116,6 @@
         "lastUpdated": "2026-02-18T05:13:59.556Z"
       },
       "lastFile": "/Users/osangwon/github/ict_2025/src/monitoring/ring_buffer.py"
-    },
-    "pricing": {
-      "phase": "do",
-      "phaseNumber": 3,
-      "matchRate": null,
-      "iterationCount": 0,
-      "requirements": [],
-      "documents": {},
-      "timestamps": {
-        "started": "2026-02-22T09:08:35.367Z",
-        "lastUpdated": "2026-02-22T09:12:27.104Z"
-      },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/pricing/test_displacement_tp.py"
-    },
-    "stop_loss": {
-      "phase": "do",
-      "phaseNumber": 3,
-      "matchRate": null,
-      "iterationCount": 0,
-      "requirements": [],
-      "documents": {},
-      "timestamps": {
-        "started": "2026-02-22T09:09:00.350Z",
-        "lastUpdated": "2026-02-22T09:09:00.350Z"
-      },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/pricing/stop_loss/zone_based.py"
-    },
-    "take_profit": {
-      "phase": "do",
-      "phaseNumber": 3,
-      "matchRate": null,
-      "iterationCount": 0,
-      "requirements": [],
-      "documents": {},
-      "timestamps": {
-        "started": "2026-02-22T09:09:02.278Z",
-        "lastUpdated": "2026-02-22T09:09:02.278Z"
-      },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/pricing/take_profit/displacement.py"
-    },
-    "entry": {
-      "phase": "do",
-      "phaseNumber": 3,
-      "matchRate": null,
-      "iterationCount": 0,
-      "requirements": [],
-      "documents": {},
-      "timestamps": {
-        "started": "2026-02-22T09:16:44.172Z",
-        "lastUpdated": "2026-02-22T13:29:42.973Z"
-      },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/entry/ict_entry.py"
     }
   },
   "pipeline": {
@@ -182,7 +126,7 @@
   "session": {
     "startedAt": "2026-02-20T21:05:06.929Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-02-22T13:29:42.973Z"
+    "lastActivity": "2026-02-20T21:05:06.929Z"
   },
   "history": [
     {
@@ -1300,288 +1244,8 @@
       "action": "session_end",
       "feature": "ict_2025",
       "details": "Session ended"
-    },
-    {
-      "timestamp": "2026-02-22T09:08:35.367Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:08:51.289Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:09:00.350Z",
-      "feature": "stop_loss",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:09:02.278Z",
-      "feature": "take_profit",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:09:04.532Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:09:22.471Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:09:32.843Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:09:43.145Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:09:54.025Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:10:07.333Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:10:16.873Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:10:27.587Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:10:41.715Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:10:55.211Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:11:04.456Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:11:14.890Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:11:26.309Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:11:39.116Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:11:49.011Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:12:01.500Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:12:13.704Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:12:27.104Z",
-      "feature": "pricing",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:12:40.195Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:16:44.172Z",
-      "feature": "entry",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:16:59.261Z",
-      "feature": "entry",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:17:11.250Z",
-      "feature": "entry",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:17:24.260Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:17:36.609Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:17:45.005Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:17:57.609Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:18:14.327Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T09:18:24.250Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:22:02.371Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:22:13.136Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:22:17.344Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:22:27.445Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:22:33.119Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:22:38.587Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:22:57.711Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:23:09.229Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:23:13.213Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:23:17.713Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:23:21.908Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:23:30.521Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:23:34.796Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:23:39.680Z",
-      "feature": "strategies",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-02-22T13:29:42.973Z",
-      "feature": "entry",
-      "phase": "do",
-      "action": "updated"
     }
-  ]
+  ],
+  "_snapshotTimestamp": "2026-02-20T21:18:04.654Z",
+  "_reason": "pre-compress"
 }

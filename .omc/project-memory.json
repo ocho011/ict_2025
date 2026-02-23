@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1771355365757,
+  "lastScanned": 1771745727536,
   "projectRoot": "/Users/osangwon/github/ict_2025",
   "techStack": {
     "languages": [
@@ -57,14 +57,14 @@
       "path": "analysis_log",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1771355365739,
+      "lastAccessed": 1771745727523,
       "keyFiles": []
     },
     "configs": {
       "path": "configs",
       "purpose": null,
       "fileCount": 6,
-      "lastAccessed": 1771355365739,
+      "lastAccessed": 1771745727523,
       "keyFiles": [
         "api_keys.ini",
         "api_keys.ini.example",
@@ -77,14 +77,14 @@
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 2,
-      "lastAccessed": 1771355365739,
+      "lastAccessed": 1771745727524,
       "keyFiles": []
     },
     "htmlcov": {
       "path": "htmlcov",
       "purpose": null,
       "fileCount": 114,
-      "lastAccessed": 1771355365739,
+      "lastAccessed": 1771745727524,
       "keyFiles": [
         "class_index.html",
         "coverage_html_cb_6fb7b396.js",
@@ -97,7 +97,7 @@
       "path": "logs",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1771355365740,
+      "lastAccessed": 1771745727525,
       "keyFiles": [
         "trading.log"
       ]
@@ -106,7 +106,7 @@
       "path": "scripts",
       "purpose": "Build/utility scripts",
       "fileCount": 10,
-      "lastAccessed": 1771355365740,
+      "lastAccessed": 1771745727525,
       "keyFiles": [
         "analyze_ict_conditions.py",
         "benchmark_metrics.py",
@@ -119,7 +119,7 @@
       "path": "src",
       "purpose": "Source code",
       "fileCount": 2,
-      "lastAccessed": 1771355365740,
+      "lastAccessed": 1771745727525,
       "keyFiles": [
         "__init__.py",
         "main.py"
@@ -129,7 +129,7 @@
       "path": "temp",
       "purpose": null,
       "fileCount": 3,
-      "lastAccessed": 1771355365740,
+      "lastAccessed": 1771745727525,
       "keyFiles": [
         "circuit_breaker_analysis.md",
         "ordertype관련.txt",
@@ -140,7 +140,7 @@
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 25,
-      "lastAccessed": 1771355365740,
+      "lastAccessed": 1771745727525,
       "keyFiles": [
         "analysis_script.py",
         "test_audit_logger.py",
@@ -153,7 +153,7 @@
       "path": "venv",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1771355365740,
+      "lastAccessed": 1771745727525,
       "keyFiles": [
         "pyvenv.cfg"
       ]
@@ -162,7 +162,7 @@
       "path": "src/config",
       "purpose": "Configuration files",
       "fileCount": 3,
-      "lastAccessed": 1771355365741,
+      "lastAccessed": 1771745727526,
       "keyFiles": [
         "__init__.py",
         "ict_profiles.py",
@@ -173,7 +173,7 @@
       "path": "src/models",
       "purpose": "Data models",
       "fileCount": 9,
-      "lastAccessed": 1771355365741,
+      "lastAccessed": 1771745727526,
       "keyFiles": [
         "__init__.py",
         "account.py",
@@ -184,14 +184,14 @@
       "path": "tests/data",
       "purpose": "Data files",
       "fileCount": 0,
-      "lastAccessed": 1771355365741,
+      "lastAccessed": 1771745727527,
       "keyFiles": []
     },
     "tests/models": {
       "path": "tests/models",
       "purpose": "Data models",
       "fileCount": 1,
-      "lastAccessed": 1771355365741,
+      "lastAccessed": 1771745727527,
       "keyFiles": [
         "test_enriched_candle.py"
       ]
@@ -200,7 +200,7 @@
       "path": "venv/bin",
       "purpose": "Executable scripts",
       "fileCount": 12,
-      "lastAccessed": 1771355365741,
+      "lastAccessed": 1771745727527,
       "keyFiles": [
         "Activate.ps1",
         "activate",
@@ -211,309 +211,123 @@
       "path": "venv/lib",
       "purpose": "Library code",
       "fileCount": 0,
-      "lastAccessed": 1771355365741,
+      "lastAccessed": 1771745727527,
       "keyFiles": []
     }
   },
   "hotPaths": [
     {
-      "path": "",
-      "accessCount": 166,
-      "lastAccessed": 1771424948330,
+      "path": "src/strategies/base.py",
+      "accessCount": 28,
+      "lastAccessed": 1771766911834,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/composable.py",
+      "accessCount": 20,
+      "lastAccessed": 1771766916307,
+      "type": "file"
+    },
+    {
+      "path": "tests/pricing/test_zone_based_sl.py",
+      "accessCount": 16,
+      "lastAccessed": 1771766899200,
+      "type": "file"
+    },
+    {
+      "path": "tests/strategies/test_composable.py",
+      "accessCount": 15,
+      "lastAccessed": 1771766900560,
+      "type": "file"
+    },
+    {
+      "path": "src/entry/ict_entry.py",
+      "accessCount": 11,
+      "lastAccessed": 1771766983008,
+      "type": "file"
+    },
+    {
+      "path": "src/pricing/base.py",
+      "accessCount": 8,
+      "lastAccessed": 1771766915378,
+      "type": "file"
+    },
+    {
+      "path": "src/entry/base.py",
+      "accessCount": 7,
+      "lastAccessed": 1771766891529,
+      "type": "file"
+    },
+    {
+      "path": "tests/pricing/test_displacement_tp.py",
+      "accessCount": 6,
+      "lastAccessed": 1771766899771,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 6,
+      "lastAccessed": 1771766912649,
       "type": "directory"
     },
     {
-      "path": "src/execution/order_gateway.py",
-      "accessCount": 25,
-      "lastAccessed": 1771424178607,
-      "type": "file"
-    },
-    {
-      "path": "src/core/trading_engine.py",
-      "accessCount": 15,
-      "lastAccessed": 1771425006432,
-      "type": "file"
-    },
-    {
-      "path": "src/core/data_collector.py",
-      "accessCount": 11,
-      "lastAccessed": 1771425001915,
-      "type": "file"
-    },
-    {
-      "path": "src/core/event_dispatcher.py",
-      "accessCount": 9,
-      "lastAccessed": 1771390622413,
-      "type": "file"
-    },
-    {
-      "path": "src/main.py",
-      "accessCount": 9,
-      "lastAccessed": 1771405787974,
-      "type": "file"
-    },
-    {
-      "path": "src/core/circuit_breaker.py",
-      "accessCount": 9,
-      "lastAccessed": 1771424305659,
-      "type": "file"
-    },
-    {
-      "path": "src/core/audit_logger.py",
-      "accessCount": 8,
-      "lastAccessed": 1771391669596,
-      "type": "file"
-    },
-    {
-      "path": "src/utils/config_manager.py",
-      "accessCount": 8,
-      "lastAccessed": 1771423659297,
-      "type": "file"
-    },
-    {
-      "path": "src/monitoring/ring_buffer.py",
-      "accessCount": 7,
-      "lastAccessed": 1771405789656,
-      "type": "file"
-    },
-    {
-      "path": "src/core/exceptions.py",
-      "accessCount": 6,
-      "lastAccessed": 1771391646543,
-      "type": "file"
-    },
-    {
-      "path": "src/config/ict_profiles.py",
-      "accessCount": 6,
-      "lastAccessed": 1771423652324,
-      "type": "file"
-    },
-    {
-      "path": "src/detectors/base.py",
+      "path": "src/pricing/take_profit/displacement.py",
       "accessCount": 5,
-      "lastAccessed": 1771390805128,
+      "lastAccessed": 1771766893249,
       "type": "file"
     },
     {
-      "path": "src/core/streamer_protocol.py",
-      "accessCount": 5,
-      "lastAccessed": 1771391639432,
-      "type": "file"
-    },
-    {
-      "path": "src/utils/logger.py",
-      "accessCount": 5,
-      "lastAccessed": 1771391652179,
-      "type": "file"
-    },
-    {
-      "path": "tests/integration/test_composable_pipeline.py",
+      "path": "",
       "accessCount": 4,
-      "lastAccessed": 1771356101931,
-      "type": "file"
+      "lastAccessed": 1771751275618,
+      "type": "directory"
     },
     {
-      "path": "src/core/event_bus.py",
+      "path": "tests",
       "accessCount": 4,
-      "lastAccessed": 1771390622056,
-      "type": "file"
+      "lastAccessed": 1771766460422,
+      "type": "directory"
     },
     {
-      "path": "src/execution/trade_coordinator.py",
+      "path": "src/pricing/stop_loss/zone_based.py",
       "accessCount": 4,
-      "lastAccessed": 1771390647853,
+      "lastAccessed": 1771766892728,
       "type": "file"
     },
     {
-      "path": "src/models/__init__.py",
-      "accessCount": 4,
-      "lastAccessed": 1771390783914,
-      "type": "file"
-    },
-    {
-      "path": "src/monitoring/event_ids.py",
-      "accessCount": 4,
-      "lastAccessed": 1771390791352,
-      "type": "file"
-    },
-    {
-      "path": "src/core/public_market_streamer.py",
-      "accessCount": 4,
-      "lastAccessed": 1771408885930,
-      "type": "file"
-    },
-    {
-      "path": "src/models/enriched_candle.py",
-      "accessCount": 4,
-      "lastAccessed": 1771408914181,
-      "type": "file"
-    },
-    {
-      "path": "src/core/retry.py",
-      "accessCount": 4,
-      "lastAccessed": 1771424016416,
-      "type": "file"
-    },
-    {
-      "path": "src/core/__init__.py",
+      "path": "tests/strategies/test_base_strategy.py",
       "accessCount": 3,
-      "lastAccessed": 1771390621357,
-      "type": "file"
-    },
-    {
-      "path": "src/core/binance_service.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390622459,
-      "type": "file"
-    },
-    {
-      "path": "src/core/enriched_buffer.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390634875,
-      "type": "file"
-    },
-    {
-      "path": "src/core/listen_key_manager.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390635515,
-      "type": "file"
-    },
-    {
-      "path": "src/core/position_cache_manager.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390636054,
-      "type": "file"
-    },
-    {
-      "path": "src/core/private_user_streamer.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390637098,
-      "type": "file"
-    },
-    {
-      "path": "src/strategies/base.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390645134,
-      "type": "file"
-    },
-    {
-      "path": "src/execution/liquidation_manager.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390648400,
-      "type": "file"
-    },
-    {
-      "path": "src/execution/config_validator.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390648636,
-      "type": "file"
-    },
-    {
-      "path": "src/models/position.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390781375,
-      "type": "file"
-    },
-    {
-      "path": "src/models/account.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390781818,
-      "type": "file"
-    },
-    {
-      "path": "src/risk/risk_guard.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390790068,
-      "type": "file"
-    },
-    {
-      "path": "src/monitoring/aggregator.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390790887,
-      "type": "file"
-    },
-    {
-      "path": "src/monitoring/metrics_collector.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390791819,
-      "type": "file"
-    },
-    {
-      "path": "src/monitoring/stats.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390792664,
-      "type": "file"
-    },
-    {
-      "path": "src/config/symbol_config.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390799640,
-      "type": "file"
-    },
-    {
-      "path": "src/detectors/ict_fvg.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390805627,
-      "type": "file"
-    },
-    {
-      "path": "src/detectors/ict_killzones.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390806093,
-      "type": "file"
+      "lastAccessed": 1771766472877,
+      "type": "directory"
     },
     {
       "path": "src/exit/base.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390819021,
-      "type": "file"
-    },
-    {
-      "path": "src/exit/ict_exit.py",
-      "accessCount": 3,
-      "lastAccessed": 1771390819384,
-      "type": "file"
-    },
-    {
-      "path": "src/models/candle.py",
       "accessCount": 2,
-      "lastAccessed": 1771390638441,
+      "lastAccessed": 1771750515153,
       "type": "file"
     },
     {
-      "path": "src/models/signal.py",
-      "accessCount": 2,
-      "lastAccessed": 1771390780488,
-      "type": "file"
-    },
-    {
-      "path": "src/models/order.py",
-      "accessCount": 2,
-      "lastAccessed": 1771390780909,
-      "type": "file"
-    },
-    {
-      "path": "src/models/event.py",
-      "accessCount": 2,
-      "lastAccessed": 1771390782201,
-      "type": "file"
-    },
-    {
-      "path": "src/models/indicators.py",
-      "accessCount": 2,
-      "lastAccessed": 1771390783171,
-      "type": "file"
-    },
-    {
-      "path": "README.md",
+      "path": "tests/test_exit_signal.py",
       "accessCount": 1,
-      "lastAccessed": 1771369622392,
-      "type": "file"
+      "lastAccessed": 1771766466177,
+      "type": "directory"
     },
     {
-      "path": "pyproject.toml",
+      "path": "src/strategies",
       "accessCount": 1,
-      "lastAccessed": 1771369622622,
+      "lastAccessed": 1771766913690,
+      "type": "directory"
+    },
+    {
+      "path": "src/pricing",
+      "accessCount": 1,
+      "lastAccessed": 1771766914639,
+      "type": "directory"
+    },
+    {
+      "path": "docs/PDCA-Strategy-Abstraction-Redesign.report.md",
+      "accessCount": 1,
+      "lastAccessed": 1771769503963,
       "type": "file"
     }
   ],
