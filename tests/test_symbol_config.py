@@ -40,11 +40,11 @@ class TestSymbolConfig:
         assert config.strategy == "ict_strategy"
         assert config.leverage == 2
         assert config.enabled is True
-        assert config.ict_config is not None  # Auto-created for ICT
+        assert config.strategy_params  # Auto-created defaults for ICT
 
     def test_create_config_with_ict_settings(self):
-        """Test creating config with ICT-specific settings."""
-        ict_config = {
+        """Test creating config with ICT-specific settings via strategy_params."""
+        strategy_params = {
             "active_profile": "strict",
             "ltf_interval": "5m",
             "mtf_interval": "1h",
@@ -56,11 +56,11 @@ class TestSymbolConfig:
             symbol="ETHUSDT",
             strategy="ict_strategy",
             leverage=3,
-            ict_config=ict_config,
+            strategy_params=strategy_params,
         )
 
-        assert config.ict_config["active_profile"] == "strict"
-        assert config.ict_config["ltf_interval"] == "5m"
+        assert config.strategy_params["active_profile"] == "strict"
+        assert config.strategy_params["ltf_interval"] == "5m"
 
     def test_invalid_symbol_format_raises(self):
         """Test that invalid symbol format raises ConfigurationError."""
@@ -124,25 +124,22 @@ class TestSymbolConfig:
             )
 
     def test_get_strategy_config_for_ict(self):
-        """Test get_strategy_config returns ICT config."""
-        ict_config = {"active_profile": "balanced"}
+        """Test get_strategy_config returns strategy_params for ICT."""
         config = SymbolConfig(
             symbol="BTCUSDT",
             strategy="ict_strategy",
-            ict_config=ict_config,
+            strategy_params={"active_profile": "balanced"},
         )
 
         result = config.get_strategy_config()
         assert result["active_profile"] == "balanced"
 
-    def test_get_strategy_config_for_momentum(self):
-        """Test get_strategy_config returns momentum config."""
-        momentum_config = {"fast_period": 12}
+    def test_get_strategy_config_for_sma(self):
+        """Test get_strategy_config returns strategy_params for mock_sma."""
         config = SymbolConfig(
             symbol="BTCUSDT",
-            strategy="momentum_strategy",
-            momentum_config=momentum_config,
-            ict_config=None,
+            strategy="mock_sma",
+            strategy_params={"fast_period": 12},
         )
 
         result = config.get_strategy_config()
@@ -163,7 +160,7 @@ class TestSymbolConfig:
         assert result["symbols"] == ["BTCUSDT"]
         assert result["leverage"] == 2
         assert result["intervals"] == ["5m", "1h"]
-        assert "ict_config" in result
+        assert "strategy_config" in result  # Generic key, not ict_config
 
 
 # -----------------------------------------------------------------------------
@@ -188,7 +185,7 @@ class TestTradingConfigHierarchical:
                 "BTCUSDT": {
                     "strategy": "ict_strategy",
                     "leverage": 2,
-                    "ict_config": {
+                    "strategy_params": {
                         "active_profile": "strict",
                     },
                 },
@@ -196,7 +193,7 @@ class TestTradingConfigHierarchical:
                     "strategy": "ict_strategy",
                     "leverage": 3,
                     "enabled": False,  # Disabled
-                    "ict_config": {
+                    "strategy_params": {
                         "active_profile": "balanced",
                     },
                 },
@@ -220,7 +217,7 @@ class TestTradingConfigHierarchical:
 
         assert btc_config.symbol == "BTCUSDT"
         assert btc_config.leverage == 2
-        assert btc_config.ict_config["active_profile"] == "strict"
+        assert btc_config.strategy_params["active_profile"] == "strict"
 
     def test_get_symbol_config_with_defaults(self, sample_config_dict):
         """Test getting config for unconfigured symbol uses defaults."""
@@ -317,7 +314,7 @@ class TestTradingConfigHierarchicalINI:
 
         assert "BTCUSDT" in config.symbols
         assert config.symbols["BTCUSDT"].leverage == 2
-        assert config.symbols["BTCUSDT"].ict_config["active_profile"] == "strict"
+        assert config.symbols["BTCUSDT"].strategy_params["active_profile"] == "strict"
 
     def test_from_ini_sections_with_disabled_symbol(self):
         """Test INI parsing with disabled symbol."""
@@ -356,10 +353,16 @@ class TestValidationConstants:
     """Tests for validation constants."""
 
     def test_valid_strategies(self):
-        """Test VALID_STRATEGIES contains expected values."""
-        assert "ict_strategy" in VALID_STRATEGIES
-        assert "momentum_strategy" in VALID_STRATEGIES
-        assert "mock_strategy" in VALID_STRATEGIES
+        """Test VALID_STRATEGIES is populated from the registry at runtime.
+
+        VALID_STRATEGIES is an empty set at module import time (to avoid circular
+        imports). Use _get_valid_strategies() to get the live registry set.
+        """
+        from src.config.symbol_config import _get_valid_strategies
+        live_strategies = _get_valid_strategies()
+        assert "ict_strategy" in live_strategies
+        assert "mock_sma" in live_strategies
+        assert "always_signal" in live_strategies
 
     def test_valid_intervals(self):
         """Test VALID_INTERVALS contains Binance intervals."""
@@ -371,7 +374,8 @@ class TestValidationConstants:
 
     def test_all_strategies_are_strings(self):
         """Test all strategies are strings."""
-        for strategy in VALID_STRATEGIES:
+        from src.config.symbol_config import _get_valid_strategies
+        for strategy in _get_valid_strategies():
             assert isinstance(strategy, str)
 
     def test_all_intervals_are_strings(self):
@@ -438,14 +442,14 @@ trading:
       strategy: ict_strategy
       enabled: true
       leverage: 2
-      ict_config:
+      strategy_params:
         active_profile: strict
 
     ETHUSDT:
       strategy: ict_strategy
       enabled: true
       leverage: 3
-      ict_config:
+      strategy_params:
         active_profile: balanced
 """
 
@@ -497,11 +501,11 @@ trading:
         btc_config = cm.hierarchical_config.get_symbol_config("BTCUSDT")
         assert btc_config.symbol == "BTCUSDT"
         assert btc_config.leverage == 2
-        assert btc_config.ict_config["active_profile"] == "strict"
+        assert btc_config.strategy_params["active_profile"] == "strict"
 
         eth_config = cm.hierarchical_config.get_symbol_config("ETHUSDT")
         assert eth_config.leverage == 3
-        assert eth_config.ict_config["active_profile"] == "balanced"
+        assert eth_config.strategy_params["active_profile"] == "balanced"
 
     def test_config_manager_yaml_invalid_structure(self, temp_config_dir):
         """Test ConfigManager handles invalid YAML structure."""

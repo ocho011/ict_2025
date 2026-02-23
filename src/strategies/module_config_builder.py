@@ -13,7 +13,7 @@ Real-time Trading Guideline Compliance:
 - No datetime parsing
 """
 
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from src.entry import AlwaysEntryDeterminer, ICTEntryDeterminer, SMAEntryDeterminer
 
@@ -33,6 +33,21 @@ from src.pricing.stop_loss.zone_based import ZoneBasedStopLoss
 from src.pricing.take_profit.displacement import DisplacementTakeProfit
 from src.pricing.take_profit.risk_reward import RiskRewardTakeProfit
 from src.utils.config_manager import ExitConfig
+
+# Strategy builder type: (strategy_config, exit_config) -> Tuple[StrategyModuleConfig, Optional[List[str]], float]
+StrategyBuilder = Callable[..., Tuple["StrategyModuleConfig", Optional[List[str]], float]]
+
+_STRATEGY_REGISTRY: Dict[str, StrategyBuilder] = {}
+
+
+def register_strategy(name: str, builder: StrategyBuilder) -> None:
+    """Register a strategy builder function."""
+    _STRATEGY_REGISTRY[name] = builder
+
+
+def get_registered_strategies() -> Set[str]:
+    """Return set of all registered strategy names."""
+    return set(_STRATEGY_REGISTRY.keys())
 
 
 def build_module_config(
@@ -83,17 +98,13 @@ def build_module_config(
             Exit: NullExitDeterminer (no dynamic exit)
             MTF: None (single timeframe)
     """
-    if strategy_name == "ict_strategy":
-        return _build_ict_config(strategy_config, exit_config)
-    elif strategy_name == "mock_sma":
-        return _build_sma_config(strategy_config)
-    elif strategy_name == "always_signal":
-        return _build_always_signal_config(strategy_config)
-    else:
+    if strategy_name not in _STRATEGY_REGISTRY:
         raise ValueError(
             f"Unknown strategy name: {strategy_name}. "
-            f"Supported: ict_strategy, mock_sma, always_signal"
+            f"Registered: {sorted(_STRATEGY_REGISTRY.keys())}"
         )
+    builder = _STRATEGY_REGISTRY[strategy_name]
+    return builder(strategy_config, exit_config)
 
 
 def _build_ict_config(
@@ -135,6 +146,7 @@ def _build_ict_config(
 
 def _build_sma_config(
     strategy_config: dict,
+    exit_config: Optional[ExitConfig] = None,
 ) -> Tuple[StrategyModuleConfig, Optional[List[str]], float]:
     """Build configuration for SMA strategy."""
     # Entry: Simple moving average entry
@@ -163,6 +175,7 @@ def _build_sma_config(
 
 def _build_always_signal_config(
     strategy_config: dict,
+    exit_config: Optional[ExitConfig] = None,
 ) -> Tuple[StrategyModuleConfig, Optional[List[str]], float]:
     """Build configuration for AlwaysSignal strategy (testing)."""
     # Entry: Always signals entry (for testing)
@@ -187,3 +200,9 @@ def _build_always_signal_config(
     )
 
     return module_config, intervals, min_rr_ratio
+
+
+# Register built-in strategies
+register_strategy("ict_strategy", _build_ict_config)
+register_strategy("mock_sma", _build_sma_config)
+register_strategy("always_signal", _build_always_signal_config)

@@ -182,12 +182,12 @@ class TradingEngine:
             "stop_loss_percent": trading_config.stop_loss_percent,
         }
 
-        # Add ICT-specific configuration if available
-        if trading_config.ict_config is not None:
-            strategy_config.update(trading_config.ict_config)
+        # Merge strategy-specific configuration
+        if trading_config.strategy_config:
+            strategy_config.update(trading_config.strategy_config)
             self.logger.info(
-                f"ICT configuration loaded: "
-                f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
+                f"Strategy configuration loaded: "
+                f"{list(trading_config.strategy_config.keys())}"
             )
 
         # Add exit configuration if available (Issue #43)
