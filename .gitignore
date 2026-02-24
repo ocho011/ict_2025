@@ -236,7 +236,7 @@ configs/api_keys.ini
 configs/trading_config.ini
 
 # Trading data and logs
-data/
+/data/
 *.csv
 *.parquet
 logs/*.log
