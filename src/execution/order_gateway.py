@@ -18,11 +18,12 @@ from src.models.order import Order, OrderSide, OrderStatus, OrderType
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
 
+from src.execution.base import ExecutionGateway, ExchangeProvider
 
 # RequestWeightTracker moved to src.core.binance_service
 
 
-class OrderGateway:
+class OrderGateway(ExecutionGateway, ExchangeProvider):
     """
     Binance Futures order execution manager.
 

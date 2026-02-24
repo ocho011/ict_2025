@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.models.position import Position
     from src.core.position_cache_manager import PositionCacheManager
+    from src.execution.base import ExecutionGateway, PositionProvider
 
 from src.models.order import Order
 from src.models.position import PositionEntryData
@@ -44,11 +45,11 @@ class TradeCoordinator:
 
     def __init__(
         self,
-        order_gateway,
+        order_gateway: "ExecutionGateway",
         risk_guard,
         config_manager,
         audit_logger: "AuditLogger",
-        position_cache_manager: "PositionCacheManager",
+        position_cache_manager: "PositionProvider",
     ):
         self._order_gateway = order_gateway
         self._risk_guard = risk_guard
