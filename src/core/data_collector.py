@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Callable, List, Optional
 from src.models.candle import Candle
 from src.core.public_market_streamer import PublicMarketStreamer
 from src.core.private_user_streamer import PrivateUserStreamer
+from src.data.base import MarketDataProvider
 
 # Imports for type hinting only; prevents circular dependency at runtime
 # Only imported during static analysis (e.g., mypy, IDE)
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from src.core.binance_service import BinanceServiceClient
 
 
-class BinanceDataCollector:
+class BinanceDataCollector(MarketDataProvider):
     """
     Facade for Binance data collection (Issue #57 Refactoring).
 
@@ -93,15 +94,14 @@ class BinanceDataCollector:
 
         # Expose configuration from market streamer for backward compatibility
         self.is_testnet = binance_service.is_testnet
-        self.symbols = market_streamer.symbols
-        self.intervals = market_streamer.intervals
-
+        self._symbols = market_streamer.symbols
+        self._intervals = market_streamer.intervals
 
         # Logging
         self.logger = logging.getLogger(__name__)
         self.logger.info(
             f"BinanceDataCollector facade initialized: "
-            f"{len(self.symbols)} symbols, {len(self.intervals)} intervals, "
+            f"{len(self._symbols)} symbols, {len(self._intervals)} intervals, "
             f"environment={'TESTNET' if self.is_testnet else 'MAINNET'}"
         )
 
@@ -109,12 +109,20 @@ class BinanceDataCollector:
         """String representation for debugging."""
         return (
             f"BinanceDataCollector("
-            f"symbols={self.symbols}, "
-            f"intervals={self.intervals}, "
+            f"symbols={self._symbols}, "
+            f"intervals={self._intervals}, "
             f"is_testnet={self.is_testnet}, "
             f"running={self.is_running}, "
             f"market_connected={self.market_streamer.is_connected if self.market_streamer else False})"
         )
+
+    @property
+    def symbols(self) -> List[str]:
+        return self._symbols
+
+    @property
+    def intervals(self) -> List[str]:
+        return self._intervals
 
     @property
     def is_connected(self) -> bool:

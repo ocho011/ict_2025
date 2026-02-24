@@ -19,7 +19,8 @@ from src.core.event_bus import EventBus
 from src.core.event_dispatcher import EventDispatcher
 from src.core.exceptions import EngineState
 from src.entry import AlwaysEntryDeterminer
-from src.exit import ICTExitDeterminer, NullExitDeterminer
+from src.exit import NullExitDeterminer
+from src.strategies.ict.exit import ICTExitDeterminer
 from src.models.candle import Candle
 from src.models.event import Event, EventType
 from src.models.position import Position

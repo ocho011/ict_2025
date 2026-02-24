@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.main import TradingBot
 
-from src.core.data_collector import BinanceDataCollector
+from src.data.base import MarketDataProvider
 from src.core.event_bus import EventBus
 from src.core.exceptions import EngineState
 from src.core.position_cache_manager import PositionCacheManager
@@ -71,7 +71,7 @@ class TradingEngine:
 
         # Components (created via initialize_components)
         self.event_bus: Optional[EventBus] = None
-        self.data_collector: Optional[BinanceDataCollector] = None
+        self.data_collector: Optional[MarketDataProvider] = None
         self.strategies: dict[str, BaseStrategy] = {}  # Issue #8: Multi-coin support
         self.order_gateway: Optional[OrderGateway] = None
         self.risk_guard: Optional[RiskGuard] = None
@@ -182,12 +182,12 @@ class TradingEngine:
             "stop_loss_percent": trading_config.stop_loss_percent,
         }
 
-        # Add ICT-specific configuration if available
-        if trading_config.ict_config is not None:
-            strategy_config.update(trading_config.ict_config)
+        # Merge strategy-specific configuration
+        if trading_config.strategy_config:
+            strategy_config.update(trading_config.strategy_config)
             self.logger.info(
-                f"ICT configuration loaded: "
-                f"use_killzones={trading_config.ict_config.get('use_killzones', True)}"
+                f"Strategy configuration loaded: "
+                f"{list(trading_config.strategy_config.keys())}"
             )
 
         # Add exit configuration if available (Issue #43)
@@ -369,15 +369,21 @@ class TradingEngine:
                 self.logger.info("DataCollector streaming enabled")
 
                 # Start User Data Stream for real-time order updates (Issue #54, #107)
+                # hasattr guard: start_user_streaming is live-only, not on MarketDataProvider ABC
                 try:
-                    await self.data_collector.start_user_streaming(
-                        position_update_callback=self._on_position_update_from_websocket,
-                        order_update_callback=self._on_order_update_from_websocket,
-                        order_fill_callback=self._on_order_fill_from_websocket,
-                    )
-                    self.logger.info(
-                        "User Data Stream enabled for order updates, position cache, and order cache"
-                    )
+                    if hasattr(self.data_collector, 'start_user_streaming'):
+                        await self.data_collector.start_user_streaming(
+                            position_update_callback=self._on_position_update_from_websocket,
+                            order_update_callback=self._on_order_update_from_websocket,
+                            order_fill_callback=self._on_order_fill_from_websocket,
+                        )
+                        self.logger.info(
+                            "User Data Stream enabled for order updates, position cache, and order cache"
+                        )
+                    else:
+                        self.logger.warning(
+                            "DataCollector does not support start_user_streaming; skipping."
+                        )
                 except Exception as e:
                     self.logger.error(
                         f"Failed to start User Data Stream: {e}. "

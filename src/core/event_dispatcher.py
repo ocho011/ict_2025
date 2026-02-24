@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
     from src.models.position import Position
     from src.core.position_cache_manager import PositionCacheManager
+    from src.execution.base import ExecutionGateway, PositionProvider
 
 from src.core.exceptions import EngineState
 from src.models.candle import Candle
@@ -49,10 +50,10 @@ class EventDispatcher:
     def __init__(
         self,
         strategies: Dict[str, BaseStrategy],
-        position_cache_manager: "PositionCacheManager",
+        position_cache_manager: "PositionProvider",
         event_bus,
         audit_logger: "AuditLogger",
-        order_gateway,
+        order_gateway: "ExecutionGateway",
         engine_state_getter: Callable[[], EngineState],
         event_loop_getter: Callable[[], Optional[asyncio.AbstractEventLoop]],
         log_live_data: bool = True,

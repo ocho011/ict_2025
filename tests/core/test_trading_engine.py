@@ -145,7 +145,7 @@ class TestTradingEngineInit:
         mock_config_manager.trading_config.strategy = "ict"
         mock_config_manager.trading_config.take_profit_ratio = 2.0
         mock_config_manager.trading_config.stop_loss_percent = 0.01
-        mock_config_manager.trading_config.ict_config = {"use_killzones": True}
+        mock_config_manager.trading_config.strategy_config = {"use_killzones": True}
         mock_config_manager.trading_config.max_risk_per_trade = 0.02
         mock_config_manager.trading_config.exit_config = MagicMock()
 

@@ -18,8 +18,10 @@ from typing import TYPE_CHECKING, Dict, Optional
 if TYPE_CHECKING:
     from src.models.position import Position
 
+from src.execution.base import PositionProvider
 
-class PositionCacheManager:
+
+class PositionCacheManager(PositionProvider):
     """Manages position cache with TTL-based expiration and WebSocket updates.
 
     Extracted from TradingEngine to separate position cache management

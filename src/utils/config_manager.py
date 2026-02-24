@@ -7,7 +7,7 @@ Supports both legacy INI format and new hierarchical YAML format (Issue #18).
 import logging
 import os
 from configparser import ConfigParser
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -199,7 +199,7 @@ class TradingConfig:
     stop_loss_percent: float
     backfill_limit: int = 100  # Default 100 candles
     margin_type: str = "ISOLATED"  # Default to ISOLATED margin (safer than CROSSED)
-    ict_config: Optional[Dict[str, Any]] = None  # ICT strategy specific configuration
+    strategy_config: Dict[str, Any] = field(default_factory=dict)  # Strategy-specific configuration
     exit_config: Optional[ExitConfig] = None  # Dynamic exit configuration (Issue #43)
     max_symbols: int = (
         10  # Maximum symbols allowed (Issue #69: configurable MAX_SYMBOLS)
@@ -675,34 +675,27 @@ class ConfigManager:
 
         trading = config["trading"]
 
-        # Load ICT strategy specific configuration if available
-        ict_config = None
-        if "ict_strategy" in config:
-            ict_section = config["ict_strategy"]
-            # Only include active_profile and use_killzones as required fields
-            # Other parameters should come from the profile unless explicitly set in INI
-            ict_config = {
-                "active_profile": ict_section.get("active_profile", "strict"),
-                "buffer_size": ict_section.getint("buffer_size", 200),
-                "use_killzones": ict_section.getboolean("use_killzones", True),
-                # Multi-Timeframe intervals (Issue #7)
-                "ltf_interval": ict_section.get("ltf_interval", "5m"),
-                "mtf_interval": ict_section.get("mtf_interval", "1h"),
-                "htf_interval": ict_section.get("htf_interval", "4h"),
-            }
-            # Only add individual parameters if explicitly set (not commented out)
-            optional_params = [
-                ("swing_lookback", "getint"),
-                ("displacement_ratio", "getfloat"),
-                ("fvg_min_gap_percent", "getfloat"),
-                ("ob_min_strength", "getfloat"),
-                ("liquidity_tolerance", "getfloat"),
-                ("rr_ratio", "getfloat"),
-            ]
-            for param_name, getter_method in optional_params:
-                if ict_section.get(param_name) is not None:
-                    getter = getattr(ict_section, getter_method)
-                    ict_config[param_name] = getter(param_name)
+        # Load strategy-specific configuration if available
+        strategy_config = {}
+        strategy_name = trading.get("strategy", "MockStrategy")
+        if strategy_name in config:
+            strat_section = config[strategy_name]
+            for key in strat_section:
+                raw_val = strat_section.get(key)
+                if raw_val is None:
+                    continue
+                # Try boolean
+                if raw_val.lower() in ('true', 'false'):
+                    strategy_config[key] = strat_section.getboolean(key)
+                else:
+                    # Try int, then float, then keep as string
+                    try:
+                        strategy_config[key] = strat_section.getint(key)
+                    except ValueError:
+                        try:
+                            strategy_config[key] = strat_section.getfloat(key)
+                        except ValueError:
+                            strategy_config[key] = raw_val
 
         # Load dynamic exit configuration if available (Issue #43)
         exit_config = None
@@ -741,7 +734,7 @@ class ConfigManager:
             stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
             backfill_limit=trading.getint("backfill_limit", 100),
             margin_type=trading.get("margin_type", "ISOLATED"),
-            ict_config=ict_config,
+            strategy_config=strategy_config,
             exit_config=exit_config,
             max_symbols=trading.getint("max_symbols", 10),
             strategy_type=trading.get("strategy_type", "composable"),

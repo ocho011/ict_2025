@@ -7,7 +7,7 @@ trading strategies, enabling different strategies and parameters per symbol.
 Key Features:
 - SymbolConfig: Per-symbol configuration with validation
 - TradingConfigHierarchical: Hierarchical config with inheritance
-- Support for multiple strategy types (ICT, Momentum, etc.)
+- Support for any registered strategy type
 - YAML and INI format support
 
 Example YAML Configuration:
@@ -22,11 +22,11 @@ trading:
     BTCUSDT:
       strategy: ict_strategy
       leverage: 2
-      ict_config:
+      strategy_params:
         active_profile: strict
 
     ETHUSDT:
-      strategy: momentum_strategy
+      strategy: mock_sma
       leverage: 3
 ```
 """
@@ -37,8 +37,23 @@ from typing import Any, Dict, List, Optional
 from src.core.exceptions import ConfigurationError
 
 
-# Valid strategies for validation
-VALID_STRATEGIES = {"ict_strategy", "momentum_strategy", "mock_strategy", "always_signal"}
+def _get_valid_strategies() -> set:
+    """Get valid strategies from registry (lazy import to avoid circular deps).
+
+    This uses a deferred import inside the function body to prevent circular
+    import issues at module initialization time. The import chain:
+      src/config -> src/strategies/module_config_builder -> src/entry -> src/config
+    would deadlock if triggered at module level.
+    """
+    from src.strategies.module_config_builder import get_registered_strategies  # noqa: PLC0415
+    return get_registered_strategies()
+
+
+# Module-level constant for backward compatibility (e.g., from src.config import VALID_STRATEGIES).
+# This is intentionally left as an empty set at import time; the actual set of registered
+# strategies is resolved lazily via _get_valid_strategies() at validation time.
+# Consumers that need the live set should call _get_valid_strategies() directly.
+VALID_STRATEGIES: set = set()
 
 # Valid margin types
 VALID_MARGIN_TYPES = {"ISOLATED", "CROSSED"}
@@ -68,8 +83,7 @@ class SymbolConfig:
         margin_type: 'ISOLATED' or 'CROSSED'
         backfill_limit: Number of historical candles to load
         intervals: List of intervals for MTF strategies
-        ict_config: ICT strategy specific configuration
-        momentum_config: Momentum strategy specific configuration
+        strategy_params: Strategy-specific configuration parameters
     """
 
     symbol: str
@@ -81,9 +95,8 @@ class SymbolConfig:
     backfill_limit: int = 200
     intervals: List[str] = field(default_factory=lambda: ["5m", "1h", "4h"])
 
-    # Strategy-specific configurations
-    ict_config: Optional[Dict[str, Any]] = None
-    momentum_config: Optional[Dict[str, Any]] = None
+    # Strategy-specific configuration parameters (generic, replaces ict_config/momentum_config)
+    strategy_params: Dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate configuration on creation."""
@@ -99,11 +112,12 @@ class SymbolConfig:
                 f"Symbol must end with 'USDT': {self.symbol}"
             )
 
-        # Strategy validation
-        if self.strategy not in VALID_STRATEGIES:
+        # Strategy validation (dynamic from registry)
+        valid = _get_valid_strategies()
+        if self.strategy not in valid:
             raise ConfigurationError(
                 f"Invalid strategy: {self.strategy}. "
-                f"Must be one of {sorted(VALID_STRATEGIES)}"
+                f"Must be one of {sorted(valid)}"
             )
 
         # Leverage validation (Binance limits)
@@ -138,10 +152,9 @@ class SymbolConfig:
                     f"Must be one of {sorted(VALID_INTERVALS)}"
                 )
 
-        # Strategy-specific config validation
-        if self.strategy == "ict_strategy" and self.ict_config is None:
-            # Use default ICT config
-            self.ict_config = {
+        # Strategy-specific config: apply ICT defaults if no params provided
+        if self.strategy == "ict_strategy" and not self.strategy_params:
+            self.strategy_params = {
                 "active_profile": "strict",
                 "ltf_interval": "5m",
                 "mtf_interval": "1h",
@@ -156,11 +169,7 @@ class SymbolConfig:
         Returns:
             Dictionary with strategy-specific parameters
         """
-        if self.strategy == "ict_strategy":
-            return self.ict_config or {}
-        elif self.strategy == "momentum_strategy":
-            return self.momentum_config or {}
-        return {}
+        return self.strategy_params
 
     def to_trading_config_dict(self) -> Dict[str, Any]:
         """
@@ -179,13 +188,10 @@ class SymbolConfig:
             "backfill_limit": self.backfill_limit,
         }
 
-        # Add strategy-specific config
+        # Add strategy-specific config (generic key)
         strategy_config = self.get_strategy_config()
         if strategy_config:
-            if self.strategy == "ict_strategy":
-                config_dict["ict_config"] = strategy_config
-            elif self.strategy == "momentum_strategy":
-                config_dict["momentum_config"] = strategy_config
+            config_dict["strategy_config"] = strategy_config
 
         return config_dict
 
@@ -291,6 +297,14 @@ class TradingConfigHierarchical:
             if "strategy" not in merged_config:
                 merged_config["strategy"] = "ict_strategy"
 
+            # Backward compatibility: convert old ict_config/momentum_config to strategy_params
+            if "ict_config" in merged_config and "strategy_params" not in merged_config:
+                merged_config["strategy_params"] = merged_config.pop("ict_config")
+            elif "momentum_config" in merged_config and "strategy_params" not in merged_config:
+                merged_config["strategy_params"] = merged_config.pop("momentum_config")
+            merged_config.pop("ict_config", None)
+            merged_config.pop("momentum_config", None)
+
             symbols[symbol] = SymbolConfig(**merged_config)
 
         return cls(defaults=defaults, symbols=symbols)
@@ -346,16 +360,21 @@ class TradingConfigHierarchical:
             if "enabled" in section_data:
                 merged["enabled"] = section_data["enabled"].lower() == "true"
 
-            # Parse ICT config
-            if merged.get("strategy") == "ict_strategy":
-                ict_config = {}
-                for key in ["active_profile", "ltf_interval", "mtf_interval", "htf_interval"]:
-                    if key in section_data:
-                        ict_config[key] = section_data[key]
-                if "use_killzones" in section_data:
-                    ict_config["use_killzones"] = section_data["use_killzones"].lower() == "true"
-                if ict_config:
-                    merged["ict_config"] = ict_config
+            # Collect strategy-specific params (keys not in standard SymbolConfig fields)
+            standard_keys = {
+                "strategy", "leverage", "max_risk_per_trade", "margin_type",
+                "enabled", "backfill_limit", "intervals",
+            }
+            strategy_params = {}
+            for key, value in section_data.items():
+                if key not in standard_keys:
+                    # Convert boolean strings
+                    if isinstance(value, str) and value.lower() in ("true", "false"):
+                        strategy_params[key] = value.lower() == "true"
+                    else:
+                        strategy_params[key] = value
+            if strategy_params:
+                merged["strategy_params"] = strategy_params
 
             symbols[symbol] = SymbolConfig(**merged)
 

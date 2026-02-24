@@ -7,8 +7,10 @@ to composable StrategyModuleConfig bundles with all 4 determiners.
 
 import pytest
 
-from src.entry import AlwaysEntryDeterminer, ICTEntryDeterminer, SMAEntryDeterminer
-from src.exit import ICTExitDeterminer, NullExitDeterminer
+from src.entry import AlwaysEntryDeterminer, SMAEntryDeterminer
+from src.exit import NullExitDeterminer
+from src.strategies.ict.entry import ICTEntryDeterminer
+from src.strategies.ict.exit import ICTExitDeterminer
 from src.pricing.base import StrategyModuleConfig
 from src.pricing.stop_loss.percentage import PercentageStopLoss
 from src.pricing.stop_loss.zone_based import ZoneBasedStopLoss
