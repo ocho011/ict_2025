@@ -553,6 +553,8 @@ class ConfigManager:
     Manages system configuration from INI files with environment overrides
     """
 
+    # --- Initialization ---
+
     def __init__(self, config_dir: str = "configs"):
         # Find project root (parent of src directory)
         # This ensures configs/ is found regardless of working directory
@@ -588,6 +590,95 @@ class ConfigManager:
         self._logging_config = self._load_logging_config()
         self._liquidation_config = self._load_liquidation_config()
 
+    # --- Public Properties ---
+
+    @property
+    def is_testnet(self) -> bool:
+        """Check if running in testnet mode"""
+        return self._api_config.is_testnet
+
+    @property
+    def api_config(self) -> APIConfig:
+        """Get API configuration"""
+        return self._api_config
+
+    @property
+    def trading_config(self) -> TradingConfig:
+        """Get trading configuration"""
+        return self._trading_config
+
+    @property
+    def hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
+        """
+        Get hierarchical per-symbol configuration (Issue #18).
+
+        Returns:
+            TradingConfigHierarchical if YAML config loaded, None otherwise
+        """
+        return self._hierarchical_config
+
+    @property
+    def has_hierarchical_config(self) -> bool:
+        """Check if hierarchical per-symbol configuration is available."""
+        return self._hierarchical_config is not None
+
+    @property
+    def logging_config(self) -> LoggingConfig:
+        """Get logging configuration"""
+        return self._logging_config
+
+    @property
+    def liquidation_config(self) -> LiquidationConfig:
+        """Get liquidation configuration"""
+        return self._liquidation_config
+
+    @property
+    def binance_config(self) -> BinanceConfig:
+        """Get Binance endpoint configuration (Issue #92)"""
+        return self._binance_config
+
+    # --- Public Methods ---
+
+    def validate(self) -> bool:
+        """
+        Validate all configurations
+
+        Returns:
+            bool: True if all validations pass, False otherwise
+
+        Note:
+            - API and Trading config validation happens in __post_init__
+            - All validation errors are logged before returning
+            - This method performs additional cross-config validation
+        """
+        import logging
+
+        logger = logging.getLogger(__name__)
+        errors = []
+
+        # API config validation (already done in __post_init__)
+        # Trading config validation (already done in __post_init__)
+
+        # Cross-config validation: leverage warning in testnet
+        if self._trading_config.leverage > 1 and self._api_config.is_testnet:
+            logger.warning(
+                f"Using {self._trading_config.leverage}x leverage in testnet mode"
+            )
+
+        # Log environment mode
+        if self._api_config.is_testnet:
+            logger.info("⚠️  Running in TESTNET mode")
+        else:
+            logger.warning("⚠️  Running in PRODUCTION mode with real funds!")
+
+        # Log all accumulated errors
+        for error in errors:
+            logger.error(error)
+
+        return len(errors) == 0
+
+    # --- Private Loaders (Helpers) ---
+
     def _load_api_config(self) -> APIConfig:
         """
         Load API configuration with environment variable overrides
@@ -619,6 +710,7 @@ class ConfigManager:
             )
 
         config = ConfigParser()
+        # NOTE: .read() does NOT return a new object; it updates the internal state of the config instance.
         config.read(config_file)
 
         if "binance" not in config:
@@ -722,24 +814,6 @@ class ConfigManager:
         symbols_str = trading.get("symbols", trading.get("symbol", "BTCUSDT"))
         symbols = [s.strip() for s in symbols_str.split(",")]
 
-        return TradingConfig(
-            symbols=symbols,
-            intervals=[
-                i.strip() for i in trading.get("intervals", "1m,5m,15m").split(",")
-            ],
-            strategy=trading.get("strategy", "MockStrategy"),
-            leverage=trading.getint("leverage", 1),
-            max_risk_per_trade=trading.getfloat("max_risk_per_trade", 0.01),
-            take_profit_ratio=trading.getfloat("take_profit_ratio", 2.0),
-            stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
-            backfill_limit=trading.getint("backfill_limit", 100),
-            margin_type=trading.get("margin_type", "ISOLATED"),
-            strategy_config=strategy_config,
-            exit_config=exit_config,
-            max_symbols=trading.getint("max_symbols", 10),
-            strategy_type=trading.get("strategy_type", "composable"),
-        )
-
         # Validate max_symbols range (Issue #69)
         max_symbols_value = trading.getint("max_symbols", 10)
         if not (1 <= max_symbols_value <= 20):
@@ -756,58 +830,63 @@ class ConfigManager:
                 f"Consider reducing for better performance."
             )
 
-    def validate(self) -> bool:
+        return TradingConfig(
+            symbols=symbols,
+            intervals=[
+                i.strip() for i in trading.get("intervals", "1m,5m,15m").split(",")
+            ],
+            strategy=trading.get("strategy", "MockStrategy"),
+            leverage=trading.getint("leverage", 1),
+            max_risk_per_trade=trading.getfloat("max_risk_per_trade", 0.01),
+            take_profit_ratio=trading.getfloat("take_profit_ratio", 2.0),
+            stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
+            backfill_limit=trading.getint("backfill_limit", 100),
+            margin_type=trading.get("margin_type", "ISOLATED"),
+            strategy_config=strategy_config,
+            exit_config=exit_config,
+            max_symbols=max_symbols_value,
+            strategy_type=trading.get("strategy_type", "composable"),
+        )
+
+    def _load_hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
         """
-        Validate all configurations
+        Load hierarchical per-symbol configuration from YAML file (Issue #18).
+
+        Supports the new trading_config.yaml format with per-symbol overrides.
+        Returns None if YAML file doesn't exist (falls back to INI format).
 
         Returns:
-            bool: True if all validations pass, False otherwise
-
-        Note:
-            - API and Trading config validation happens in __post_init__
-            - All validation errors are logged before returning
-            - This method performs additional cross-config validation
+            TradingConfigHierarchical if YAML exists, None otherwise
         """
-        import logging
+        yaml_file = self.config_dir / "trading_config.yaml"
 
-        logger = logging.getLogger(__name__)
-        errors = []
+        if not yaml_file.exists():
+            return None
 
-        # API config validation (already done in __post_init__)
-        # Trading config validation (already done in __post_init__)
+        try:
+            with open(yaml_file, "r", encoding="utf-8") as f:
+                data = yaml.safe_load(f)
 
-        # Cross-config validation: leverage warning in testnet
-        if self._trading_config.leverage > 1 and self._api_config.is_testnet:
-            logger.warning(
-                f"Using {self._trading_config.leverage}x leverage in testnet mode"
+            if not data or "trading" not in data:
+                logging.getLogger(__name__).warning(
+                    f"YAML config {yaml_file} missing 'trading' section, using INI fallback"
+                )
+                return None
+
+            # Import here to avoid circular dependency
+            from src.config.symbol_config import TradingConfigHierarchical
+
+            trading_data = data["trading"]
+            return TradingConfigHierarchical.from_dict(trading_data)
+
+        except yaml.YAMLError as e:
+            logging.getLogger(__name__).error(f"Failed to parse YAML config: {e}")
+            return None
+        except Exception as e:
+            logging.getLogger(__name__).error(
+                f"Failed to load hierarchical config: {e}"
             )
-
-        # Log environment mode
-        if self._api_config.is_testnet:
-            logger.info("⚠️  Running in TESTNET mode")
-        else:
-            logger.warning("⚠️  Running in PRODUCTION mode with real funds!")
-
-        # Log all accumulated errors
-        for error in errors:
-            logger.error(error)
-
-        return len(errors) == 0
-
-    @property
-    def is_testnet(self) -> bool:
-        """Check if running in testnet mode"""
-        return self._api_config.is_testnet
-
-    @property
-    def api_config(self) -> APIConfig:
-        """Get API configuration"""
-        return self._api_config
-
-    @property
-    def trading_config(self) -> TradingConfig:
-        """Get trading configuration"""
-        return self._trading_config
+            return None
 
     def _load_logging_config(self) -> LoggingConfig:
         """Load logging configuration from INI file"""
@@ -829,11 +908,6 @@ class ConfigManager:
             log_dir=logging_section.get("log_dir", "logs"),
             log_live_data=logging_section.getboolean("log_live_data", True),
         )
-
-    @property
-    def logging_config(self) -> LoggingConfig:
-        """Get logging configuration"""
-        return self._logging_config
 
     def _load_liquidation_config(self) -> LiquidationConfig:
         """
@@ -872,26 +946,6 @@ class ConfigManager:
                 "retry_delay_seconds", 0.5
             ),
         )
-
-    @property
-    def api_config(self) -> "APIConfig":
-        """Get API configuration"""
-        return self._api_config
-
-    @property
-    def trading_config(self) -> "TradingConfig":
-        """Get trading configuration"""
-        return self._trading_config
-
-    @property
-    def logging_config(self) -> "LoggingConfig":
-        """Get logging configuration"""
-        return self._logging_config
-
-    @property
-    def liquidation_config(self) -> "LiquidationConfig":
-        """Get liquidation configuration"""
-        return self._liquidation_config
 
     def _load_binance_config(self) -> BinanceConfig:
         """
@@ -938,63 +992,3 @@ class ConfigManager:
                 "user_ws_mainnet_url", "wss://fstream.binance.com/ws"
             ),
         )
-
-    @property
-    def binance_config(self) -> BinanceConfig:
-        """Get Binance endpoint configuration (Issue #92)"""
-        return self._binance_config
-
-    def _load_hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
-        """
-        Load hierarchical per-symbol configuration from YAML file (Issue #18).
-
-        Supports the new trading_config.yaml format with per-symbol overrides.
-        Returns None if YAML file doesn't exist (falls back to INI format).
-
-        Returns:
-            TradingConfigHierarchical if YAML exists, None otherwise
-        """
-        yaml_file = self.config_dir / "trading_config.yaml"
-
-        if not yaml_file.exists():
-            return None
-
-        try:
-            with open(yaml_file, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-
-            if not data or "trading" not in data:
-                logging.getLogger(__name__).warning(
-                    f"YAML config {yaml_file} missing 'trading' section, using INI fallback"
-                )
-                return None
-
-            # Import here to avoid circular dependency
-            from src.config.symbol_config import TradingConfigHierarchical
-
-            trading_data = data["trading"]
-            return TradingConfigHierarchical.from_dict(trading_data)
-
-        except yaml.YAMLError as e:
-            logging.getLogger(__name__).error(f"Failed to parse YAML config: {e}")
-            return None
-        except Exception as e:
-            logging.getLogger(__name__).error(
-                f"Failed to load hierarchical config: {e}"
-            )
-            return None
-
-    @property
-    def hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
-        """
-        Get hierarchical per-symbol configuration (Issue #18).
-
-        Returns:
-            TradingConfigHierarchical if YAML config loaded, None otherwise
-        """
-        return self._hierarchical_config
-
-    @property
-    def has_hierarchical_config(self) -> bool:
-        """Check if hierarchical per-symbol configuration is available."""
-        return self._hierarchical_config is not None
