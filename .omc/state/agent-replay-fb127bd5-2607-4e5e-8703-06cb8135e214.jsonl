@@ -1,0 +1,8 @@
+{"t":0,"agent":"afd4245","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"afd4245","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":105736}
+{"t":0,"agent":"aee79bd","agent_type":"executor-high","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"aee79bd","agent_type":"executor-high","event":"agent_stop","success":true,"duration_ms":168928}
+{"t":0,"agent":"a6b9c81","agent_type":"bkit:gap-detector","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a6b9c81","agent_type":"bkit:gap-detector","event":"agent_stop","success":true,"duration_ms":94897}
+{"t":0,"agent":"adab676","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"pdca"}

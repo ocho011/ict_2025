@@ -1,0 +1,16 @@
+{"t":0,"agent":"ae5f7a6","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ae5f7a6","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":24024}
+{"t":0,"agent":"ac6ec08","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ac6ec08","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":33962}
+{"t":0,"agent":"a753ec1","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a753ec1","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":78469}
+{"t":0,"agent":"abaab7c","agent_type":"executor-low","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"abaab7c","agent_type":"executor-low","event":"agent_stop","success":true,"duration_ms":15592}
+{"t":0,"agent":"ade8188","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a253fa4","agent_type":"executor","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a253fa4","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":69316}
+{"t":0,"agent":"ade8188","agent_type":"executor","event":"agent_stop","success":true,"duration_ms":101496}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:git-master"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"pdca"}
+{"t":0,"agent":"ab33f46","agent_type":"bkit:gap-detector","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"ab33f46","agent_type":"bkit:gap-detector","event":"agent_stop","success":true,"duration_ms":58221}
