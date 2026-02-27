@@ -329,6 +329,18 @@
       "accessCount": 1,
       "lastAccessed": 1771769503963,
       "type": "file"
+    },
+    {
+      "path": "docs/.pdca-status.json",
+      "accessCount": 1,
+      "lastAccessed": 1771944935425,
+      "type": "file"
+    },
+    {
+      "path": "docs/04-report/modular-architecture-extension-completion.md",
+      "accessCount": 1,
+      "lastAccessed": 1771945095545,
+      "type": "file"
     }
   ],
   "userDirectives": []
