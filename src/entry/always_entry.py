@@ -9,10 +9,17 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
+from pydantic import BaseModel, Field
+
 from src.entry.base import EntryDeterminer, EntryContext, EntryDecision
 from src.models.signal import SignalType
+from src.strategies.decorators import register_module
 
 
+@register_module(
+    'entry', 'always_signal',
+    description='테스트용 항상 시그널 결정자 (실거래 금지)',
+)
 @dataclass
 class AlwaysEntryDeterminer(EntryDeterminer):
     """
@@ -23,6 +30,16 @@ class AlwaysEntryDeterminer(EntryDeterminer):
     - LONG: Always generates LONG signals
     - SHORT: Always generates SHORT signals
     """
+
+    class ParamSchema(BaseModel):
+        """Pydantic schema for always-signal parameters."""
+        signal_mode: str = Field("ALTERNATE", description="시그널 모드 (LONG/SHORT/ALTERNATE)")
+
+    @classmethod
+    def from_validated_params(cls, params: "AlwaysEntryDeterminer.ParamSchema") -> "AlwaysEntryDeterminer":
+        """Create instance from Pydantic-validated params."""
+        return cls(**params.model_dump())
+
     signal_mode: str = "ALTERNATE"
 
     def __post_init__(self):

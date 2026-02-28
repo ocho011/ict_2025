@@ -98,6 +98,10 @@ class SymbolConfig:
     # Strategy-specific configuration parameters (generic, replaces ict_config/momentum_config)
     strategy_params: Dict[str, Any] = field(default_factory=dict)
 
+    # Module-level assembly spec for dynamic strategy composition (Phase 2)
+    # Structure: {"entry": {"type": "ict_entry", "params": {...}}, "stop_loss": {...}, ...}
+    modules: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+
     def __post_init__(self):
         """Validate configuration on creation."""
         self._validate()
@@ -192,6 +196,9 @@ class SymbolConfig:
         strategy_config = self.get_strategy_config()
         if strategy_config:
             config_dict["strategy_config"] = strategy_config
+
+        if self.modules:
+            config_dict["modules"] = self.modules
 
         return config_dict
 
@@ -304,6 +311,9 @@ class TradingConfigHierarchical:
                 merged_config["strategy_params"] = merged_config.pop("momentum_config")
             merged_config.pop("ict_config", None)
             merged_config.pop("momentum_config", None)
+
+            # Preserve modules block for dynamic assembly
+            # modules is passed through as-is (Dict[str, Dict])
 
             symbols[symbol] = SymbolConfig(**merged_config)
 

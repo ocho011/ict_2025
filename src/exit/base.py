@@ -12,10 +12,13 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 from src.models.candle import Candle
 from src.models.module_requirements import ModuleRequirements
 from src.models.position import Position
 from src.models.signal import Signal
+from src.strategies.decorators import register_module
 
 
 @dataclass(frozen=True)
@@ -60,8 +63,18 @@ class ExitDeterminer(ABC):
         return ModuleRequirements.empty()
 
 
+@register_module('exit', 'null_exit', description='No-op 청산 결정자 (TP/SL만 의존)')
 class NullExitDeterminer(ExitDeterminer):
     """Default no-op exit determiner. Relies on TP/SL orders only."""
+
+    class ParamSchema(BaseModel):
+        """No parameters needed."""
+        pass
+
+    @classmethod
+    def from_validated_params(cls, params: "NullExitDeterminer.ParamSchema") -> "NullExitDeterminer":
+        """Create instance from Pydantic-validated params."""
+        return cls()
 
     def should_exit(self, context: ExitContext) -> Optional[Signal]:
         return None

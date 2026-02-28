@@ -1,0 +1,44 @@
+{
+  "project": "ict_2025",
+  "feature": "strategy_architecture",
+  "interview_date": "2026-03-01",
+  "pdca_phase": "plan",
+  "decisions": {
+    "ui_assembly_scope": {
+      "question": "동적 Config의 UI 연동 범위",
+      "answer": "완전 동적 모듈 조립",
+      "detail": "UI에서 Entry/SL/TP/Exit 4개 모듈을 개별 선택하여 자유 조합"
+    },
+    "config_source": {
+      "question": "INI vs YAML 설정 소스 전략",
+      "answer": "YAML 단독",
+      "detail": "INI 의존성 완전 제거. TradingConfigHierarchical을 유일한 설정 소스로 승격"
+    },
+    "hot_reload": {
+      "question": "런타임 동적 변경 여부",
+      "answer": "완전 Hot Reload",
+      "detail": "전략 종류 변경까지 런타임에 가능. 포지션 정리 후 전환"
+    },
+    "ui_communication": {
+      "question": "UI 통신 방식",
+      "answer": "콜백/이벤트 패턴",
+      "detail": "EventDispatcher 활용. ConfigUpdateEvent 발행 → ConfigManager 수신"
+    },
+    "position_safety": {
+      "question": "Hot Reload 시 포지션 처리",
+      "answer": "포지션 정리 후 전환",
+      "detail": "열린 포지션을 모두 close한 뒤 새 전략 적용"
+    },
+    "module_registration": {
+      "question": "모듈 등록/발견 방식",
+      "answer": "데코레이터 기반 자동 등록",
+      "detail": "@register_module('entry', 'ict_entry') 데코레이터로 자동 레지스트리 등록"
+    },
+    "schema_validation": {
+      "question": "파라미터 스키마 검증",
+      "answer": "Pydantic 스키마",
+      "detail": "각 모듈이 Pydantic BaseModel로 파라미터 스키마 정의. Cold Path에서만 사용"
+    }
+  },
+  "source_analysis": "docs/03-analysis/strategy_architecture_report_20260226.md"
+}
