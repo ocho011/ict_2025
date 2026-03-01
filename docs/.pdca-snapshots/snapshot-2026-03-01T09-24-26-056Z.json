@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-03-01T12:16:49.860Z",
+  "lastUpdated": "2026-03-01T09:23:30.433Z",
   "activeFeatures": [
     "strategies",
     "ict",
@@ -119,7 +119,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-28T18:21:04.698Z",
-        "lastUpdated": "2026-03-01T12:16:28.664Z"
+        "lastUpdated": "2026-03-01T05:23:52.105Z"
       },
       "lastFile": "/Users/osangwon/github/ict_2025/src/config/symbol_config.py"
     },
@@ -158,9 +158,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-28T22:07:21.479Z",
-        "lastUpdated": "2026-03-01T12:16:49.860Z"
+        "lastUpdated": "2026-03-01T05:26:09.788Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/test_symbol_config.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/tests/test_config_validation.py"
     },
     "elements": {
       "phase": "do",
@@ -197,9 +197,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-03-01T05:10:36.941Z",
-        "lastUpdated": "2026-03-01T12:16:47.869Z"
+        "lastUpdated": "2026-03-01T05:15:32.282Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/utils/config_manager.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/main.py"
     }
   },
   "pipeline": {
@@ -210,7 +210,7 @@
   "session": {
     "startedAt": "2026-03-01T09:23:30.470Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-03-01T12:16:49.860Z"
+    "lastActivity": "2026-03-01T09:23:30.470Z"
   },
   "history": [
     {
@@ -656,24 +656,8 @@
       "action": "session_end",
       "feature": "strategies",
       "details": "Session ended"
-    },
-    {
-      "timestamp": "2026-03-01T12:16:28.664Z",
-      "feature": "config",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-01T12:16:47.870Z",
-      "feature": "ict_2025",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-01T12:16:49.860Z",
-      "feature": "tests",
-      "phase": "do",
-      "action": "updated"
     }
-  ]
+  ],
+  "_snapshotTimestamp": "2026-03-01T09:24:26.057Z",
+  "_reason": "pre-compress"
 }

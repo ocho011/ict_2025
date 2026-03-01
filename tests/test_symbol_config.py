@@ -5,7 +5,7 @@ This module tests:
 1. SymbolConfig validation
 2. TradingConfigHierarchical creation and methods
 3. Config inheritance and override logic
-4. YAML and INI format support
+4. YAML format support (base.yaml)
 """
 
 import pytest
@@ -280,68 +280,6 @@ class TestTradingConfigHierarchical:
         assert legacy_configs[0]["leverage"] == 2
 
 
-class TestTradingConfigHierarchicalINI:
-    """Tests for INI format support."""
-
-    def test_from_ini_sections(self):
-        """Test creating config from INI sections."""
-        trading_section = {
-            "strategy": "ict_strategy",
-            "leverage": "1",
-            "max_risk_per_trade": "0.01",
-            "margin_type": "ISOLATED",
-            "backfill_limit": "200",
-            "intervals": "5m,1h,4h",
-        }
-
-        strategy_sections = {
-            "BTCUSDT": {
-                "strategy": "ict_strategy",
-                "leverage": "2",
-                "active_profile": "strict",
-                "ltf_interval": "5m",
-            },
-            "ETHUSDT": {
-                "strategy": "ict_strategy",
-                "leverage": "3",
-                "active_profile": "balanced",
-            },
-        }
-
-        config = TradingConfigHierarchical.from_ini_sections(
-            trading_section, strategy_sections
-        )
-
-        assert "BTCUSDT" in config.symbols
-        assert config.symbols["BTCUSDT"].leverage == 2
-        assert config.symbols["BTCUSDT"].strategy_params["active_profile"] == "strict"
-
-    def test_from_ini_sections_with_disabled_symbol(self):
-        """Test INI parsing with disabled symbol."""
-        trading_section = {
-            "strategy": "ict_strategy",
-            "leverage": "1",
-            "intervals": "5m,1h",
-        }
-
-        strategy_sections = {
-            "BTCUSDT": {
-                "strategy": "ict_strategy",
-                "leverage": "2",
-                "enabled": "true",
-            },
-            "XRPUSDT": {
-                "strategy": "ict_strategy",
-                "enabled": "false",
-            },
-        }
-
-        config = TradingConfigHierarchical.from_ini_sections(
-            trading_section, strategy_sections
-        )
-
-        assert config.symbols["BTCUSDT"].enabled is True
-        assert config.symbols["XRPUSDT"].enabled is False
 
 
 # -----------------------------------------------------------------------------
@@ -409,19 +347,24 @@ api_key = test_key_12345
 api_secret = test_secret_67890
 """)
 
-        # Create legacy trading config
-        trading_config = config_dir / "trading_config.ini"
-        trading_config.write_text("""
-[trading]
-symbols = BTCUSDT
-intervals = 5m,1h
-strategy = ict_strategy
-leverage = 2
-max_risk_per_trade = 0.01
-take_profit_ratio = 2.0
-stop_loss_percent = 0.02
-margin_type = ISOLATED
-backfill_limit = 200
+        # Create base YAML config
+        base_config = config_dir / "base.yaml"
+        base_config.write_text("""
+trading:
+  defaults:
+    strategy: ict_strategy
+    leverage: 2
+    max_risk_per_trade: 0.01
+    take_profit_ratio: 2.0
+    stop_loss_percent: 0.02
+    margin_type: ISOLATED
+    backfill_limit: 200
+    intervals:
+      - "5m"
+      - "1h"
+  symbols:
+    BTCUSDT:
+      leverage: 2
 """)
 
         return config_dir
@@ -453,48 +396,25 @@ trading:
         active_profile: balanced
 """
 
-    def test_config_manager_without_yaml(self, temp_config_dir, monkeypatch):
-        """Test ConfigManager works without YAML config."""
-        from src.utils.config_manager import ConfigManager
-
-        # Patch the config_dir
-        cm = ConfigManager.__new__(ConfigManager)
-        cm.config_dir = temp_config_dir
-        cm._api_config = None
-        cm._trading_config = None
-        cm._logging_config = None
-        cm._liquidation_config = None
-        cm._hierarchical_config = None
-        cm._load_configs()
-
-        # Should not have hierarchical config
-        assert cm.has_hierarchical_config is False
-        assert cm.hierarchical_config is None
-
-        # Should still load legacy config
-        assert cm.trading_config is not None
-        assert "BTCUSDT" in cm.trading_config.symbols
-
     def test_config_manager_with_yaml(self, temp_config_dir, yaml_config_content):
-        """Test ConfigManager loads YAML config when available."""
+        """Test ConfigManager loads YAML config (base.yaml) correctly."""
         from src.utils.config_manager import ConfigManager
 
-        # Create YAML config file
-        yaml_file = temp_config_dir / "trading_config.yaml"
-        yaml_file.write_text(yaml_config_content)
+        # Write the YAML content to base.yaml (the canonical config file)
+        base_yaml = temp_config_dir / "base.yaml"
+        base_yaml.write_text(yaml_config_content)
 
-        # Patch the config_dir
         cm = ConfigManager.__new__(ConfigManager)
         cm.config_dir = temp_config_dir
         cm._api_config = None
         cm._trading_config = None
         cm._logging_config = None
         cm._liquidation_config = None
+        cm._binance_config = None
         cm._hierarchical_config = None
         cm._load_configs()
 
-        # Should have hierarchical config
-        assert cm.has_hierarchical_config is True
+        # Hierarchical config is always available from base.yaml
         assert cm.hierarchical_config is not None
 
         # Verify hierarchical config content
@@ -507,34 +427,14 @@ trading:
         assert eth_config.leverage == 3
         assert eth_config.strategy_params["active_profile"] == "balanced"
 
-    def test_config_manager_yaml_invalid_structure(self, temp_config_dir):
-        """Test ConfigManager handles invalid YAML structure."""
-        from src.utils.config_manager import ConfigManager
-
-        # Create invalid YAML (missing trading section)
-        yaml_file = temp_config_dir / "trading_config.yaml"
-        yaml_file.write_text("invalid:\n  key: value\n")
-
-        cm = ConfigManager.__new__(ConfigManager)
-        cm.config_dir = temp_config_dir
-        cm._api_config = None
-        cm._trading_config = None
-        cm._logging_config = None
-        cm._liquidation_config = None
-        cm._hierarchical_config = None
-        cm._load_configs()
-
-        # Should fall back to no hierarchical config
-        assert cm.has_hierarchical_config is False
-
     def test_hierarchical_config_get_enabled_symbols(
         self, temp_config_dir, yaml_config_content
     ):
         """Test getting enabled symbols from hierarchical config."""
         from src.utils.config_manager import ConfigManager
 
-        yaml_file = temp_config_dir / "trading_config.yaml"
-        yaml_file.write_text(yaml_config_content)
+        base_yaml = temp_config_dir / "base.yaml"
+        base_yaml.write_text(yaml_config_content)
 
         cm = ConfigManager.__new__(ConfigManager)
         cm.config_dir = temp_config_dir
@@ -542,6 +442,7 @@ trading:
         cm._trading_config = None
         cm._logging_config = None
         cm._liquidation_config = None
+        cm._binance_config = None
         cm._hierarchical_config = None
         cm._load_configs()
 

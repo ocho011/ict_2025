@@ -1,7 +1,8 @@
 """
-Configuration management with INI files and environment overrides
+Configuration management with YAML and environment overrides.
 
-Supports both legacy INI format and new hierarchical YAML format (Issue #18).
+Trading configuration loaded from configs/base.yaml.
+API keys loaded from configs/api_keys.ini or environment variables.
 """
 
 import logging
@@ -550,7 +551,7 @@ class LiquidationConfig:
 
 class ConfigManager:
     """
-    Manages system configuration from INI files with environment overrides
+    Manages system configuration from YAML files with environment overrides
     """
 
     # --- Initialization ---
@@ -566,29 +567,26 @@ class ConfigManager:
         self._logging_config = None
         self._liquidation_config = None
         self._binance_config = None
-        self._hierarchical_config: Optional["TradingConfigHierarchical"] = None
+        self._hierarchical_config: Optional["TradingConfigHierarchical"] = None  # Set to non-None in _load_configs
 
         # Load configurations
         self._load_configs()
 
     def _load_configs(self):
         """
-        Load all configuration files using internal helper methods.
+        Load all configuration files.
 
-        Each loader utilizes ConfigParser to read INI files. After the '.read()'
-        method is called, the instance acts as a structured data container that
-        permits efficient keyed access and automatic type conversion (int, float, bool).
-
-        For trading configuration, YAML format is preferred (Issue #18):
-        - trading_config.yaml: New hierarchical per-symbol format
-        - trading_config.ini: Legacy flat format (fallback)
+        - API keys: from api_keys.ini or environment variables
+        - All other config: from base.yaml
         """
         self._api_config = self._load_api_config()
-        self._binance_config = self._load_binance_config()
-        self._hierarchical_config = self._load_hierarchical_config()
-        self._trading_config = self._load_trading_config()
-        self._logging_config = self._load_logging_config()
-        self._liquidation_config = self._load_liquidation_config()
+
+        yaml_data = self._load_yaml_config()
+        self._binance_config = self._parse_binance_config(yaml_data)
+        self._trading_config = self._parse_trading_config(yaml_data)
+        self._logging_config = self._parse_logging_config(yaml_data)
+        self._liquidation_config = self._parse_liquidation_config(yaml_data)
+        self._hierarchical_config = self._parse_hierarchical_config(yaml_data)
 
     # --- Public Properties ---
 
@@ -608,19 +606,14 @@ class ConfigManager:
         return self._trading_config
 
     @property
-    def hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
+    def hierarchical_config(self) -> "TradingConfigHierarchical":
         """
-        Get hierarchical per-symbol configuration (Issue #18).
+        Get hierarchical per-symbol configuration.
 
         Returns:
-            TradingConfigHierarchical if YAML config loaded, None otherwise
+            TradingConfigHierarchical (always available from base.yaml)
         """
         return self._hierarchical_config
-
-    @property
-    def has_hierarchical_config(self) -> bool:
-        """Check if hierarchical per-symbol configuration is available."""
-        return self._hierarchical_config is not None
 
     @property
     def logging_config(self) -> LoggingConfig:
@@ -750,245 +743,145 @@ class ConfigManager:
 
         return APIConfig(api_key=api_key, api_secret=api_secret, is_testnet=is_testnet)
 
-    def _load_trading_config(self) -> TradingConfig:
-        """Load trading configuration from INI file"""
-        config_file = self.config_dir / "trading_config.ini"
+    def _load_yaml_config(self) -> Dict[str, Any]:
+        """
+        Load and parse base.yaml configuration file.
 
-        if not config_file.exists():
-            raise ConfigurationError(f"Trading configuration not found: {config_file}")
+        Returns:
+            Parsed YAML data dictionary
 
-        config = ConfigParser()
-        config.read(config_file)
+        Raises:
+            ConfigurationError: If base.yaml not found or invalid
+        """
+        yaml_file = self.config_dir / "base.yaml"
 
-        if "trading" not in config:
+        if not yaml_file.exists():
             raise ConfigurationError(
-                "Invalid trading_config.ini: [trading] section not found"
+                f"Configuration file not found: {yaml_file}\n"
+                f"Please create {yaml_file} from base.yaml.example"
             )
 
-        trading = config["trading"]
+        with open(yaml_file, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
 
-        # Load strategy-specific configuration if available
-        strategy_config = {}
-        strategy_name = trading.get("strategy", "MockStrategy")
-        if strategy_name in config:
-            strat_section = config[strategy_name]
-            for key in strat_section:
-                raw_val = strat_section.get(key)
-                if raw_val is None:
-                    continue
-                # Try boolean
-                if raw_val.lower() in ('true', 'false'):
-                    strategy_config[key] = strat_section.getboolean(key)
-                else:
-                    # Try int, then float, then keep as string
-                    try:
-                        strategy_config[key] = strat_section.getint(key)
-                    except ValueError:
-                        try:
-                            strategy_config[key] = strat_section.getfloat(key)
-                        except ValueError:
-                            strategy_config[key] = raw_val
+        if not data:
+            raise ConfigurationError(f"Empty configuration file: {yaml_file}")
 
-        # Load dynamic exit configuration if available (Issue #43)
+        return data
+
+    def _parse_binance_config(self, data: Dict[str, Any]) -> BinanceConfig:
+        """Parse binance section from YAML data."""
+        binance = data.get("binance", {})
+        if not binance:
+            return BinanceConfig()
+        return BinanceConfig(
+            rest_testnet_url=binance.get("rest_testnet_url", "https://testnet.binancefuture.com"),
+            rest_mainnet_url=binance.get("rest_mainnet_url", "https://fapi.binance.com"),
+            ws_testnet_url=binance.get("ws_testnet_url", "wss://stream.binancefuture.com"),
+            ws_mainnet_url=binance.get("ws_mainnet_url", "wss://fstream.binance.com"),
+            user_ws_testnet_url=binance.get("user_ws_testnet_url", "wss://stream.binancefuture.com/ws"),
+            user_ws_mainnet_url=binance.get("user_ws_mainnet_url", "wss://fstream.binance.com/ws"),
+        )
+
+    def _parse_logging_config(self, data: Dict[str, Any]) -> LoggingConfig:
+        """Parse logging section from YAML data."""
+        log = data.get("logging", {})
+        if not log:
+            return LoggingConfig()
+        return LoggingConfig(
+            log_level=log.get("log_level", "INFO"),
+            log_dir=log.get("log_dir", "logs"),
+            log_live_data=log.get("log_live_data", True),
+        )
+
+    def _parse_liquidation_config(self, data: Dict[str, Any]) -> LiquidationConfig:
+        """Parse liquidation section from YAML data."""
+        liq = data.get("liquidation", {})
+        if not liq:
+            return LiquidationConfig()
+        return LiquidationConfig(
+            emergency_liquidation=liq.get("emergency_liquidation", True),
+            close_positions=liq.get("close_positions", True),
+            cancel_orders=liq.get("cancel_orders", True),
+            timeout_seconds=float(liq.get("timeout_seconds", 5.0)),
+            max_retries=int(liq.get("max_retries", 3)),
+            retry_delay_seconds=float(liq.get("retry_delay_seconds", 0.5)),
+        )
+
+    def _parse_trading_config(self, data: Dict[str, Any]) -> TradingConfig:
+        """
+        Parse trading section from YAML data.
+
+        Creates TradingConfig from trading.defaults.
+        Symbols list is derived from trading.symbols keys.
+        """
+        trading = data.get("trading", {})
+        if not trading:
+            raise ConfigurationError("'trading' section required in base.yaml")
+
+        defaults = trading.get("defaults", {})
+
+        # Parse exit_config from nested object
         exit_config = None
-        if "exit_config" in config:
-            exit_section = config["exit_config"]
+        exit_data = defaults.get("exit_config", {})
+        if exit_data:
             exit_config = ExitConfig(
-                dynamic_exit_enabled=exit_section.getboolean(
-                    "dynamic_exit_enabled", True
-                ),
-                exit_strategy=exit_section.get("exit_strategy", "trailing_stop"),
-                trailing_distance=exit_section.getfloat("trailing_distance", 0.02),
-                trailing_activation=exit_section.getfloat("trailing_activation", 0.01),
-                breakeven_enabled=exit_section.getboolean("breakeven_enabled", True),
-                breakeven_offset=exit_section.getfloat("breakeven_offset", 0.001),
-                timeout_enabled=exit_section.getboolean("timeout_enabled", False),
-                timeout_minutes=exit_section.getint("timeout_minutes", 240),
-                volatility_enabled=exit_section.getboolean("volatility_enabled", False),
-                atr_period=exit_section.getint("atr_period", 14),
-                atr_multiplier=exit_section.getfloat("atr_multiplier", 2.0),
+                dynamic_exit_enabled=exit_data.get("dynamic_exit_enabled", True),
+                exit_strategy=exit_data.get("exit_strategy", "trailing_stop"),
+                trailing_distance=float(exit_data.get("trailing_distance", 0.02)),
+                trailing_activation=float(exit_data.get("trailing_activation", 0.01)),
+                breakeven_enabled=exit_data.get("breakeven_enabled", True),
+                breakeven_offset=float(exit_data.get("breakeven_offset", 0.001)),
+                timeout_enabled=exit_data.get("timeout_enabled", False),
+                timeout_minutes=int(exit_data.get("timeout_minutes", 240)),
+                volatility_enabled=exit_data.get("volatility_enabled", False),
+                atr_period=int(exit_data.get("atr_period", 14)),
+                atr_multiplier=float(exit_data.get("atr_multiplier", 2.0)),
             )
 
-        # Parse symbols with backward compatibility (Issue #8)
-        # Priority: symbols (new) > symbol (legacy)
-        symbols_str = trading.get("symbols", trading.get("symbol", "BTCUSDT"))
-        symbols = [s.strip() for s in symbols_str.split(",")]
+        # Parse symbols list from trading.symbols keys
+        symbols_data = trading.get("symbols", {})
+        symbols = list(symbols_data.keys()) if symbols_data else ["BTCUSDT"]
 
-        # Validate max_symbols range (Issue #69)
-        max_symbols_value = trading.getint("max_symbols", 10)
-        if not (1 <= max_symbols_value <= 20):
-            raise ConfigurationError(
-                f"max_symbols must be between 1-20, got {max_symbols_value}"
-            )
+        # Validate max_symbols
+        max_symbols = int(defaults.get("max_symbols", 10))
+        if not (1 <= max_symbols <= 20):
+            raise ConfigurationError(f"max_symbols must be 1-20, got {max_symbols}")
 
-        # Add resource warning for high symbol counts (>=15)
-        if max_symbols_value >= 15:
+        # Add resource warning for high symbol counts
+        if max_symbols >= 15:
             logger = logging.getLogger(__name__)
             logger.warning(
-                f"⚠️  HIGH RESOURCE USAGE: {max_symbols_value} symbols configured. "
-                f"Memory usage: ~{max_symbols_value * 5}MB per symbol per interval. "
-                f"Consider reducing for better performance."
+                f"HIGH RESOURCE USAGE: {max_symbols} symbols configured. "
+                f"Memory usage: ~{max_symbols * 5}MB per symbol per interval."
             )
+
+        # strategy_params replaces the old [ict_strategy] INI section
+        strategy_config = defaults.get("strategy_params", {})
 
         return TradingConfig(
             symbols=symbols,
-            intervals=[
-                i.strip() for i in trading.get("intervals", "1m,5m,15m").split(",")
-            ],
-            strategy=trading.get("strategy", "MockStrategy"),
-            leverage=trading.getint("leverage", 1),
-            max_risk_per_trade=trading.getfloat("max_risk_per_trade", 0.01),
-            take_profit_ratio=trading.getfloat("take_profit_ratio", 2.0),
-            stop_loss_percent=trading.getfloat("stop_loss_percent", 0.02),
-            backfill_limit=trading.getint("backfill_limit", 100),
-            margin_type=trading.get("margin_type", "ISOLATED"),
+            intervals=defaults.get("intervals", ["1m", "5m", "15m"]),
+            strategy=defaults.get("strategy", "ict_strategy"),
+            leverage=int(defaults.get("leverage", 1)),
+            max_risk_per_trade=float(defaults.get("max_risk_per_trade", 0.01)),
+            take_profit_ratio=float(defaults.get("take_profit_ratio", 2.0)),
+            stop_loss_percent=float(defaults.get("stop_loss_percent", 0.02)),
+            backfill_limit=int(defaults.get("backfill_limit", 100)),
+            margin_type=defaults.get("margin_type", "ISOLATED"),
             strategy_config=strategy_config,
             exit_config=exit_config,
-            max_symbols=max_symbols_value,
-            strategy_type=trading.get("strategy_type", "composable"),
+            max_symbols=max_symbols,
+            strategy_type=defaults.get("strategy_type", "composable"),
         )
 
-    def _load_hierarchical_config(self) -> Optional["TradingConfigHierarchical"]:
+    def _parse_hierarchical_config(self, data: Dict[str, Any]) -> "TradingConfigHierarchical":
         """
-        Load hierarchical per-symbol configuration from YAML file (Issue #18).
+        Parse hierarchical per-symbol config from YAML data.
 
-        Supports the new trading_config.yaml format with per-symbol overrides.
-        Returns None if YAML file doesn't exist (falls back to INI format).
-
-        Returns:
-            TradingConfigHierarchical if YAML exists, None otherwise
+        Always returns a TradingConfigHierarchical instance (never None).
         """
-        yaml_file = self.config_dir / "trading_config.yaml"
+        from src.config.symbol_config import TradingConfigHierarchical
 
-        if not yaml_file.exists():
-            return None
-
-        try:
-            with open(yaml_file, "r", encoding="utf-8") as f:
-                data = yaml.safe_load(f)
-
-            if not data or "trading" not in data:
-                logging.getLogger(__name__).warning(
-                    f"YAML config {yaml_file} missing 'trading' section, using INI fallback"
-                )
-                return None
-
-            # Import here to avoid circular dependency
-            from src.config.symbol_config import TradingConfigHierarchical
-
-            trading_data = data["trading"]
-            return TradingConfigHierarchical.from_dict(trading_data)
-
-        except yaml.YAMLError as e:
-            logging.getLogger(__name__).error(f"Failed to parse YAML config: {e}")
-            return None
-        except Exception as e:
-            logging.getLogger(__name__).error(
-                f"Failed to load hierarchical config: {e}"
-            )
-            return None
-
-    def _load_logging_config(self) -> LoggingConfig:
-        """Load logging configuration from INI file"""
-        config_file = self.config_dir / "trading_config.ini"
-
-        if not config_file.exists():
-            return LoggingConfig()  # Use defaults
-
-        config = ConfigParser()
-        config.read(config_file)
-
-        if "logging" not in config:
-            return LoggingConfig()  # Use defaults
-
-        logging_section = config["logging"]
-
-        return LoggingConfig(
-            log_level=logging_section.get("log_level", "INFO"),
-            log_dir=logging_section.get("log_dir", "logs"),
-            log_live_data=logging_section.getboolean("log_live_data", True),
-        )
-
-    def _load_liquidation_config(self) -> LiquidationConfig:
-        """
-        Load liquidation configuration from INI file.
-
-        Configuration Section: [liquidation]
-        Default Values: Security-first defaults (emergency_liquidation=True)
-
-        Returns:
-            LiquidationConfig: Validated liquidation configuration
-        """
-        config_file = self.config_dir / "trading_config.ini"
-
-        if not config_file.exists():
-            # If config file doesn't exist, use security-first defaults
-            return LiquidationConfig()
-
-        config = ConfigParser()
-        config.read(config_file)
-
-        if "liquidation" not in config:
-            # If [liquidation] section doesn't exist, use security-first defaults
-            return LiquidationConfig()
-
-        liquidation_section = config["liquidation"]
-
-        return LiquidationConfig(
-            emergency_liquidation=liquidation_section.getboolean(
-                "emergency_liquidation", True
-            ),
-            close_positions=liquidation_section.getboolean("close_positions", True),
-            cancel_orders=liquidation_section.getboolean("cancel_orders", True),
-            timeout_seconds=liquidation_section.getfloat("timeout_seconds", 5.0),
-            max_retries=liquidation_section.getint("max_retries", 3),
-            retry_delay_seconds=liquidation_section.getfloat(
-                "retry_delay_seconds", 0.5
-            ),
-        )
-
-    def _load_binance_config(self) -> BinanceConfig:
-        """
-        Load Binance endpoint configuration from INI file (Issue #92).
-
-        Configuration Section: [binance]
-        Default Values: Official Binance endpoints
-
-        Returns:
-            BinanceConfig: Validated Binance endpoint configuration
-        """
-        config_file = self.config_dir / "trading_config.ini"
-
-        if not config_file.exists():
-            # If config file doesn't exist, use default endpoints
-            return BinanceConfig()
-
-        config = ConfigParser()
-        config.read(config_file)
-
-        if "binance" not in config:
-            # If [binance] section doesn't exist, use default endpoints
-            return BinanceConfig()
-
-        binance_section = config["binance"]
-
-        return BinanceConfig(
-            rest_testnet_url=binance_section.get(
-                "rest_testnet_url", "https://testnet.binancefuture.com"
-            ),
-            rest_mainnet_url=binance_section.get(
-                "rest_mainnet_url", "https://fapi.binance.com"
-            ),
-            ws_testnet_url=binance_section.get(
-                "ws_testnet_url", "wss://stream.binancefuture.com"
-            ),
-            ws_mainnet_url=binance_section.get(
-                "ws_mainnet_url", "wss://fstream.binance.com"
-            ),
-            user_ws_testnet_url=binance_section.get(
-                "user_ws_testnet_url", "wss://stream.binancefuture.com/ws"
-            ),
-            user_ws_mainnet_url=binance_section.get(
-                "user_ws_mainnet_url", "wss://fstream.binance.com/ws"
-            ),
-        )
+        trading_data = data.get("trading", {})
+        return TradingConfigHierarchical.from_dict(trading_data)

@@ -243,22 +243,52 @@
   },
   "hotPaths": [
     {
-      "path": "src/core/trading_engine.py",
-      "accessCount": 13,
-      "lastAccessed": 1772317592526,
+      "path": "src/utils/config_manager.py",
+      "accessCount": 36,
+      "lastAccessed": 1772367409828,
       "type": "file"
     },
     {
       "path": "tests/core/test_trading_engine.py",
-      "accessCount": 10,
-      "lastAccessed": 1772316665853,
+      "accessCount": 31,
+      "lastAccessed": 1772367180437,
       "type": "directory"
     },
     {
       "path": "src/config/symbol_config.py",
-      "accessCount": 8,
-      "lastAccessed": 1772317419242,
+      "accessCount": 27,
+      "lastAccessed": 1772367407838,
       "type": "file"
+    },
+    {
+      "path": "src/core/trading_engine.py",
+      "accessCount": 26,
+      "lastAccessed": 1772367174313,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_symbol_config.py",
+      "accessCount": 13,
+      "lastAccessed": 1772367411871,
+      "type": "file"
+    },
+    {
+      "path": "src",
+      "accessCount": 11,
+      "lastAccessed": 1772367173098,
+      "type": "directory"
+    },
+    {
+      "path": "tests",
+      "accessCount": 10,
+      "lastAccessed": 1772367191033,
+      "type": "directory"
+    },
+    {
+      "path": "",
+      "accessCount": 9,
+      "lastAccessed": 1772367188813,
+      "type": "directory"
     },
     {
       "path": "src/strategies/ict/entry.py",
@@ -297,6 +327,12 @@
       "type": "file"
     },
     {
+      "path": "docs/01-plan/features/ini-to-yaml-migration.plan.md",
+      "accessCount": 6,
+      "lastAccessed": 1772367489830,
+      "type": "file"
+    },
+    {
       "path": "src/strategies/module_registry.py",
       "accessCount": 5,
       "lastAccessed": 1772317416656,
@@ -312,6 +348,18 @@
       "path": "tests/test_config_events_and_hook.py",
       "accessCount": 5,
       "lastAccessed": 1772317434584,
+      "type": "file"
+    },
+    {
+      "path": "configs/base.yaml",
+      "accessCount": 5,
+      "lastAccessed": 1772367160834,
+      "type": "file"
+    },
+    {
+      "path": "src/main.py",
+      "accessCount": 5,
+      "lastAccessed": 1772367162589,
       "type": "file"
     },
     {
@@ -339,6 +387,18 @@
       "type": "file"
     },
     {
+      "path": ".claude/agent-memory/bkit-gap-detector/MEMORY.md",
+      "accessCount": 4,
+      "lastAccessed": 1772367328286,
+      "type": "file"
+    },
+    {
+      "path": "docs/02-design/features/ini-to-yaml-migration.design.md",
+      "accessCount": 4,
+      "lastAccessed": 1772367490435,
+      "type": "file"
+    },
+    {
       "path": "src/strategies/decorators.py",
       "accessCount": 3,
       "lastAccessed": 1772317417087,
@@ -351,15 +411,21 @@
       "type": "file"
     },
     {
-      "path": "src/utils/config_manager.py",
-      "accessCount": 3,
-      "lastAccessed": 1772317449649,
-      "type": "file"
-    },
-    {
       "path": "docs/02-design/features/dynamic-strategy-config-interface.design.md",
       "accessCount": 3,
       "lastAccessed": 1772317752196,
+      "type": "file"
+    },
+    {
+      "path": "docs/03-analysis/features/dynamic-strategy-config-interface.analysis.md",
+      "accessCount": 3,
+      "lastAccessed": 1772339828573,
+      "type": "file"
+    },
+    {
+      "path": "src/config/ui_config_hook.py",
+      "accessCount": 3,
+      "lastAccessed": 1772341175132,
       "type": "file"
     },
     {
@@ -399,21 +465,21 @@
       "type": "file"
     },
     {
-      "path": "src/config/ui_config_hook.py",
-      "accessCount": 2,
-      "lastAccessed": 1772317418823,
-      "type": "file"
-    },
-    {
-      "path": "docs/03-analysis/features/dynamic-strategy-config-interface.analysis.md",
-      "accessCount": 2,
-      "lastAccessed": 1772317539602,
-      "type": "file"
-    },
-    {
       "path": "docs/01-plan/features/dynamic-strategy-config-interface.plan.md",
       "accessCount": 2,
       "lastAccessed": 1772317752441,
+      "type": "file"
+    },
+    {
+      "path": "docs/04-report/features/dynamic-strategy-config-interface.report.md",
+      "accessCount": 2,
+      "lastAccessed": 1772339827908,
+      "type": "file"
+    },
+    {
+      "path": "configs/trading_config.ini",
+      "accessCount": 2,
+      "lastAccessed": 1772340572310,
       "type": "file"
     },
     {
@@ -447,12 +513,6 @@
       "type": "file"
     },
     {
-      "path": "src",
-      "accessCount": 1,
-      "lastAccessed": 1772302217517,
-      "type": "directory"
-    },
-    {
       "path": "src/models/event.py",
       "accessCount": 1,
       "lastAccessed": 1772302221247,
@@ -471,33 +531,15 @@
       "type": "file"
     },
     {
-      "path": "",
-      "accessCount": 1,
-      "lastAccessed": 1772302727120,
-      "type": "directory"
-    },
-    {
       "path": "src/events/__init__.py",
       "accessCount": 1,
       "lastAccessed": 1772316102494,
       "type": "file"
     },
     {
-      "path": "tests/test_symbol_config.py",
+      "path": "configs/api_keys.ini",
       "accessCount": 1,
-      "lastAccessed": 1772316369615,
-      "type": "file"
-    },
-    {
-      "path": ".claude/agent-memory/bkit-gap-detector/MEMORY.md",
-      "accessCount": 1,
-      "lastAccessed": 1772317548959,
-      "type": "file"
-    },
-    {
-      "path": "docs/04-report/features/dynamic-strategy-config-interface.report.md",
-      "accessCount": 1,
-      "lastAccessed": 1772317819768,
+      "lastAccessed": 1772340098352,
       "type": "file"
     }
   ],
