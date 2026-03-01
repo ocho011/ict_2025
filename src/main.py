@@ -133,7 +133,7 @@ class TradingBot:
         if not self.config_manager.validate():
             raise ValueError(
                 "Invalid configuration. Check configs/api_keys.ini and "
-                "configs/trading_config.ini for missing or invalid settings."
+                "configs/base.yaml for missing or invalid settings."
             )
 
         # Step 3: Setup logging infrastructure

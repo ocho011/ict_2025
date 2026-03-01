@@ -4,8 +4,14 @@ from dataclasses import dataclass
 from typing import Tuple
 from src.pricing.base import StopLossDeterminer, PriceContext
 from src.pricing.stop_loss.percentage import PercentageStopLoss
+from pydantic import BaseModel, Field
+from src.strategies.decorators import register_module
 
 
+@register_module(
+    'stop_loss', 'zone_based_sl',
+    description='FVG/OB 존 기반 손절가 결정자',
+)
 @dataclass(frozen=True)
 class ZoneBasedStopLoss(StopLossDeterminer):
     """
@@ -14,6 +20,19 @@ class ZoneBasedStopLoss(StopLossDeterminer):
     Design Decision: Zone extraction happens BEFORE calling the determiner.
     This avoids circular imports: strategy calls get_entry_zone() -> passes tuple to context.
     """
+
+    class ParamSchema(BaseModel):
+        """Pydantic schema for zone-based SL parameters."""
+        buffer_percent: float = Field(0.001, ge=0.0001, le=0.01, description="존 경계 버퍼 비율")
+        fallback_percent: float = Field(0.01, ge=0.001, le=0.05, description="폴백 SL 비율")
+        min_sl_percent: float = Field(0.005, ge=0.001, le=0.02, description="최소 SL 거리 비율")
+        max_sl_percent: float = Field(0.02, ge=0.005, le=0.05, description="최대 SL 거리 비율")
+
+    @classmethod
+    def from_validated_params(cls, params: "ZoneBasedStopLoss.ParamSchema") -> "ZoneBasedStopLoss":
+        """Create instance from Pydantic-validated params."""
+        return cls(**params.model_dump())
+
     buffer_percent: float = 0.001  # 0.1%
     fallback_percent: float = 0.01  # 1% fallback
     min_sl_percent: float = 0.005  # 0.5% minimum SL distance floor (Issue #100)

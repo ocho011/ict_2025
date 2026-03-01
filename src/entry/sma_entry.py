@@ -9,11 +9,22 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+from pydantic import BaseModel, Field
 
 from src.entry.base import EntryDeterminer, EntryContext, EntryDecision
 from src.models.signal import SignalType
+from src.strategies.decorators import register_module
 
 
+@register_module(
+    'entry', 'sma_entry',
+    description='SMA 교차 기반 진입 결정자',
+    compatible_with={
+        'stop_loss': ['percentage_sl'],
+        'take_profit': ['rr_take_profit'],
+        'exit': ['null_exit'],
+    }
+)
 @dataclass
 class SMAEntryDeterminer(EntryDeterminer):
     """
@@ -24,6 +35,17 @@ class SMAEntryDeterminer(EntryDeterminer):
     - Death Cross (fast SMA crosses below slow SMA) -> SHORT_ENTRY
     - Prevents duplicate consecutive signals of the same type.
     """
+
+    class ParamSchema(BaseModel):
+        """Pydantic schema for SMA entry parameters."""
+        fast_period: int = Field(10, ge=2, le=100, description="Fast SMA 기간")
+        slow_period: int = Field(20, ge=5, le=200, description="Slow SMA 기간")
+
+    @classmethod
+    def from_validated_params(cls, params: "SMAEntryDeterminer.ParamSchema") -> "SMAEntryDeterminer":
+        """Create instance from Pydantic-validated params."""
+        return cls(**params.model_dump())
+
     fast_period: int = 10
     slow_period: int = 20
 

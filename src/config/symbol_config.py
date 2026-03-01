@@ -8,7 +8,7 @@ Key Features:
 - SymbolConfig: Per-symbol configuration with validation
 - TradingConfigHierarchical: Hierarchical config with inheritance
 - Support for any registered strategy type
-- YAML and INI format support
+- YAML format support (base.yaml)
 
 Example YAML Configuration:
 ```yaml
@@ -31,7 +31,7 @@ trading:
 ```
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any, Dict, List, Optional
 
 from src.core.exceptions import ConfigurationError
@@ -97,6 +97,10 @@ class SymbolConfig:
 
     # Strategy-specific configuration parameters (generic, replaces ict_config/momentum_config)
     strategy_params: Dict[str, Any] = field(default_factory=dict)
+
+    # Module-level assembly spec for dynamic strategy composition (Phase 2)
+    # Structure: {"entry": {"type": "ict_entry", "params": {...}}, "stop_loss": {...}, ...}
+    modules: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate configuration on creation."""
@@ -193,6 +197,9 @@ class SymbolConfig:
         if strategy_config:
             config_dict["strategy_config"] = strategy_config
 
+        if self.modules:
+            config_dict["modules"] = self.modules
+
         return config_dict
 
 
@@ -286,11 +293,14 @@ class TradingConfigHierarchical:
         defaults = data.get("defaults", {})
         symbols_data = data.get("symbols", {})
 
+        # Filter defaults to only valid SymbolConfig fields
+        valid_fields = {f.name for f in fields(SymbolConfig)}
+
         symbols = {}
         for symbol, symbol_config in symbols_data.items():
-            # Merge with defaults
-            merged_config = defaults.copy()
-            merged_config.update(symbol_config)
+            # Merge with defaults, filtering out non-SymbolConfig keys
+            merged_config = {k: v for k, v in defaults.items() if k in valid_fields}
+            merged_config.update({k: v for k, v in symbol_config.items() if k in valid_fields})
             merged_config["symbol"] = symbol
 
             # Ensure strategy is set
@@ -305,78 +315,10 @@ class TradingConfigHierarchical:
             merged_config.pop("ict_config", None)
             merged_config.pop("momentum_config", None)
 
+            # Preserve modules block for dynamic assembly
+            # modules is passed through as-is (Dict[str, Dict])
+
             symbols[symbol] = SymbolConfig(**merged_config)
-
-        return cls(defaults=defaults, symbols=symbols)
-
-    @classmethod
-    def from_ini_sections(
-        cls,
-        trading_section: Dict[str, str],
-        strategy_sections: Dict[str, Dict[str, str]],
-    ) -> "TradingConfigHierarchical":
-        """
-        Create from INI config sections.
-
-        Supports [strategy.SYMBOL] sections for per-symbol config.
-
-        Args:
-            trading_section: [trading] section data
-            strategy_sections: Dict of symbol -> strategy section data
-
-        Returns:
-            TradingConfigHierarchical instance
-        """
-        # Parse defaults from trading section
-        defaults = {
-            "leverage": int(trading_section.get("leverage", 1)),
-            "max_risk_per_trade": float(
-                trading_section.get("max_risk_per_trade", 0.01)
-            ),
-            "margin_type": trading_section.get("margin_type", "ISOLATED"),
-            "backfill_limit": int(trading_section.get("backfill_limit", 200)),
-            "strategy": trading_section.get("strategy", "ict_strategy"),
-        }
-
-        # Parse intervals from trading section
-        intervals_str = trading_section.get("intervals", "5m,1h,4h")
-        defaults["intervals"] = [i.strip() for i in intervals_str.split(",")]
-
-        # Parse symbol-specific configs
-        symbols = {}
-        for symbol, section_data in strategy_sections.items():
-            merged = defaults.copy()
-            merged["symbol"] = symbol
-
-            # Override with symbol-specific values
-            if "strategy" in section_data:
-                merged["strategy"] = section_data["strategy"]
-            if "leverage" in section_data:
-                merged["leverage"] = int(section_data["leverage"])
-            if "max_risk_per_trade" in section_data:
-                merged["max_risk_per_trade"] = float(section_data["max_risk_per_trade"])
-            if "margin_type" in section_data:
-                merged["margin_type"] = section_data["margin_type"]
-            if "enabled" in section_data:
-                merged["enabled"] = section_data["enabled"].lower() == "true"
-
-            # Collect strategy-specific params (keys not in standard SymbolConfig fields)
-            standard_keys = {
-                "strategy", "leverage", "max_risk_per_trade", "margin_type",
-                "enabled", "backfill_limit", "intervals",
-            }
-            strategy_params = {}
-            for key, value in section_data.items():
-                if key not in standard_keys:
-                    # Convert boolean strings
-                    if isinstance(value, str) and value.lower() in ("true", "false"):
-                        strategy_params[key] = value.lower() == "true"
-                    else:
-                        strategy_params[key] = value
-            if strategy_params:
-                merged["strategy_params"] = strategy_params
-
-            symbols[symbol] = SymbolConfig(**merged)
 
         return cls(defaults=defaults, symbols=symbols)
 

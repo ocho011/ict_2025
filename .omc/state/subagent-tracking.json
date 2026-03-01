@@ -1,0 +1,26 @@
+{
+  "agents": [
+    {
+      "agent_id": "aee137b076db11fb7",
+      "agent_type": "bkit:gap-detector",
+      "started_at": "2026-03-01T12:12:35.016Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-03-01T12:15:45.750Z",
+      "duration_ms": 190734
+    },
+    {
+      "agent_id": "a8394370f8caa9ab5",
+      "agent_type": "bkit:report-generator",
+      "started_at": "2026-03-01T12:18:07.669Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-03-01T12:19:37.478Z",
+      "duration_ms": 89809
+    }
+  ],
+  "total_spawned": 2,
+  "total_completed": 2,
+  "total_failed": 0,
+  "last_updated": "2026-03-01T12:19:59.771Z"
+}

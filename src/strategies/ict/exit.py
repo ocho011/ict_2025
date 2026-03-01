@@ -13,6 +13,9 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
+from pydantic import BaseModel, Field
+from src.strategies.decorators import register_module
+
 from src.strategies.ict.detectors.market_structure import get_current_trend
 from src.strategies.ict.detectors.smc import detect_displacement, detect_inducement
 from src.exit.base import ExitContext, ExitDeterminer
@@ -21,6 +24,10 @@ from src.models.signal import Signal, SignalType
 from src.utils.config_manager import ExitConfig
 
 
+@register_module(
+    'exit', 'ict_exit',
+    description='ICT 기반 4단계 동적 청산 결정자',
+)
 class ICTExitDeterminer(ExitDeterminer):
     """
     ICT exit determination using 4 exit strategies.
@@ -38,6 +45,37 @@ class ICTExitDeterminer(ExitDeterminer):
     3. timed: Exit after specified time period
     4. indicator_based: Exit based on ICT indicator reversal
     """
+
+    class ParamSchema(BaseModel):
+        """Pydantic schema for ICT exit parameters."""
+        dynamic_exit_enabled: bool = Field(True, description="동적 청산 활성화")
+        exit_strategy: str = Field("trailing_stop", description="청산 전략")
+        trailing_distance: float = Field(0.3, ge=0.05, le=2.0, description="트레일링 거리 %")
+        breakeven_offset: float = Field(0.1, ge=0.0, le=1.0, description="손익분기점 오프셋 %")
+        timeout_minutes: int = Field(240, ge=1, le=1440, description="타임아웃 (분)")
+        swing_lookback: int = Field(5, ge=3, le=20, description="스윙 탐색 범위")
+        displacement_ratio: float = Field(1.5, ge=1.0, le=5.0, description="디스플레이스먼트 비율")
+        mtf_interval: str = Field("1h", description="Mid Timeframe 인터벌")
+        htf_interval: str = Field("4h", description="High Timeframe 인터벌")
+
+    @classmethod
+    def from_validated_params(cls, params: "ICTExitDeterminer.ParamSchema") -> "ICTExitDeterminer":
+        """Create instance from Pydantic-validated params."""
+        from src.utils.config_manager import ExitConfig
+        exit_config = ExitConfig(
+            dynamic_exit_enabled=params.dynamic_exit_enabled,
+            exit_strategy=params.exit_strategy,
+            trailing_distance=params.trailing_distance,
+            breakeven_offset=params.breakeven_offset,
+            timeout_minutes=params.timeout_minutes,
+        )
+        return cls(
+            exit_config=exit_config,
+            swing_lookback=params.swing_lookback,
+            displacement_ratio=params.displacement_ratio,
+            mtf_interval=params.mtf_interval,
+            htf_interval=params.htf_interval,
+        )
 
     def __init__(
         self,

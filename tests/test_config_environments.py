@@ -22,16 +22,21 @@ class TestEnvironmentSeparation:
         self.config_path = Path(self.temp_dir)
 
         # Create trading config (required)
-        trading_config = self.config_path / "trading_config.ini"
-        trading_config.write_text(
-            """[trading]
-symbol = BTCUSDT
-intervals = 1m,5m
-strategy = MockStrategy
-leverage = 1
-max_risk_per_trade = 0.01
-take_profit_ratio = 2.0
-stop_loss_percent = 0.02
+        base_config = self.config_path / "base.yaml"
+        base_config.write_text(
+            """trading:
+  defaults:
+    strategy: mock_sma
+    leverage: 1
+    max_risk_per_trade: 0.01
+    take_profit_ratio: 2.0
+    stop_loss_percent: 0.02
+    intervals:
+      - "1m"
+      - "5m"
+  symbols:
+    BTCUSDT:
+      leverage: 1
 """
         )
 

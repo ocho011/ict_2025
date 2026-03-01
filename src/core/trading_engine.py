@@ -81,6 +81,7 @@ class TradingEngine:
         self.position_cache_manager: Optional[PositionCacheManager] = None
         self.trade_coordinator: Optional[TradeCoordinator] = None
         self.event_dispatcher: Optional[EventDispatcher] = None
+        self.strategy_hot_reloader = None  # Dynamic config hot reload (Phase 2)
 
         # Runtime state
         self._running: bool = False
@@ -172,54 +173,41 @@ class TradingEngine:
             audit_logger=self.audit_logger,
         )
 
-        # Step 4: Create strategy instance via StrategyFactory
-        self.logger.info(f"Creating strategy: {trading_config.strategy}...")
+        # Step 4/4.5: Create strategy instances via DynamicAssembler
         from src.strategies import StrategyFactory
+        from src.strategies.dynamic_assembler import DynamicAssembler
 
-        strategy_config = {
-            "buffer_size": 100,
-            "risk_reward_ratio": trading_config.take_profit_ratio,
-            "stop_loss_percent": trading_config.stop_loss_percent,
-        }
+        hierarchical = config_manager.hierarchical_config
+        assembler = DynamicAssembler()
 
-        # Merge strategy-specific configuration
-        if trading_config.strategy_config:
-            strategy_config.update(trading_config.strategy_config)
-            self.logger.info(
-                f"Strategy configuration loaded: "
-                f"{list(trading_config.strategy_config.keys())}"
-            )
-
-        # Add exit configuration if available (Issue #43)
-        if trading_config.exit_config is not None:
-            strategy_config["exit_config"] = trading_config.exit_config
-            self.logger.info(
-                f"Dynamic exit configuration loaded: "
-                f"enabled={trading_config.exit_config.dynamic_exit_enabled}, "
-                f"strategy={trading_config.exit_config.exit_strategy}"
-            )
-
-        # Step 4.5: Create composable strategy instances per symbol
-        from src.strategies.module_config_builder import build_module_config
-
-        self.logger.info(
-            f"Creating {len(trading_config.symbols)} composable strategy instances..."
-        )
+        self.logger.info("Creating strategies via DynamicAssembler...")
         self.strategies = {}
         for symbol in trading_config.symbols:
-            module_config, intervals_override, min_rr_ratio = build_module_config(
-                strategy_name=trading_config.strategy,
-                strategy_config=strategy_config,
-                exit_config=trading_config.exit_config,
+            symbol_config = hierarchical.get_symbol_config(symbol)
+            module_config, intervals, min_rr_ratio = (
+                assembler.assemble_for_symbol(symbol_config)
             )
+
+            strat_config = {
+                "buffer_size": 100,
+                "risk_reward_ratio": trading_config.take_profit_ratio,
+                "stop_loss_percent": trading_config.stop_loss_percent,
+            }
+            if symbol_config.strategy_params:
+                strat_config.update(symbol_config.strategy_params)
+
             self.strategies[symbol] = StrategyFactory.create_composed(
                 symbol=symbol,
-                config=strategy_config,
+                config=strat_config,
                 module_config=module_config,
-                intervals=intervals_override,
+                intervals=intervals,
                 min_rr_ratio=min_rr_ratio,
             )
-            self.logger.info(f"  ✅ Strategy created for {symbol}")
+            self.logger.info(f"  Strategy created for {symbol}")
+
+        # Store assembler + hierarchical for deferred HotReloader init (after Step 6)
+        self._deferred_assembler = assembler
+        self._deferred_hierarchical = hierarchical
 
         # Step 5: Initialize BinanceDataCollector with composition pattern (Issue #57)
         self.logger.info("Creating data collection components...")
@@ -283,6 +271,18 @@ class TradingEngine:
             event_loop_getter=lambda: self._event_loop,
             log_live_data=self._log_live_data,
         )
+
+        # Step 6.4: Register StrategyHotReloader (after PositionCacheManager is available)
+        from src.core.strategy_hot_reloader import StrategyHotReloader
+
+        self.strategy_hot_reloader = StrategyHotReloader(
+            strategies=self.strategies,
+            assembler=self._deferred_assembler,
+            hierarchical_config=self._deferred_hierarchical,
+            position_closer=self.position_cache_manager,
+            audit_logger=self.audit_logger,
+        )
+        self.logger.info("StrategyHotReloader registered")
 
         # Step 6.5: Validate strategy-DataCollector compatibility (Issue #24)
         # Moved BEFORE event handlers and API calls to follow fail-fast principle

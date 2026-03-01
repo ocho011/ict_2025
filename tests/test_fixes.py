@@ -47,12 +47,16 @@ def test_api_logging():
 
 def test_configuration_changes():
     """Test configuration file exists and has profile setting."""
-    # Read config file
-    with open("configs/trading_config.ini", "r") as f:
-        content = f.read()
+    # Read config file (now base.yaml, migrated from trading_config.ini)
+    import yaml
+    with open("configs/base.yaml", "r") as f:
+        config = yaml.safe_load(f)
 
     # Check that an active_profile is set (any valid profile)
-    assert "active_profile" in content, "active_profile should be configured"
+    trading = config.get("trading", {})
+    defaults = trading.get("defaults", {})
+    strategy_params = defaults.get("strategy_params", {})
+    assert "active_profile" in strategy_params, "active_profile should be configured"
 
 
 def test_websocket_monitoring():

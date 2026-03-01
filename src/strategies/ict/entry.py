@@ -15,6 +15,9 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
+from pydantic import BaseModel, Field
+from src.strategies.decorators import register_module
+
 from src.strategies.ict.profiles import get_profile_parameters, load_profile_from_name
 from src.strategies.ict.detectors.fvg import (
     detect_bearish_fvg,
@@ -48,6 +51,15 @@ from src.models.module_requirements import ModuleRequirements
 from src.models.signal import SignalType
 
 
+@register_module(
+    'entry', 'ict_entry',
+    description='ICT(Inner Circle Trader) 기반 진입 결정자',
+    compatible_with={
+        'stop_loss': ['zone_based_sl', 'percentage_sl'],
+        'take_profit': ['displacement_tp', 'rr_take_profit'],
+        'exit': ['ict_exit', 'null_exit'],
+    }
+)
 @dataclass
 class ICTEntryDeterminer(EntryDeterminer):
     """
@@ -71,6 +83,22 @@ class ICTEntryDeterminer(EntryDeterminer):
       (passed to PriceContext.extras by ComposableStrategy)
     - metadata: Public metadata that becomes part of final Signal
     """
+
+    class ParamSchema(BaseModel):
+        """Pydantic schema for ICT entry parameters (Cold Path validation)."""
+        active_profile: str = Field("balanced", description="ICT 프로필 (strict/balanced/aggressive)")
+        swing_lookback: int = Field(10, ge=5, le=50, description="스윙 탐색 범위")
+        ltf_interval: str = Field("5m", description="Low Timeframe 인터벌")
+        mtf_interval: str = Field("1h", description="Mid Timeframe 인터벌")
+        htf_interval: str = Field("4h", description="High Timeframe 인터벌")
+        fvg_min_gap_percent: float = Field(0.1, ge=0.01, le=1.0, description="FVG 최소 갭 %")
+        ob_min_strength: float = Field(0.5, ge=0.1, le=1.0, description="Order Block 최소 강도")
+        use_killzones: bool = Field(True, description="킬존 시간대 필터 사용")
+
+    @classmethod
+    def from_validated_params(cls, params: "ICTEntryDeterminer.ParamSchema") -> "ICTEntryDeterminer":
+        """Create instance from Pydantic-validated params."""
+        return cls.from_config(params.model_dump())
 
     # ICT parameters (profile defaults)
     swing_lookback: int = 5
