@@ -165,6 +165,10 @@ class Order:
     status: OrderStatus = OrderStatus.NEW
     filled_quantity: Optional[float] = None
     timestamp: Optional[datetime] = None
+    commission: float = 0.0
+    commission_asset: Optional[str] = None
+    event_time: Optional[int] = None
+    transaction_time: Optional[int] = None
 
     def __post_init__(self) -> None:
         """Validate order parameters."""

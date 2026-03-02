@@ -14,7 +14,7 @@ Responsibilities:
 import asyncio
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING, Optional, Dict, Any, List
+from typing import TYPE_CHECKING, Callable, Optional, Dict, Any, List
 
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
@@ -60,6 +60,8 @@ class TradeCoordinator:
         self._position_cache_manager = position_cache_manager
         self._position_entry_data: Dict[str, PositionEntryData] = {}
         self._entry_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
+        self._get_wallet_balance: Optional[Callable[[], Optional[float]]] = None
+        self._pending_intended_prices: Dict[str, float] = {}
         self.logger = logging.getLogger(__name__)
 
     def _pre_flight_check(self, symbol: str) -> bool:
@@ -289,6 +291,9 @@ class TradeCoordinator:
                     )
                 except Exception as e:
                     self.logger.warning(f"Audit logging failed: {e}")
+
+                # Store intended entry price for slippage tracking
+                self._pending_intended_prices[signal.symbol] = signal.entry_price
 
                 # Note: ORDER_FILLED event will be published by PrivateUserStreamer
                 # when WebSocket confirms the fill (Issue #97 - removed optimistic fill)
@@ -527,15 +532,19 @@ class TradeCoordinator:
         if order.order_type in (OT.MARKET, OT.LIMIT):
             from datetime import datetime, timezone
             position_side = "LONG" if order.side.value == "BUY" else "SHORT"
+            intended_price = self._pending_intended_prices.pop(order.symbol, None)
             self._position_entry_data[order.symbol] = PositionEntryData(
                 entry_price=order.price,
                 entry_time=datetime.now(timezone.utc),
                 quantity=order.quantity,
                 side=position_side,
+                total_commission=order.commission,
+                intended_entry_price=intended_price,
             )
             self.logger.info(
                 f"Tracking position entry: {order.symbol} {position_side} "
-                f"price={order.price}, qty={order.quantity}"
+                f"price={order.price}, qty={order.quantity}, "
+                f"commission={order.commission}"
             )
 
         # Step 3: Handle TP/SL fills - cancel remaining orders (Issue #9)
@@ -572,6 +581,11 @@ class TradeCoordinator:
                     f"Failed to cancel remaining orders after TP/SL fill: {e}. "
                     f"Manual cleanup may be required for {order.symbol}."
                 )
+
+            # Accumulate exit commission before logging closure
+            entry_data = self._position_entry_data.get(order.symbol)
+            if entry_data:
+                entry_data.total_commission += order.commission
 
             # Log position closure to audit trail (Issue #96 - moved from PrivateUserStreamer)
             self.log_position_closure(order)
@@ -614,18 +628,53 @@ class TradeCoordinator:
         if entry_data:
             closure_data["entry_price"] = entry_data.entry_price
             closure_data["position_side"] = entry_data.side
+            closure_data["position_id"] = entry_data.position_id
 
             # Calculate holding duration
             held_duration = datetime.now(timezone.utc) - entry_data.entry_time
             closure_data["held_duration_seconds"] = held_duration.total_seconds()
 
-            # Calculate realized PnL
-            # LONG: profit when exit > entry, SHORT: profit when entry > exit
+            # Calculate Gross PnL
             if entry_data.side == "LONG":
-                realized_pnl = (order.price - entry_data.entry_price) * order.quantity
+                gross_pnl = (order.price - entry_data.entry_price) * order.quantity
             else:  # SHORT
-                realized_pnl = (entry_data.entry_price - order.price) * order.quantity
-            closure_data["realized_pnl"] = realized_pnl
+                gross_pnl = (entry_data.entry_price - order.price) * order.quantity
+
+            # Net PnL = Gross - Commission - Funding cost
+            net_pnl = gross_pnl - entry_data.total_commission - entry_data.total_funding
+
+            closure_data["realized_pnl"] = gross_pnl  # backward compat
+            closure_data["gross_pnl"] = gross_pnl
+            closure_data["total_commission"] = entry_data.total_commission
+            closure_data["total_funding"] = entry_data.total_funding
+            closure_data["net_pnl"] = net_pnl
+
+            # Slippage tracking (bps)
+            if entry_data.intended_entry_price and entry_data.intended_entry_price > 0:
+                slippage_entry_bps = (
+                    (entry_data.entry_price - entry_data.intended_entry_price)
+                    / entry_data.intended_entry_price * 10000
+                )
+                closure_data["slippage_entry_bps"] = round(slippage_entry_bps, 2)
+
+            if order.stop_price and order.stop_price > 0:
+                slippage_exit_bps = (
+                    (order.price - order.stop_price)
+                    / order.stop_price * 10000
+                )
+                closure_data["slippage_exit_bps"] = round(slippage_exit_bps, 2)
+
+            # Exchange timestamps
+            if order.event_time:
+                closure_data["exchange_event_time"] = order.event_time
+            if order.transaction_time:
+                closure_data["exchange_transaction_time"] = order.transaction_time
+
+            # Balance after closure
+            if self._get_wallet_balance:
+                balance = self._get_wallet_balance()
+                if balance is not None:
+                    closure_data["balance_after"] = balance
 
             self.logger.debug(f"Cleaned up position entry data for {order.symbol}")
         else:
@@ -698,23 +747,72 @@ class TradeCoordinator:
             # Update or create position entry data with partial fill info
             existing = self._position_entry_data.get(order.symbol)
             if existing:
-                # Update existing entry with new filled quantity
-                self._position_entry_data[order.symbol] = PositionEntryData(
-                    entry_price=order.price,  # Use average fill price
-                    entry_time=existing.entry_time,  # Keep original entry time
-                    quantity=order.filled_quantity,  # Update to actual filled qty
-                    side=position_side,
-                )
+                # Update existing entry with new filled quantity, preserve tracking fields
+                existing.entry_price = order.price  # Use average fill price
+                existing.quantity = order.filled_quantity  # Update to actual filled qty
+                existing.total_commission += order.commission
             else:
                 # First partial fill - create new entry
+                intended_price = self._pending_intended_prices.pop(order.symbol, None)
                 self._position_entry_data[order.symbol] = PositionEntryData(
                     entry_price=order.price,
                     entry_time=datetime.now(timezone.utc),
                     quantity=order.filled_quantity,
                     side=position_side,
+                    total_commission=order.commission,
+                    intended_entry_price=intended_price,
                 )
 
             self.logger.debug(
                 f"Updated position entry (partial): {order.symbol} {position_side} "
                 f"price={order.price}, filled_qty={order.filled_quantity}"
             )
+
+    def accumulate_funding_fee(self, funding_fee: float) -> None:
+        """Accumulate funding fee to open position entry data.
+
+        Distributes proportionally by notional value when multiple
+        positions are open. For single-position systems, this is exact.
+
+        total_funding sign convention:
+            positive = cost (fee paid), negative = revenue (fee received)
+            funding_fee from Binance: positive = received, negative = paid
+            So we negate: total_funding -= funding_fee
+
+        Args:
+            funding_fee: Funding fee amount (+ = received, - = paid)
+        """
+        open_positions = {
+            sym: data for sym, data in self._position_entry_data.items()
+        }
+
+        if not open_positions:
+            self.logger.debug(
+                f"Funding fee {funding_fee:.4f} received but no open positions"
+            )
+            return
+
+        if len(open_positions) == 1:
+            sym, data = next(iter(open_positions.items()))
+            data.total_funding -= funding_fee
+            self.logger.info(
+                f"Funding fee accumulated: {sym} cost={data.total_funding:.4f}"
+            )
+            return
+
+        # Multiple positions: distribute by notional value
+        total_notional = sum(
+            d.entry_price * d.quantity for d in open_positions.values()
+        )
+        if total_notional == 0:
+            return
+
+        for sym, data in open_positions.items():
+            notional = data.entry_price * data.quantity
+            share = funding_fee * (notional / total_notional)
+            data.total_funding -= share
+
+        self.logger.info(
+            f"Funding fee {funding_fee:.4f} distributed to "
+            f"{len(open_positions)} positions"
+        )

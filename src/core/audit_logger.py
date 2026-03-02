@@ -54,6 +54,11 @@ class AuditEventType(Enum):
     TRADE_CLOSED = "trade_closed"  # Exit with realized PnL and duration
     POSITION_CLOSED = "position_closed"  # TP/SL order fill closure
 
+    # Cost tracking events
+    FUNDING_FEE_RECEIVED = "funding_fee_received"
+    BALANCE_SNAPSHOT = "balance_snapshot"
+    STRATEGY_HOT_RELOAD = "strategy_hot_reload"
+
     # Liquidation events (emergency shutdown)
     LIQUIDATION_STARTED = "liquidation_started"
     LIQUIDATION_COMPLETE = "liquidation_complete"
