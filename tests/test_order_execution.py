@@ -609,7 +609,8 @@ class TestExecuteSignal:
             manager.execute_signal(long_entry_signal, quantity=0.001)
 
             # Verify cancel_all_orders was called with correct symbol
-            mock_cancel.assert_called_once_with("BTCUSDT")
+            # May be called more than once (pre-entry cleanup + _ensure_tpsl_completeness)
+            mock_cancel.assert_any_call("BTCUSDT")
 
     def test_execute_signal_continues_if_cancel_fails(
         self, manager, mock_client, long_entry_signal, caplog
@@ -1164,10 +1165,11 @@ class TestTPSLPlacement:
         # Verify only entry order was attempted
         assert mock_client.new_order.call_count == 1
 
+    @patch("src.execution.order_gateway.time.sleep", return_value=None)
     def test_execute_signal_entry_success_tp_fails_sl_success(
-        self, manager, mock_client, long_entry_signal
+        self, mock_sleep, manager, mock_client, long_entry_signal
     ):
-        """Entry success, TP failure, SL success (Partial execution)"""
+        """Entry success, TP failure, SL success — retry places TP on 2nd attempt"""
         # Mock exchange_info for _format_price calls (include minPrice, maxPrice)
         mock_client.exchange_info.return_value = {
             "symbols": [
@@ -1199,14 +1201,14 @@ class TestTPSLPlacement:
 
         # TP/SL orders use new_algo_order (Algo Order API)
         mock_client.new_algo_order.side_effect = [
-            # TP fails
+            # Initial TP fails
             ClientError(
                 status_code=400,
                 error_code=-2010,
                 error_message="Order would immediately trigger",
                 header={},
             ),
-            # SL succeeds
+            # Initial SL succeeds
             {
                 "algoId": 123456791,
                 "symbol": "BTCUSDT",
@@ -1218,6 +1220,18 @@ class TestTPSLPlacement:
                 "origQty": "0.000",
                 "avgPrice": "0.00",
             },
+            # Retry 1: TP succeeds
+            {
+                "algoId": 123456792,
+                "symbol": "BTCUSDT",
+                "status": "NEW",
+                "type": "TAKE_PROFIT_MARKET",
+                "side": "SELL",
+                "triggerPrice": "55000.00",
+                "updateTime": 1678886403000,
+                "origQty": "0.000",
+                "avgPrice": "0.00",
+            },
         ]
 
         entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
@@ -1225,9 +1239,8 @@ class TestTPSLPlacement:
         # Entry succeeded
         assert entry_order.status == OrderStatus.FILLED
 
-        # Only SL order placed (TP failed)
-        assert len(tpsl_orders) == 1
-        assert tpsl_orders[0].order_type == OrderType.STOP_MARKET
+        # Both orders placed (SL initially + TP on retry)
+        assert len(tpsl_orders) == 2
 
     def test_execute_signal_entry_success_both_tpsl_fail(
         self, manager, mock_client, long_entry_signal

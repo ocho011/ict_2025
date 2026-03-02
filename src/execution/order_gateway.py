@@ -1404,16 +1404,13 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                     f"Manual cleanup may be required."
                 )
         else:
-            # Entry signals: Log TP/SL placement summary
-            self.logger.info(
-                f"TP/SL placement complete: {len(tpsl_orders)}/2 orders placed"
+            # Entry signals: TP/SL completeness check with retry + escalation
+            tpsl_orders = self._ensure_tpsl_completeness(
+                signal=signal,
+                tpsl_orders=tpsl_orders,
+                tpsl_side=tpsl_side,
+                entry_order=entry_order,
             )
-
-            if len(tpsl_orders) < 2:
-                self.logger.warning(
-                    f"Partial TP/SL placement: entry filled but "
-                    f"only {len(tpsl_orders)}/2 exit orders placed"
-                )
 
         # Return entry order and TP/SL orders
         return (entry_order, tpsl_orders)
@@ -2192,6 +2189,214 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             )
         except Exception as e:
             raise OrderExecutionError(f"Unexpected error querying positions: {e}")
+
+    def _ensure_tpsl_completeness(
+        self,
+        signal: Signal,
+        tpsl_orders: list[Order],
+        tpsl_side: OrderSide,
+        entry_order: Order,
+        max_retries: int = 2,
+        retry_delay: float = 1.0,
+    ) -> list[Order]:
+        """Ensure both TP and SL orders are placed after entry.
+
+        Retries missing orders up to max_retries times. If still incomplete,
+        escalates to emergency market close (reduce_only=True).
+
+        Args:
+            signal: Original trading signal
+            tpsl_orders: Currently placed TP/SL orders
+            tpsl_side: Side for TP/SL orders (opposite of entry)
+            entry_order: The filled entry order
+            max_retries: Maximum retry attempts (default 2)
+            retry_delay: Seconds between retries (default 1.0)
+
+        Returns:
+            Updated list of TP/SL orders (may be empty if emergency close triggered)
+        """
+        if len(tpsl_orders) >= 2:
+            self.logger.info("TP/SL placement complete: 2/2 orders placed")
+            return tpsl_orders
+
+        self.logger.warning(
+            f"Partial TP/SL placement: {len(tpsl_orders)}/2 orders placed. "
+            f"Retrying missing orders (max {max_retries} attempts)."
+        )
+
+        # Identify what's missing
+        has_tp = any(
+            o.order_type in (OrderType.TAKE_PROFIT_MARKET, OrderType.TAKE_PROFIT)
+            for o in tpsl_orders
+        )
+        has_sl = any(
+            o.order_type in (OrderType.STOP_MARKET, OrderType.STOP)
+            for o in tpsl_orders
+        )
+
+        for attempt in range(1, max_retries + 1):
+            time.sleep(retry_delay)
+            self.logger.info(
+                f"TP/SL retry attempt {attempt}/{max_retries} for {signal.symbol}"
+            )
+
+            if not has_tp:
+                tp_order = self._place_tp_order(signal, tpsl_side)
+                if tp_order:
+                    tpsl_orders.append(tp_order)
+                    has_tp = True
+                    self.logger.info("TP order placed on retry")
+
+            if not has_sl:
+                sl_order = self._place_sl_order(signal, tpsl_side)
+                if sl_order:
+                    tpsl_orders.append(sl_order)
+                    has_sl = True
+                    self.logger.info("SL order placed on retry")
+
+            if len(tpsl_orders) >= 2:
+                self.logger.info(
+                    f"TP/SL placement complete after {attempt} retry: "
+                    f"2/2 orders placed"
+                )
+                return tpsl_orders
+
+        # All retries exhausted — escalate to emergency close
+        self.logger.error(
+            f"CRITICAL: TP/SL placement failed after {max_retries} retries "
+            f"for {signal.symbol}. Only {len(tpsl_orders)}/2 placed. "
+            f"Executing emergency market close."
+        )
+
+        # Determine close side (opposite of entry)
+        close_side = "SELL" if entry_order.side == OrderSide.BUY else "BUY"
+        qty = entry_order.quantity
+
+        try:
+            result = self._execute_market_close_sync(
+                symbol=signal.symbol,
+                position_amt=qty,
+                side=close_side,
+                reduce_only=True,
+            )
+
+            if result.get("success"):
+                self.logger.warning(
+                    f"Emergency close executed for {signal.symbol}: "
+                    f"order_id={result.get('order_id')}"
+                )
+                # Cancel any partial TP/SL that were placed
+                try:
+                    self.cancel_all_orders(signal.symbol)
+                except Exception:
+                    pass
+
+                # Audit log emergency close
+                try:
+                    self.audit_logger.log_event(
+                        event_type=AuditEventType.RISK_REJECTION,
+                        operation="ensure_tpsl_completeness",
+                        symbol=signal.symbol,
+                        response={
+                            "reason": "incomplete_tpsl_emergency_close",
+                            "placed_count": len(tpsl_orders),
+                            "retry_attempts": max_retries,
+                            "close_order_id": result.get("order_id"),
+                        },
+                    )
+                except Exception:
+                    pass
+
+                return []  # Empty — position was closed
+            else:
+                self.logger.error(
+                    f"Emergency close FAILED for {signal.symbol}: "
+                    f"{result.get('error')}. Manual intervention required!"
+                )
+        except Exception as e:
+            self.logger.error(
+                f"Emergency close exception for {signal.symbol}: {e}. "
+                f"Manual intervention required!"
+            )
+
+        return tpsl_orders
+
+    def _execute_market_close_sync(
+        self,
+        symbol: str,
+        position_amt: float,
+        side: str,
+        reduce_only: bool = True,
+    ) -> Dict[str, Any]:
+        """Synchronous market close for use inside sync execute_signal.
+
+        Directly calls the Binance API client (which is sync) instead of
+        the async execute_market_close wrapper.
+
+        Args:
+            symbol: Trading pair
+            position_amt: Position size (absolute value)
+            side: "BUY" for closing SHORT, "SELL" for closing LONG
+            reduce_only: If True, only reduces position (enforced True)
+
+        Returns:
+            Dict with success status and order details
+        """
+        # SECURITY: Always enforce reduce_only
+        if not reduce_only:
+            self.logger.warning(
+                "SECURITY: reduceOnly=False overridden to True in sync close"
+            )
+            reduce_only = True
+
+        try:
+            response = self.client.new_order(
+                symbol=symbol,
+                side=side,
+                type=OrderType.MARKET.value,
+                quantity=position_amt,
+                reduceOnly=reduce_only,
+            )
+
+            if isinstance(response, dict) and "data" in response:
+                order_data = response["data"]
+            elif isinstance(response, dict):
+                order_data = response
+            else:
+                return {
+                    "success": False,
+                    "error": f"Unexpected response type: {type(response).__name__}",
+                }
+
+            order_id = str(order_data.get("orderId"))
+            status = order_data.get("status")
+
+            self.logger.info(
+                f"Sync market close executed: {symbol} {side} {position_amt} "
+                f"order_id={order_id} status={status}"
+            )
+
+            return {
+                "success": True,
+                "order_id": order_id,
+                "status": status,
+            }
+
+        except ClientError as e:
+            self.logger.error(
+                f"Sync market close rejected: code={e.error_code}, "
+                f"msg={e.error_message}"
+            )
+            return {
+                "success": False,
+                "error": f"Order rejected: {e.error_message}",
+            }
+        except Exception as e:
+            self.logger.error(f"Sync market close error: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+            }
 
     async def execute_market_close(
         self,

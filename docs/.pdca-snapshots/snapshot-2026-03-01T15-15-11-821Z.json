@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-03-02T00:47:59.130Z",
+  "lastUpdated": "2026-03-01T15:11:49.974Z",
   "activeFeatures": [
     "strategies",
     "ict",
@@ -15,11 +15,9 @@
     "tests",
     "elements",
     "hud",
-    "ict_2025",
-    "pre-flight-order-check",
-    "execution"
+    "ict_2025"
   ],
-  "primaryFeature": "pre-flight-order-check",
+  "primaryFeature": "strategies",
   "features": {
     "strategies": {
       "phase": "do",
@@ -160,9 +158,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-28T22:07:21.479Z",
-        "lastUpdated": "2026-03-02T00:47:59.130Z"
+        "lastUpdated": "2026-03-01T12:16:49.860Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/test_order_execution.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/tests/test_symbol_config.py"
     },
     "elements": {
       "phase": "do",
@@ -202,39 +200,6 @@
         "lastUpdated": "2026-03-01T12:16:47.869Z"
       },
       "lastFile": "/Users/osangwon/github/ict_2025/src/utils/config_manager.py"
-    },
-    "pre-flight-order-check": {
-      "phase": "design",
-      "phaseNumber": 2,
-      "matchRate": null,
-      "iterationCount": 0,
-      "requirements": [
-        "Pre-flight open order check before entry",
-        "Per-symbol asyncio.Lock entry guard",
-        "TP/SL completeness guarantee with retry + emergency close"
-      ],
-      "documents": {
-        "plan": "docs/01-plan/features/pre-flight-order-check.plan.md",
-        "design": "docs/02-design/features/pre-flight-order-check.design.md"
-      },
-      "timestamps": {
-        "started": "2026-03-02T00:00:00.000Z",
-        "lastUpdated": "2026-03-02T00:00:00.000Z"
-      },
-      "lastFile": "docs/02-design/features/pre-flight-order-check.design.md"
-    },
-    "execution": {
-      "phase": "do",
-      "phaseNumber": 3,
-      "matchRate": null,
-      "iterationCount": 0,
-      "requirements": [],
-      "documents": {},
-      "timestamps": {
-        "started": "2026-03-02T00:40:10.205Z",
-        "lastUpdated": "2026-03-02T00:46:28.848Z"
-      },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/execution/test_pre_flight_order_check.py"
     }
   },
   "pipeline": {
@@ -245,7 +210,7 @@
   "session": {
     "startedAt": "2026-03-01T15:14:18.688Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-03-02T00:47:59.130Z"
+    "lastActivity": "2026-03-01T15:14:18.688Z"
   },
   "history": [
     {
@@ -721,90 +686,8 @@
       "action": "session_end",
       "feature": "strategies",
       "details": "Session ended"
-    },
-    {
-      "timestamp": "2026-03-01T15:20:46.533Z",
-      "action": "session_end",
-      "feature": "strategies",
-      "details": "Session ended"
-    },
-    {
-      "timestamp": "2026-03-01T15:20:46.558Z",
-      "action": "session_end",
-      "feature": "strategies",
-      "details": "Session ended"
-    },
-    {
-      "timestamp": "2026-03-02T00:40:10.205Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:40:28.161Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:40:35.201Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:40:53.630Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:41:28.880Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:43:43.076Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:44:15.271Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:45:44.626Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:46:05.599Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:46:28.848Z",
-      "feature": "execution",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:47:43.105Z",
-      "feature": "tests",
-      "phase": "do",
-      "action": "updated"
-    },
-    {
-      "timestamp": "2026-03-02T00:47:59.130Z",
-      "feature": "tests",
-      "phase": "do",
-      "action": "updated"
     }
-  ]
+  ],
+  "_snapshotTimestamp": "2026-03-01T15:15:11.821Z",
+  "_reason": "pre-compress"
 }

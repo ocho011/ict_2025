@@ -1,0 +1,13 @@
+{"t":0,"agent":"a96736a","agent_type":"explore-high","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a96736a","agent_type":"explore-high","event":"agent_stop","success":true,"duration_ms":155531}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"pdca"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"pdca"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"pdca"}
+{"t":0,"agent":"a23b192","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a5a9fed","agent_type":"bkit:gap-detector","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a5a9fed","agent_type":"bkit:gap-detector","event":"agent_stop","success":true,"duration_ms":472}
+{"t":0,"agent":"a37cae1","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a0c3be9","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a20c50e","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"ac28203","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"acfdebc","agent_type":"unknown","event":"agent_stop","success":true}

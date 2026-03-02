@@ -11,8 +11,10 @@ Responsibilities:
 - Position closure logging with PnL calculation
 """
 
+import asyncio
 import logging
-from typing import TYPE_CHECKING, Optional, Dict, Any
+from collections import defaultdict
+from typing import TYPE_CHECKING, Optional, Dict, Any, List
 
 if TYPE_CHECKING:
     from src.core.audit_logger import AuditLogger
@@ -57,7 +59,104 @@ class TradeCoordinator:
         self._audit_logger = audit_logger
         self._position_cache_manager = position_cache_manager
         self._position_entry_data: Dict[str, PositionEntryData] = {}
+        self._entry_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.logger = logging.getLogger(__name__)
+
+    def _pre_flight_check(self, symbol: str) -> bool:
+        """Pre-flight open order check before entry.
+
+        Verifies no orphaned orders exist that could interfere with the new
+        position (e.g., stale TP/SL from a manually closed position).
+
+        Policy: Conditional Fail-Open
+        - Cache hit → decide based on cached data
+        - Cache miss + API failure → Fail-Open (proceed with warning)
+
+        Args:
+            symbol: Trading pair to check
+
+        Returns:
+            True if safe to proceed with entry, False if entry should be rejected
+        """
+        try:
+            open_orders = self._order_gateway.get_open_orders(symbol)
+        except Exception as e:
+            # Conditional Fail-Open: API failure → proceed with warning
+            self.logger.warning(
+                f"Pre-flight check API failed for {symbol}: {e}. "
+                f"Proceeding with entry (fail-open policy)."
+            )
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self._audit_logger.log_event(
+                    event_type=AuditEventType.RISK_REJECTION,
+                    operation="pre_flight_check",
+                    symbol=symbol,
+                    error={
+                        "reason": "pre_flight_api_failure_fallthrough",
+                        "error": str(e),
+                    },
+                )
+            except Exception:
+                pass
+            return True
+
+        if not open_orders:
+            return True
+
+        # Orphaned orders detected — attempt pre-flight cleanup
+        self.logger.warning(
+            f"Pre-flight: {len(open_orders)} orphaned orders detected for {symbol}, "
+            f"cancelling before entry"
+        )
+
+        try:
+            cancelled_count = self._order_gateway.cancel_all_orders(symbol)
+            self.logger.info(
+                f"Pre-flight cleanup: cancelled {cancelled_count} orders for {symbol}"
+            )
+
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self._audit_logger.log_event(
+                    event_type=AuditEventType.ORDER_CANCELLED,
+                    operation="pre_flight_cleanup",
+                    symbol=symbol,
+                    data={
+                        "reason": "pre_flight_cleanup",
+                        "cancelled_count": cancelled_count,
+                        "detected_orders": len(open_orders),
+                    },
+                )
+            except Exception:
+                pass
+            return True
+
+        except Exception as e:
+            # Cancel failed — reject entry to prevent orphan interference
+            self.logger.error(
+                f"Pre-flight cancel failed for {symbol}: {e}. "
+                f"Rejecting entry to prevent orphan order interference."
+            )
+
+            try:
+                from src.core.audit_logger import AuditEventType
+
+                self._audit_logger.log_event(
+                    event_type=AuditEventType.RISK_REJECTION,
+                    operation="pre_flight_check",
+                    symbol=symbol,
+                    error={
+                        "reason": "orphaned_orders_cancel_failed",
+                        "error": str(e),
+                        "detected_orders": len(open_orders),
+                    },
+                )
+            except Exception:
+                pass
+            return False
 
     async def on_signal_generated(self, event: Event) -> None:
         """
@@ -65,7 +164,7 @@ class TradeCoordinator:
 
         This is the critical trading logic that:
         1. Validates signal with RiskGuard
-        2. For entry signals: Calculates position size and executes with TP/SL
+        2. For entry signals: Pre-flight order check and position sizing
         3. For exit signals: Uses position quantity and executes with reduce_only
 
         Args:
@@ -78,128 +177,146 @@ class TradeCoordinator:
             f"Processing signal: {signal.signal_type.value} for {signal.symbol}"
         )
 
-        try:
-            # Step 2: Get current position via PositionCacheManager (fresh query for execution)
-            current_position = self._position_cache_manager.get_fresh(signal.symbol)
+        # Per-symbol entry guard: prevent duplicate signal processing
+        async with self._entry_locks[signal.symbol]:
+            try:
+                # Step 2: Get current position via PositionCacheManager (fresh query)
+                current_position = self._position_cache_manager.get_fresh(signal.symbol)
 
-            # Step 3: Validate signal with RiskGuard
-            is_valid = self._risk_guard.validate_risk(signal, current_position)
+                # Step 3: Validate signal with RiskGuard
+                is_valid = self._risk_guard.validate_risk(signal, current_position)
 
-            if not is_valid:
-                self.logger.warning(
-                    f"Signal rejected by risk validation: {signal.signal_type.value}"
+                if not is_valid:
+                    self.logger.warning(
+                        f"Signal rejected by risk validation: {signal.signal_type.value}"
+                    )
+
+                    # Audit log: risk rejection
+                    try:
+                        from src.core.audit_logger import AuditEventType
+
+                        self._audit_logger.log_event(
+                            event_type=AuditEventType.RISK_REJECTION,
+                            operation="signal_execution",
+                            symbol=signal.symbol,
+                            order_data={
+                                "signal_type": signal.signal_type.value,
+                                "entry_price": signal.entry_price,
+                            },
+                            error={"reason": "risk_validation_failed"},
+                        )
+                    except Exception as e:
+                        self.logger.warning(f"Audit logging failed: {e}")
+
+                    return
+
+                # Step 4: Handle exit vs entry signals differently (Issue #25)
+                if signal.is_exit_signal:
+                    # Exit signal: use position quantity and reduce_only
+                    await self.execute_exit_signal(signal, current_position)
+                    return
+
+                # Step 4.5: Pre-flight open order check before entry
+                if not self._pre_flight_check(signal.symbol):
+                    self.logger.warning(
+                        f"Signal rejected by pre-flight check: "
+                        f"{signal.signal_type.value} for {signal.symbol}"
+                    )
+                    return
+
+                # Entry signal: calculate position size and execute with TP/SL
+                # Step 5: Get account balance
+                account_balance = self._order_gateway.get_account_balance()
+
+                if account_balance <= 0:
+                    self.logger.error(
+                        f"Invalid account balance: {account_balance}, cannot execute signal"
+                    )
+                    return
+
+                # Step 6: Calculate position size using RiskGuard
+                quantity = self._risk_guard.calculate_position_size(
+                    account_balance=account_balance,
+                    entry_price=signal.entry_price,
+                    stop_loss_price=signal.stop_loss,
+                    leverage=self._config_manager.trading_config.leverage,
+                    symbol_info=None,  # OrderGateway will handle rounding internally
                 )
 
-                # Audit log: risk rejection
+                # Step 7: Execute signal via OrderGateway
+                # Returns (entry_order, [tp_order, sl_order])
+                entry_order, tpsl_orders = self._order_gateway.execute_signal(
+                    signal=signal, quantity=quantity
+                )
+
+                # Invalidate position cache after order execution
+                self._position_cache_manager.invalidate(signal.symbol)
+
+                # Handle TP/SL escalation: empty list means emergency close occurred
+                if not tpsl_orders:
+                    self.logger.warning(
+                        f"Entry cancelled: TP/SL placement failed for {signal.symbol}, "
+                        f"position emergency-closed by OrderGateway"
+                    )
+                    return
+
+                # Step 8: Log successful trade execution
+                self.logger.info(
+                    f"Trade executed successfully: "
+                    f"Order ID={entry_order.order_id}, "
+                    f"Quantity={entry_order.quantity}, "
+                    f"TP/SL={len(tpsl_orders)}/2 orders"
+                )
+
+                # Audit log: trade executed successfully
                 try:
                     from src.core.audit_logger import AuditEventType
 
                     self._audit_logger.log_event(
-                        event_type=AuditEventType.RISK_REJECTION,
-                        operation="signal_execution",
+                        event_type=AuditEventType.TRADE_EXECUTED,
+                        operation="execute_trade",
+                        symbol=signal.symbol,
+                        order_data={
+                            "signal_type": signal.signal_type.value,
+                            "entry_price": signal.entry_price,
+                            "quantity": quantity,
+                            "leverage": self._config_manager.trading_config.leverage,
+                        },
+                        response={
+                            "entry_order_id": entry_order.order_id,
+                            "tpsl_count": len(tpsl_orders),
+                        },
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Audit logging failed: {e}")
+
+                # Note: ORDER_FILLED event will be published by PrivateUserStreamer
+                # when WebSocket confirms the fill (Issue #97 - removed optimistic fill)
+
+            except Exception as e:
+                # Step 9: Catch and log execution errors without crashing
+                self.logger.error(
+                    f"Failed to execute signal for {signal.symbol}: {e}", exc_info=True
+                )
+
+                # Audit log: trade execution failed
+                try:
+                    from src.core.audit_logger import AuditEventType
+
+                    self._audit_logger.log_event(
+                        event_type=AuditEventType.TRADE_EXECUTION_FAILED,
+                        operation="execute_trade",
                         symbol=signal.symbol,
                         order_data={
                             "signal_type": signal.signal_type.value,
                             "entry_price": signal.entry_price,
                         },
-                        error={"reason": "risk_validation_failed"},
+                        error={"error_type": type(e).__name__, "error_message": str(e)},
                     )
-                except Exception as e:
-                    self.logger.warning(f"Audit logging failed: {e}")
+                except Exception:
+                    pass  # Exception context already logged
 
-                return
-
-            # Step 4: Handle exit vs entry signals differently (Issue #25)
-            if signal.is_exit_signal:
-                # Exit signal: use position quantity and reduce_only
-                await self.execute_exit_signal(signal, current_position)
-                return
-
-            # Entry signal: calculate position size and execute with TP/SL
-            # Step 5: Get account balance
-            account_balance = self._order_gateway.get_account_balance()
-
-            if account_balance <= 0:
-                self.logger.error(
-                    f"Invalid account balance: {account_balance}, cannot execute signal"
-                )
-                return
-
-            # Step 6: Calculate position size using RiskGuard
-            quantity = self._risk_guard.calculate_position_size(
-                account_balance=account_balance,
-                entry_price=signal.entry_price,
-                stop_loss_price=signal.stop_loss,
-                leverage=self._config_manager.trading_config.leverage,
-                symbol_info=None,  # OrderGateway will handle rounding internally
-            )
-
-            # Step 7: Execute signal via OrderGateway
-            # Returns (entry_order, [tp_order, sl_order])
-            entry_order, tpsl_orders = self._order_gateway.execute_signal(
-                signal=signal, quantity=quantity
-            )
-
-            # Invalidate position cache after order execution
-            self._position_cache_manager.invalidate(signal.symbol)
-
-            # Step 7: Log successful trade execution
-            self.logger.info(
-                f"✅ Trade executed successfully: "
-                f"Order ID={entry_order.order_id}, "
-                f"Quantity={entry_order.quantity}, "
-                f"TP/SL={len(tpsl_orders)}/2 orders"
-            )
-
-            # Audit log: trade executed successfully
-            try:
-                from src.core.audit_logger import AuditEventType
-
-                self._audit_logger.log_event(
-                    event_type=AuditEventType.TRADE_EXECUTED,
-                    operation="execute_trade",
-                    symbol=signal.symbol,
-                    order_data={
-                        "signal_type": signal.signal_type.value,
-                        "entry_price": signal.entry_price,
-                        "quantity": quantity,
-                        "leverage": self._config_manager.trading_config.leverage,
-                    },
-                    response={
-                        "entry_order_id": entry_order.order_id,
-                        "tpsl_count": len(tpsl_orders),
-                    },
-                )
-            except Exception as e:
-                self.logger.warning(f"Audit logging failed: {e}")
-
-            # Note: ORDER_FILLED event will be published by PrivateUserStreamer
-            # when WebSocket confirms the fill (Issue #97 - removed optimistic fill)
-
-        except Exception as e:
-            # Step 9: Catch and log execution errors without crashing
-            self.logger.error(
-                f"Failed to execute signal for {signal.symbol}: {e}", exc_info=True
-            )
-
-            # Audit log: trade execution failed
-            try:
-                from src.core.audit_logger import AuditEventType
-
-                self._audit_logger.log_event(
-                    event_type=AuditEventType.TRADE_EXECUTION_FAILED,
-                    operation="execute_trade",
-                    symbol=signal.symbol,
-                    order_data={
-                        "signal_type": signal.signal_type.value,
-                        "entry_price": signal.entry_price,
-                    },
-                    error={"error_type": type(e).__name__, "error_message": str(e)},
-                )
-            except Exception:
-                pass  # Exception context already logged
-
-            # Don't re-raise - system should continue running
+                # Don't re-raise - system should continue running
 
     async def execute_exit_signal(self, signal: Signal, position: "Position") -> None:
         """

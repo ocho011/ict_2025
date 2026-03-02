@@ -84,6 +84,20 @@ class ExecutionGateway(ABC):
         ...
 
     @abstractmethod
+    def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        """Query all open orders for a symbol.
+
+        Used by TradeCoordinator for pre-flight order check before entry.
+
+        Args:
+            symbol: Trading pair
+
+        Returns:
+            List of open order dictionaries
+        """
+        ...
+
+    @abstractmethod
     def update_stop_loss(
         self,
         symbol: str,
