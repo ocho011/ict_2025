@@ -2,9 +2,10 @@
 Position model
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+from uuid import uuid4
 
 
 @dataclass
@@ -27,6 +28,10 @@ class PositionEntryData:
     entry_time: datetime
     quantity: float
     side: str  # "LONG" or "SHORT"
+    position_id: str = field(default_factory=lambda: str(uuid4()))
+    total_commission: float = 0.0
+    total_funding: float = 0.0
+    intended_entry_price: Optional[float] = None
 
 
 @dataclass

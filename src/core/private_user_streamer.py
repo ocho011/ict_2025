@@ -106,6 +106,12 @@ class PrivateUserStreamer(IDataStreamer):
         # Order fill callback for relaying fill events to TradingEngine (Issue #107)
         self._order_fill_callback: Optional[Callable[[dict], None]] = None
 
+        # Funding fee callback for cost tracking
+        self._funding_fee_callback: Optional[Callable[[float, float], None]] = None
+
+        # Balance update callback for equity tracking
+        self._balance_update_callback: Optional[Callable[[float], None]] = None
+
         # State management
         self._running = False
         self._is_connected = False
@@ -172,6 +178,28 @@ class PrivateUserStreamer(IDataStreamer):
         """
         self._order_fill_callback = callback
         self.logger.debug("Order fill callback configured for PrivateUserStreamer")
+
+    def set_funding_fee_callback(
+        self, callback: Callable[[float, float], None]
+    ) -> None:
+        """Set callback for funding fee events from ACCOUNT_UPDATE.
+
+        Args:
+            callback: Function(funding_fee, wallet_balance)
+        """
+        self._funding_fee_callback = callback
+        self.logger.debug("Funding fee callback configured for PrivateUserStreamer")
+
+    def set_balance_update_callback(
+        self, callback: Callable[[float], None]
+    ) -> None:
+        """Set callback for balance updates from ACCOUNT_UPDATE.
+
+        Args:
+            callback: Function(wallet_balance)
+        """
+        self._balance_update_callback = callback
+        self.logger.debug("Balance update callback configured for PrivateUserStreamer")
 
     async def start(self) -> None:
         """
@@ -340,6 +368,23 @@ class PrivateUserStreamer(IDataStreamer):
             f"positions_count={len(positions_data)}"
         )
 
+        # Handle funding fee events
+        if update_reason == "FUNDING_FEE":
+            self._handle_funding_fee(data)
+
+        # Parse balance updates for equity tracking
+        balances_data = account_data.get("B", [])
+        if balances_data and self._balance_update_callback:
+            from src.models.account import BalanceUpdate
+            for bal in balances_data:
+                try:
+                    balance = BalanceUpdate.from_websocket_data(bal)
+                    if balance.asset == "USDT":
+                        self._balance_update_callback(balance.wallet_balance)
+                        break
+                except (ValueError, TypeError):
+                    continue
+
         if not positions_data:
             return
 
@@ -375,6 +420,36 @@ class PrivateUserStreamer(IDataStreamer):
                 )
             except Exception as e:
                 self.logger.error(f"Position update callback failed: {e}", exc_info=True)
+
+    def _handle_funding_fee(self, data: dict) -> None:
+        """Process FUNDING_FEE event from ACCOUNT_UPDATE.
+
+        Parses balance change from the B array and invokes the funding
+        fee callback with the fee amount and current wallet balance.
+
+        Args:
+            data: Full ACCOUNT_UPDATE event data with reason FUNDING_FEE
+        """
+        from src.models.account import AccountUpdate
+
+        account_update = AccountUpdate.from_websocket_data(data)
+        usdt_balance = account_update.get_balance("USDT")
+        if usdt_balance is None:
+            self.logger.warning("FUNDING_FEE event without USDT balance change")
+            return
+
+        funding_fee = usdt_balance.balance_change
+
+        self.logger.info(
+            f"Funding fee received: {funding_fee:.4f} USDT "
+            f"(wallet: {usdt_balance.wallet_balance:.4f})"
+        )
+
+        if self._funding_fee_callback:
+            try:
+                self._funding_fee_callback(funding_fee, usdt_balance.wallet_balance)
+            except Exception as e:
+                self.logger.error(f"Funding fee callback failed: {e}", exc_info=True)
 
     def _handle_order_trade_update(self, data: dict) -> None:
         """

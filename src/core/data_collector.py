@@ -222,6 +222,8 @@ class BinanceDataCollector(MarketDataProvider):
         position_update_callback: Optional[Callable] = None,
         order_update_callback: Optional[Callable] = None,
         order_fill_callback: Optional[Callable] = None,
+        funding_fee_callback: Optional[Callable] = None,
+        balance_update_callback: Optional[Callable] = None,
     ) -> None:
         """
         Start user data stream WebSocket for real-time order updates.
@@ -261,6 +263,14 @@ class BinanceDataCollector(MarketDataProvider):
         # Configure order fill callback (Issue #107 - callback pattern alignment)
         if order_fill_callback:
             self.user_streamer.set_order_fill_callback(order_fill_callback)
+
+        # Configure funding fee callback (cost tracking)
+        if funding_fee_callback:
+            self.user_streamer.set_funding_fee_callback(funding_fee_callback)
+
+        # Configure balance update callback (equity tracking)
+        if balance_update_callback:
+            self.user_streamer.set_balance_update_callback(balance_update_callback)
 
         # Start the streamer
         await self.user_streamer.start()

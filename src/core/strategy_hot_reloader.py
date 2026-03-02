@@ -113,13 +113,17 @@ class StrategyHotReloader:
 
         # 5. Audit log
         if self._audit_logger:
+            from src.core.audit_logger import AuditEventType
+
             self._audit_logger.log_event(
-                "STRATEGY_HOT_RELOAD",
+                event_type=AuditEventType.STRATEGY_HOT_RELOAD,
                 operation="rebuild_strategy",
                 symbol=symbol,
-                old_strategy=old_name,
-                new_strategy=new_name,
-                positions_closed=closed_count,
+                additional_data={
+                    "old_strategy": old_name,
+                    "new_strategy": new_name,
+                    "positions_closed": closed_count,
+                },
             )
 
         logger.info(

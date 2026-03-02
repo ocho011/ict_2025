@@ -83,6 +83,9 @@ class TradingEngine:
         self.event_dispatcher: Optional[EventDispatcher] = None
         self.strategy_hot_reloader = None  # Dynamic config hot reload (Phase 2)
 
+        # Balance tracking for cost analysis
+        self._latest_wallet_balance: Optional[float] = None
+
         # Runtime state
         self._running: bool = False
 
@@ -259,6 +262,7 @@ class TradingEngine:
             audit_logger=self.audit_logger,
             position_cache_manager=self.position_cache_manager,
         )
+        self.trade_coordinator._get_wallet_balance = lambda: self._latest_wallet_balance
 
         # Phase 3: EventDispatcher
         self.event_dispatcher = EventDispatcher(
@@ -376,6 +380,8 @@ class TradingEngine:
                             position_update_callback=self._on_position_update_from_websocket,
                             order_update_callback=self._on_order_update_from_websocket,
                             order_fill_callback=self._on_order_fill_from_websocket,
+                            funding_fee_callback=self._on_funding_fee_received,
+                            balance_update_callback=self._on_balance_update,
                         )
                         self.logger.info(
                             "User Data Stream enabled for order updates, position cache, and order cache"
@@ -678,6 +684,10 @@ class TradingEngine:
             callback_rate=callback_rate,
             status=OrderStatus.FILLED if is_filled else OrderStatus.PARTIALLY_FILLED,
             filled_quantity=float(order_data.get("z", 0)),
+            commission=float(order_data.get("n", 0)) if order_data.get("n") else 0.0,
+            commission_asset=order_data.get("N"),
+            event_time=int(order_data.get("E")) if order_data.get("E") else None,
+            transaction_time=int(order_data.get("T")) if order_data.get("T") else None,
         )
 
         event = Event(
@@ -702,6 +712,34 @@ class TradingEngine:
                 f"Cannot publish {event.event_type.value.upper()} event: "
                 f"Event loop not available"
             )
+
+    def _on_funding_fee_received(self, funding_fee: float, wallet_balance: float) -> None:
+        """Handle funding fee event from WebSocket ACCOUNT_UPDATE.
+
+        Logs to audit trail and accumulates to open positions for Net PnL calculation.
+        """
+        from src.core.audit_logger import AuditEventType
+
+        self._latest_wallet_balance = wallet_balance
+
+        self.audit_logger.log_event(
+            event_type=AuditEventType.FUNDING_FEE_RECEIVED,
+            operation="funding_fee",
+            additional_data={
+                "funding_fee": funding_fee,
+                "wallet_balance": wallet_balance,
+            },
+        )
+
+        if self.trade_coordinator:
+            self.trade_coordinator.accumulate_funding_fee(funding_fee)
+
+    def _on_balance_update(self, wallet_balance: float) -> None:
+        """Handle balance update from WebSocket ACCOUNT_UPDATE.
+
+        Caches latest wallet balance for inclusion in position closure logs.
+        """
+        self._latest_wallet_balance = wallet_balance
 
     def _on_position_update_from_websocket(self, position_updates: list) -> None:
         """
