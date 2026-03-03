@@ -147,10 +147,12 @@ class TradingEngine:
         self.logger.info("Creating BinanceServiceClient...")
         from src.core.binance_service import BinanceServiceClient
 
+        binance_config = config_manager.binance_config
         self.binance_service = BinanceServiceClient(
             api_key=api_key,
             api_secret=api_secret,
             is_testnet=is_testnet,
+            base_url=binance_config.get_rest_url(is_testnet),
         )
 
         # Step 2: Initialize OrderGateway
@@ -224,6 +226,7 @@ class TradingEngine:
             intervals=trading_config.intervals,
             is_testnet=is_testnet,
             on_candle_callback=self.on_candle_received,
+            ws_url=binance_config.get_ws_url(is_testnet),
         )
 
         # Step 5b: Create PrivateUserStreamer for order updates
@@ -233,6 +236,7 @@ class TradingEngine:
         user_streamer = PrivateUserStreamer(
             binance_service=self.binance_service,
             is_testnet=is_testnet,
+            user_ws_url=binance_config.get_user_ws_url(is_testnet),
         )
 
         # Step 5c: Create BinanceDataCollector facade with injected streamers
