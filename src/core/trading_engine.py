@@ -267,6 +267,7 @@ class TradingEngine:
             position_cache_manager=self.position_cache_manager,
         )
         self.trade_coordinator._get_wallet_balance = lambda: self._latest_wallet_balance
+        self.trade_coordinator._get_position_metrics = self._get_position_metrics
 
         # Phase 3: EventDispatcher
         self.event_dispatcher = EventDispatcher(
@@ -744,6 +745,15 @@ class TradingEngine:
         Caches latest wallet balance for inclusion in position closure logs.
         """
         self._latest_wallet_balance = wallet_balance
+
+    def _get_position_metrics(self, symbol: str, side: str):
+        """Retrieve MFE/MAE metrics from the exit determiner for a closed position."""
+        strategy = self.strategies.get(symbol)
+        if strategy and hasattr(strategy, 'module_config'):
+            exit_det = strategy.module_config.exit_determiner
+            if hasattr(exit_det, 'get_and_clear_metrics'):
+                return exit_det.get_and_clear_metrics(symbol, side)
+        return None
 
     def _on_position_update_from_websocket(self, position_updates: list) -> None:
         """
