@@ -21,7 +21,7 @@ from .indicators import (
 )
 from .account import AccountUpdate, BalanceUpdate
 from .order import Order, OrderSide, OrderStatus, OrderType, OrderUpdate
-from .position import Position, PositionEntryData, PositionUpdate
+from .position import Position, PositionEntryData, PositionMetrics, PositionUpdate
 from .module_requirements import ModuleRequirements
 from .signal import Signal, SignalType
 

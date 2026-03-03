@@ -59,6 +59,9 @@ class AuditEventType(Enum):
     BALANCE_SNAPSHOT = "balance_snapshot"
     STRATEGY_HOT_RELOAD = "strategy_hot_reload"
 
+    # Trailing stop optimization events
+    TRAILING_STOP_RATCHETED = "trailing_stop_ratcheted"
+
     # Liquidation events (emergency shutdown)
     LIQUIDATION_STARTED = "liquidation_started"
     LIQUIDATION_COMPLETE = "liquidation_complete"

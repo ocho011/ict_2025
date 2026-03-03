@@ -35,6 +35,26 @@ class PositionEntryData:
 
 
 @dataclass
+class PositionMetrics:
+    """
+    포지션 보유 중 MFE/MAE/HWM 추적을 위한 경량 구조체.
+
+    ICTExitDeterminer._position_metrics dict에서 관리.
+    키: "{symbol}_{side}" (trailing_levels와 동일 패턴)
+    """
+
+    entry_price: float
+    side: str  # "LONG" or "SHORT"
+    mfe_pct: float = 0.0
+    mae_pct: float = 0.0
+    hwm_price: float = 0.0
+    lwm_price: float = 0.0
+    ratchet_count: int = 0
+    last_trailing_stop: float = 0.0
+    candle_count: int = 0
+
+
+@dataclass
 class PositionUpdate:
     """
     Position update data from ACCOUNT_UPDATE WebSocket event.

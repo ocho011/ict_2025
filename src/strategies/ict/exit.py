@@ -20,6 +20,7 @@ from src.strategies.ict.detectors.market_structure import get_current_trend
 from src.strategies.ict.detectors.smc import detect_displacement, detect_inducement
 from src.exit.base import ExitContext, ExitDeterminer
 from src.models.module_requirements import ModuleRequirements
+from src.models.position import PositionMetrics
 from src.models.signal import Signal, SignalType
 from src.utils.config_manager import ExitConfig
 
@@ -94,6 +95,8 @@ class ICTExitDeterminer(ExitDeterminer):
 
         # Trailing stop level persistence across candles (Issue #99)
         self._trailing_levels: dict[str, float] = {}
+        # Position metrics for MFE/MAE tracking (trailing-stop-logging-optimization)
+        self._position_metrics: dict[str, PositionMetrics] = {}
 
     @property
     def trailing_levels(self) -> dict[str, float]:
@@ -168,6 +171,24 @@ class ICTExitDeterminer(ExitDeterminer):
                 pnl_pct, exit_config.trailing_activation * 100,
             )
 
+            # MFE/MAE tracking
+            metrics = self._position_metrics.get(trail_key)
+            if metrics is None:
+                metrics = PositionMetrics(
+                    entry_price=position.entry_price,
+                    side=position.side,
+                    hwm_price=position.entry_price,
+                    lwm_price=position.entry_price,
+                )
+                self._position_metrics[trail_key] = metrics
+            metrics.candle_count += 1
+            if pnl_pct > metrics.mfe_pct:
+                metrics.mfe_pct = pnl_pct
+                metrics.hwm_price = candle.close
+            if pnl_pct < metrics.mae_pct:
+                metrics.mae_pct = pnl_pct
+                metrics.lwm_price = candle.close
+
             if position.side == "LONG":
                 initial_stop = position.entry_price * (1 - exit_config.trailing_distance)
                 trailing_stop = self._trailing_levels.get(trail_key, initial_stop)
@@ -182,6 +203,13 @@ class ICTExitDeterminer(ExitDeterminer):
                             "[%s] Trailing stop ratcheted: %.4f -> %.4f (delta=%.2f%%)",
                             context.symbol, old_stop, trailing_stop,
                             (trailing_stop - old_stop) / old_stop * 100,
+                        )
+                        metrics.ratchet_count += 1
+                        metrics.last_trailing_stop = trailing_stop
+                        self._log_ratchet_event(
+                            symbol=context.symbol, side=position.side,
+                            old_stop=old_stop, new_stop=trailing_stop,
+                            trigger_price=candle.close, metrics=metrics,
                         )
                 else:
                     self.logger.debug(
@@ -207,6 +235,8 @@ class ICTExitDeterminer(ExitDeterminer):
                         f"stop={trailing_stop:.2f}"
                     )
                     self._trailing_levels.pop(trail_key, None)
+                    metrics.last_trailing_stop = trailing_stop
+                    # _position_metrics kept for TradeCoordinator to retrieve via get_and_clear_metrics
                     return Signal(
                         signal_type=SignalType.CLOSE_LONG,
                         symbol=context.symbol,
@@ -230,6 +260,13 @@ class ICTExitDeterminer(ExitDeterminer):
                             "[%s] Trailing stop ratcheted: %.4f -> %.4f (delta=%.2f%%)",
                             context.symbol, old_stop, trailing_stop,
                             (old_stop - trailing_stop) / old_stop * 100,
+                        )
+                        metrics.ratchet_count += 1
+                        metrics.last_trailing_stop = trailing_stop
+                        self._log_ratchet_event(
+                            symbol=context.symbol, side=position.side,
+                            old_stop=old_stop, new_stop=trailing_stop,
+                            trigger_price=candle.close, metrics=metrics,
                         )
                 else:
                     self.logger.debug(
@@ -255,6 +292,7 @@ class ICTExitDeterminer(ExitDeterminer):
                         f"stop={trailing_stop:.2f}"
                     )
                     self._trailing_levels.pop(trail_key, None)
+                    metrics.last_trailing_stop = trailing_stop
                     return Signal(
                         signal_type=SignalType.CLOSE_SHORT,
                         symbol=context.symbol,
@@ -269,6 +307,51 @@ class ICTExitDeterminer(ExitDeterminer):
             return None
 
         return None
+
+    def _log_ratchet_event(
+        self,
+        symbol: str,
+        side: str,
+        old_stop: float,
+        new_stop: float,
+        trigger_price: float,
+        metrics: PositionMetrics,
+    ) -> None:
+        """Log trailing stop ratchet event to audit trail. QueueHandler async."""
+        try:
+            from src.core.audit_logger import AuditLogger, AuditEventType
+
+            audit = AuditLogger.get_instance()
+            ratchet_delta_pct = abs(new_stop - old_stop) / old_stop * 100
+
+            audit.log_event(
+                event_type=AuditEventType.TRAILING_STOP_RATCHETED,
+                operation="trailing_stop_ratchet",
+                symbol=symbol,
+                data={
+                    "side": side,
+                    "old_stop": round(old_stop, 6),
+                    "new_stop": round(new_stop, 6),
+                    "trigger_price": round(trigger_price, 6),
+                    "ratchet_delta_pct": round(ratchet_delta_pct, 4),
+                    "current_mfe_pct": round(metrics.mfe_pct, 4),
+                    "current_mae_pct": round(metrics.mae_pct, 4),
+                    "ratchet_count": metrics.ratchet_count,
+                    "candle_count_since_entry": metrics.candle_count,
+                },
+            )
+        except Exception as e:
+            self.logger.debug("Ratchet audit log failed: %s", e)
+
+    def get_and_clear_metrics(self, symbol: str, side: str) -> Optional[PositionMetrics]:
+        """
+        Retrieve and remove position metrics for a closed position.
+
+        Called by TradeCoordinator at position closure to include
+        MFE/MAE data in audit logs.
+        """
+        trail_key = f"{symbol}_{side}"
+        return self._position_metrics.pop(trail_key, None)
 
     def _check_breakeven_exit(self, context: ExitContext) -> Optional[Signal]:
         """Check breakeven exit conditions."""

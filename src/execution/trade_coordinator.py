@@ -61,6 +61,7 @@ class TradeCoordinator:
         self._position_entry_data: Dict[str, PositionEntryData] = {}
         self._entry_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
         self._get_wallet_balance: Optional[Callable[[], Optional[float]]] = None
+        self._get_position_metrics: Optional[Callable] = None
         self._pending_intended_prices: Dict[str, float] = {}
         self.logger = logging.getLogger(__name__)
 
@@ -415,21 +416,54 @@ class TradeCoordinator:
                 try:
                     from src.core.audit_logger import AuditEventType
 
+                    trade_data = {
+                        "exit_price": exit_price,
+                        "realized_pnl": realized_pnl,
+                        "exit_reason": signal.exit_reason,
+                        "duration_seconds": duration_seconds,
+                        "entry_price": position.entry_price,
+                        "quantity": executed_qty,
+                        "position_side": position.side,
+                        "leverage": position.leverage,
+                        "signal_type": signal.signal_type.value,
+                    }
+
+                    # MFE/MAE metrics from exit determiner
+                    if self._get_position_metrics:
+                        try:
+                            metrics = self._get_position_metrics(
+                                signal.symbol, position.side,
+                            )
+                            if metrics:
+                                trade_data["mfe_pct"] = round(metrics.mfe_pct, 4)
+                                trade_data["mae_pct"] = round(metrics.mae_pct, 4)
+                                trade_data["hwm_price"] = round(metrics.hwm_price, 6)
+                                trade_data["lwm_price"] = round(metrics.lwm_price, 6)
+                                trade_data["trailing_ratchet_count"] = metrics.ratchet_count
+                                trade_data["trailing_final_stop"] = round(
+                                    metrics.last_trailing_stop, 6,
+                                )
+                                trade_data["candle_count"] = metrics.candle_count
+                                if metrics.hwm_price > 0 and position.side == "LONG":
+                                    drawdown = (
+                                        (metrics.hwm_price - exit_price)
+                                        / metrics.hwm_price * 100
+                                    )
+                                    trade_data["drawdown_from_hwm_pct"] = round(drawdown, 4)
+                                elif metrics.lwm_price > 0 and position.side == "SHORT":
+                                    drawdown = (
+                                        (exit_price - metrics.lwm_price)
+                                        / metrics.lwm_price * 100
+                                    )
+                                    trade_data["drawdown_from_hwm_pct"] = round(drawdown, 4)
+                        except Exception as e:
+                            self.logger.debug("Failed to retrieve position metrics: %s", e)
+
                     self._audit_logger.log_event(
                         event_type=AuditEventType.TRADE_CLOSED,
                         operation="execute_exit",
                         symbol=signal.symbol,
-                        data={
-                            "exit_price": exit_price,
-                            "realized_pnl": realized_pnl,
-                            "exit_reason": signal.exit_reason,
-                            "duration_seconds": duration_seconds,
-                            "entry_price": position.entry_price,
-                            "quantity": executed_qty,
-                            "position_side": position.side,
-                            "leverage": position.leverage,
-                            "signal_type": signal.signal_type.value,
-                        },
+                        data=trade_data,
                         response={
                             "close_order_id": order_id,
                             "status": result.get("status"),
@@ -675,6 +709,27 @@ class TradeCoordinator:
                 balance = self._get_wallet_balance()
                 if balance is not None:
                     closure_data["balance_after"] = balance
+
+            # MFE/MAE metrics from exit determiner
+            if self._get_position_metrics:
+                try:
+                    metrics = self._get_position_metrics(order.symbol, entry_data.side)
+                    if metrics:
+                        closure_data["mfe_pct"] = round(metrics.mfe_pct, 4)
+                        closure_data["mae_pct"] = round(metrics.mae_pct, 4)
+                        closure_data["hwm_price"] = round(metrics.hwm_price, 6)
+                        closure_data["lwm_price"] = round(metrics.lwm_price, 6)
+                        closure_data["trailing_ratchet_count"] = metrics.ratchet_count
+                        closure_data["trailing_final_stop"] = round(metrics.last_trailing_stop, 6)
+                        closure_data["candle_count"] = metrics.candle_count
+                        if metrics.hwm_price > 0 and entry_data.side == "LONG":
+                            drawdown = (metrics.hwm_price - order.price) / metrics.hwm_price * 100
+                            closure_data["drawdown_from_hwm_pct"] = round(drawdown, 4)
+                        elif metrics.lwm_price > 0 and entry_data.side == "SHORT":
+                            drawdown = (order.price - metrics.lwm_price) / metrics.lwm_price * 100
+                            closure_data["drawdown_from_hwm_pct"] = round(drawdown, 4)
+                except Exception as e:
+                    self.logger.debug("Failed to retrieve position metrics: %s", e)
 
             self.logger.debug(f"Cleaned up position entry data for {order.symbol}")
         else:

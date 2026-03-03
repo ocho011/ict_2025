@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-03-02T09:50:06.436Z",
+  "lastUpdated": "2026-03-03T07:28:03.261Z",
   "activeFeatures": [
     "strategies",
     "ict",
@@ -20,7 +20,7 @@
     "execution",
     "logging-cost-tracking"
   ],
-  "primaryFeature": "logging-cost-tracking",
+  "primaryFeature": "trailing-stop-logging-optimization",
   "features": {
     "strategies": {
       "phase": "do",
@@ -44,7 +44,7 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-28T18:18:52.472Z",
-        "lastUpdated": "2026-02-28T18:19:27.735Z"
+        "lastUpdated": "2026-03-03T04:32:08.797Z"
       },
       "lastFile": "/Users/osangwon/github/ict_2025/src/strategies/ict/exit.py"
     },
@@ -148,9 +148,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-28T22:02:07.742Z",
-        "lastUpdated": "2026-03-02T09:48:11.149Z"
+        "lastUpdated": "2026-03-03T04:34:45.723Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/core/strategy_hot_reloader.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/core/trading_engine.py"
     },
     "tests": {
       "phase": "do",
@@ -161,9 +161,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-02-28T22:07:21.479Z",
-        "lastUpdated": "2026-03-02T00:47:59.130Z"
+        "lastUpdated": "2026-03-03T07:28:03.261Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/test_order_execution.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/tests/test_position_metrics.py"
     },
     "elements": {
       "phase": "do",
@@ -200,9 +200,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-03-01T05:10:36.941Z",
-        "lastUpdated": "2026-03-02T09:41:20.297Z"
+        "lastUpdated": "2026-03-03T04:38:14.515Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/src/models/position.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/models/__init__.py"
     },
     "pre-flight-order-check": {
       "phase": "design",
@@ -233,9 +233,9 @@
       "documents": {},
       "timestamps": {
         "started": "2026-03-02T00:40:10.205Z",
-        "lastUpdated": "2026-03-02T09:50:06.436Z"
+        "lastUpdated": "2026-03-03T04:33:25.671Z"
       },
-      "lastFile": "/Users/osangwon/github/ict_2025/tests/execution/test_logging_cost_tracking.py"
+      "lastFile": "/Users/osangwon/github/ict_2025/src/execution/trade_coordinator.py"
     },
     "logging-cost-tracking": {
       "phase": "complete",
@@ -263,6 +263,33 @@
         "lastUpdated": "2026-03-02T10:00:00.000Z"
       },
       "lastFile": "docs/04-report/features/logging-cost-tracking.report.md"
+    },
+    "trailing-stop-logging-optimization": {
+      "phase": "complete",
+      "phaseNumber": 5,
+      "matchRate": 96,
+      "iterationCount": 0,
+      "requirements": [
+        "MFE/MAE tracking per position (PositionMetrics dataclass)",
+        "High-water mark / Low-water mark price logging",
+        "TRAILING_STOP_RATCHETED audit event",
+        "MFE/MAE fields in POSITION_CLOSED/TRADE_CLOSED events",
+        "Drawdown from HWM calculation",
+        "Trailing ratchet count tracking",
+        "get_position_metrics callable injection to TradeCoordinator",
+        "Unit tests for position metrics lifecycle (13 cases)"
+      ],
+      "documents": {
+        "plan": "docs/01-plan/features/trailing-stop-logging-optimization.plan.md",
+        "design": "docs/02-design/features/trailing-stop-logging-optimization.design.md",
+        "analysis": "docs/03-analysis/features/trailing-stop-logging-optimization.analysis.md",
+        "report": "docs/04-report/features/trailing-stop-logging-optimization.report.md"
+      },
+      "timestamps": {
+        "started": "2026-03-03T03:00:00.000Z",
+        "lastUpdated": "2026-03-03T04:45:00.000Z"
+      },
+      "lastFile": "tests/test_position_metrics.py"
     }
   },
   "pipeline": {
@@ -271,9 +298,9 @@
     "phaseHistory": []
   },
   "session": {
-    "startedAt": "2026-03-01T15:14:18.688Z",
+    "startedAt": "2026-03-03T06:22:08.827Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-03-02T09:50:06.436Z"
+    "lastActivity": "2026-03-03T07:28:03.261Z"
   },
   "history": [
     {
@@ -993,6 +1020,210 @@
     {
       "timestamp": "2026-03-02T09:50:06.436Z",
       "feature": "execution",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T01:48:45.286Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T01:48:55.308Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T01:48:56.725Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T01:50:45.971Z",
+      "action": "session_end",
+      "feature": "logging-cost-tracking",
+      "details": "Session ended"
+    },
+    {
+      "timestamp": "2026-03-03T02:35:29.271Z",
+      "action": "session_end",
+      "feature": "logging-cost-tracking",
+      "details": "Session ended"
+    },
+    {
+      "timestamp": "2026-03-03T02:35:29.298Z",
+      "action": "session_end",
+      "feature": "logging-cost-tracking",
+      "details": "Session ended"
+    },
+    {
+      "timestamp": "2026-03-03T04:29:48.938Z",
+      "feature": "ict_2025",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:29:50.026Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:30:10.083Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:30:17.079Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:30:27.116Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:30:39.142Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:31:10.937Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:31:21.030Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:31:28.442Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:32:08.797Z",
+      "feature": "ict",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:32:25.885Z",
+      "feature": "execution",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:32:40.057Z",
+      "feature": "execution",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:33:25.671Z",
+      "feature": "execution",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:34:09.983Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:34:45.723Z",
+      "feature": "core",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:36:25.668Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:37:42.191Z",
+      "feature": "ict_2025",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:38:14.515Z",
+      "feature": "ict_2025",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:38:55.555Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:39:02.375Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:39:08.575Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T04:39:34.412Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T06:22:08.789Z",
+      "action": "session_end",
+      "feature": "trailing-stop-logging-optimization",
+      "details": "Session ended"
+    },
+    {
+      "timestamp": "2026-03-03T07:27:15.717Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T07:27:20.523Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T07:27:42.284Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T07:27:57.181Z",
+      "feature": "tests",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-03T07:28:03.261Z",
+      "feature": "tests",
       "phase": "do",
       "action": "updated"
     }
