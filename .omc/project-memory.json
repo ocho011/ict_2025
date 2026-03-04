@@ -1,6 +1,6 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1772374903292,
+  "lastScanned": 1772463292441,
   "projectRoot": "/Users/osangwon/github/ict_2025",
   "techStack": {
     "languages": [
@@ -57,14 +57,14 @@
       "path": "analysis_log",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1772374903280,
+      "lastAccessed": 1772463292429,
       "keyFiles": []
     },
     "conductor": {
       "path": "conductor",
       "purpose": null,
       "fileCount": 6,
-      "lastAccessed": 1772374903280,
+      "lastAccessed": 1772463292429,
       "keyFiles": [
         "index.md",
         "product-guidelines.md",
@@ -77,7 +77,7 @@
       "path": "configs",
       "purpose": null,
       "fileCount": 2,
-      "lastAccessed": 1772374903281,
+      "lastAccessed": 1772463292429,
       "keyFiles": [
         "api_keys.ini",
         "base.yaml"
@@ -87,7 +87,7 @@
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 3,
-      "lastAccessed": 1772374903281,
+      "lastAccessed": 1772463292430,
       "keyFiles": [
         "PDCA-Strategy-Abstraction-Redesign.report.md"
       ]
@@ -96,7 +96,7 @@
       "path": "htmlcov",
       "purpose": null,
       "fileCount": 154,
-      "lastAccessed": 1772374903281,
+      "lastAccessed": 1772463292432,
       "keyFiles": [
         "class_index.html",
         "coverage_html_cb_6fb7b396.js",
@@ -109,7 +109,7 @@
       "path": "logs",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1772374903282,
+      "lastAccessed": 1772463292433,
       "keyFiles": [
         "trading.log"
       ]
@@ -118,7 +118,7 @@
       "path": "scripts",
       "purpose": "Build/utility scripts",
       "fileCount": 10,
-      "lastAccessed": 1772374903282,
+      "lastAccessed": 1772463292433,
       "keyFiles": [
         "analyze_ict_conditions.py",
         "benchmark_metrics.py",
@@ -131,7 +131,7 @@
       "path": "src",
       "purpose": "Source code",
       "fileCount": 2,
-      "lastAccessed": 1772374903282,
+      "lastAccessed": 1772463292433,
       "keyFiles": [
         "__init__.py",
         "main.py"
@@ -141,7 +141,7 @@
       "path": "temp",
       "purpose": null,
       "fileCount": 3,
-      "lastAccessed": 1772374903282,
+      "lastAccessed": 1772463292433,
       "keyFiles": [
         "circuit_breaker_analysis.md",
         "ordertype관련.txt",
@@ -152,7 +152,7 @@
       "path": "tests",
       "purpose": "Test files",
       "fileCount": 28,
-      "lastAccessed": 1772374903282,
+      "lastAccessed": 1772463292434,
       "keyFiles": [
         "analysis_script.py",
         "test_audit_logger.py",
@@ -165,7 +165,7 @@
       "path": "venv",
       "purpose": null,
       "fileCount": 1,
-      "lastAccessed": 1772374903282,
+      "lastAccessed": 1772463292434,
       "keyFiles": [
         "pyvenv.cfg"
       ]
@@ -174,7 +174,7 @@
       "path": "configs/examples",
       "purpose": "Example code",
       "fileCount": 5,
-      "lastAccessed": 1772374903283,
+      "lastAccessed": 1772463292435,
       "keyFiles": [
         "README.md",
         "api_keys.ini.example",
@@ -185,7 +185,7 @@
       "path": "src/config",
       "purpose": "Configuration files",
       "fileCount": 4,
-      "lastAccessed": 1772374903283,
+      "lastAccessed": 1772463292435,
       "keyFiles": [
         "__init__.py",
         "ict_profiles.py",
@@ -196,7 +196,7 @@
       "path": "src/data",
       "purpose": "Data files",
       "fileCount": 3,
-      "lastAccessed": 1772374903283,
+      "lastAccessed": 1772463292436,
       "keyFiles": [
         "__init__.py",
         "base.py",
@@ -207,7 +207,7 @@
       "path": "tests/data",
       "purpose": "Data files",
       "fileCount": 2,
-      "lastAccessed": 1772374903283,
+      "lastAccessed": 1772463292436,
       "keyFiles": [
         "__init__.py",
         "test_historical.py"
@@ -217,7 +217,7 @@
       "path": "tests/models",
       "purpose": "Data models",
       "fileCount": 1,
-      "lastAccessed": 1772374903283,
+      "lastAccessed": 1772463292437,
       "keyFiles": [
         "test_enriched_candle.py"
       ]
@@ -226,7 +226,7 @@
       "path": "venv/bin",
       "purpose": "Executable scripts",
       "fileCount": 12,
-      "lastAccessed": 1772374903283,
+      "lastAccessed": 1772463292437,
       "keyFiles": [
         "Activate.ps1",
         "activate",
@@ -237,136 +237,202 @@
       "path": "venv/lib",
       "purpose": "Library code",
       "fileCount": 0,
-      "lastAccessed": 1772374903283,
+      "lastAccessed": 1772463292437,
       "keyFiles": []
     }
   },
   "hotPaths": [
     {
-      "path": "src/execution/order_gateway.py",
-      "accessCount": 33,
-      "lastAccessed": 1772412266118,
+      "path": "src/core/trading_engine.py",
+      "accessCount": 17,
+      "lastAccessed": 1772522626602,
       "type": "file"
     },
     {
       "path": "src/execution/trade_coordinator.py",
-      "accessCount": 16,
-      "lastAccessed": 1772425526816,
+      "accessCount": 15,
+      "lastAccessed": 1772522821372,
       "type": "file"
     },
     {
-      "path": "",
-      "accessCount": 6,
-      "lastAccessed": 1772407597720,
-      "type": "directory"
+      "path": "src/strategies/ict/exit.py",
+      "accessCount": 13,
+      "lastAccessed": 1772522625628,
+      "type": "file"
+    },
+    {
+      "path": "tests/test_position_metrics.py",
+      "accessCount": 12,
+      "lastAccessed": 1772522883307,
+      "type": "file"
     },
     {
       "path": "docs/.pdca-status.json",
+      "accessCount": 12,
+      "lastAccessed": 1772522989811,
+      "type": "file"
+    },
+    {
+      "path": "src/execution/order_gateway.py",
       "accessCount": 6,
-      "lastAccessed": 1772411411244,
+      "lastAccessed": 1772505478366,
       "type": "file"
     },
     {
-      "path": "tests/test_order_execution.py",
+      "path": "src",
       "accessCount": 6,
-      "lastAccessed": 1772412479188,
+      "lastAccessed": 1772512418752,
+      "type": "directory"
+    },
+    {
+      "path": "src/models/position.py",
+      "accessCount": 6,
+      "lastAccessed": 1772522623569,
       "type": "file"
     },
     {
-      "path": ".mcp.json",
-      "accessCount": 4,
-      "lastAccessed": 1772377614246,
+      "path": "src/core/audit_logger.py",
+      "accessCount": 5,
+      "lastAccessed": 1772522624466,
       "type": "file"
     },
     {
-      "path": "src/execution/base.py",
-      "accessCount": 4,
-      "lastAccessed": 1772412010264,
+      "path": "src/utils/config_manager.py",
+      "accessCount": 3,
+      "lastAccessed": 1772505462460,
+      "type": "file"
+    },
+    {
+      "path": "src/core/event_dispatcher.py",
+      "accessCount": 3,
+      "lastAccessed": 1772505495073,
+      "type": "directory"
+    },
+    {
+      "path": "src/models/__init__.py",
+      "accessCount": 3,
+      "lastAccessed": 1772522624018,
+      "type": "file"
+    },
+    {
+      "path": "src/models/signal.py",
+      "accessCount": 3,
+      "lastAccessed": 1772522856983,
+      "type": "directory"
+    },
+    {
+      "path": "docs/01-plan/features/trailing-stop-logging-optimization.plan.md",
+      "accessCount": 3,
+      "lastAccessed": 1772522924837,
+      "type": "file"
+    },
+    {
+      "path": "docs/02-design/features/trailing-stop-logging-optimization.design.md",
+      "accessCount": 3,
+      "lastAccessed": 1772522925094,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/trailing_level_protocol.py",
+      "accessCount": 2,
+      "lastAccessed": 1772505452625,
       "type": "file"
     },
     {
       "path": "src/models/order.py",
-      "accessCount": 3,
-      "lastAccessed": 1772412355987,
+      "accessCount": 2,
+      "lastAccessed": 1772505470502,
       "type": "directory"
     },
     {
-      "path": "tests/execution/test_pre_flight_order_check.py",
-      "accessCount": 3,
-      "lastAccessed": 1772412388897,
+      "path": "src/strategies/composable.py",
+      "accessCount": 2,
+      "lastAccessed": 1772505481366,
       "type": "file"
     },
     {
-      "path": "src/risk/risk_guard.py",
+      "path": "src/exit/base.py",
       "accessCount": 2,
-      "lastAccessed": 1772407751911,
+      "lastAccessed": 1772511947395,
       "type": "file"
     },
     {
-      "path": "src/execution/liquidation_manager.py",
+      "path": ".claude/agent-memory/bkit-gap-detector/MEMORY.md",
       "accessCount": 2,
-      "lastAccessed": 1772407758718,
+      "lastAccessed": 1772522786597,
       "type": "file"
     },
     {
-      "path": "docs/01-plan/features/pre-flight-order-check.plan.md",
+      "path": "docs/03-analysis/features/trailing-stop-logging-optimization.analysis.md",
       "accessCount": 2,
-      "lastAccessed": 1772411262065,
+      "lastAccessed": 1772522927952,
       "type": "file"
     },
     {
-      "path": "docs/02-design/features/pre-flight-order-check.design.md",
+      "path": "docs/04-report/features/trailing-stop-logging-optimization.report.md",
       "accessCount": 2,
-      "lastAccessed": 1772425516366,
+      "lastAccessed": 1772522971957,
+      "type": "file"
+    },
+    {
+      "path": "src/core/public_market_streamer.py",
+      "accessCount": 1,
+      "lastAccessed": 1772502468099,
+      "type": "file"
+    },
+    {
+      "path": "src/core/private_user_streamer.py",
+      "accessCount": 1,
+      "lastAccessed": 1772502468359,
+      "type": "file"
+    },
+    {
+      "path": "src/core/binance_service.py",
+      "accessCount": 1,
+      "lastAccessed": 1772502483241,
+      "type": "file"
+    },
+    {
+      "path": "src/strategies/base.py",
+      "accessCount": 1,
+      "lastAccessed": 1772505260943,
+      "type": "file"
+    },
+    {
+      "path": "src/backtest/engine.py",
+      "accessCount": 1,
+      "lastAccessed": 1772505261269,
+      "type": "file"
+    },
+    {
+      "path": "src/execution/base.py",
+      "accessCount": 1,
+      "lastAccessed": 1772505268205,
       "type": "file"
     },
     {
       "path": "src/execution/mock_exchange.py",
       "accessCount": 1,
-      "lastAccessed": 1772407603919,
+      "lastAccessed": 1772505276143,
       "type": "file"
     },
     {
-      "path": "src",
+      "path": "src/strategies",
       "accessCount": 1,
-      "lastAccessed": 1772407612899,
+      "lastAccessed": 1772512431120,
       "type": "directory"
     },
     {
-      "path": "src/models/signal.py",
+      "path": "tests/test_exit_signal.py",
       "accessCount": 1,
-      "lastAccessed": 1772407629224,
+      "lastAccessed": 1772512528461,
       "type": "file"
     },
     {
-      "path": "docs/01-plan/features/ini-to-yaml-migration.plan.md",
+      "path": "tests",
       "accessCount": 1,
-      "lastAccessed": 1772408128663,
-      "type": "file"
-    },
-    {
-      "path": "src/execution",
-      "accessCount": 1,
-      "lastAccessed": 1772411269853,
+      "lastAccessed": 1772512728301,
       "type": "directory"
-    },
-    {
-      "path": "docs/02-design/features/ini-to-yaml-migration.design.md",
-      "accessCount": 1,
-      "lastAccessed": 1772411275999,
-      "type": "file"
-    },
-    {
-      "path": "tests/execution/test_trade_coordinator_with_mock.py",
-      "accessCount": 1,
-      "lastAccessed": 1772412285987,
-      "type": "file"
-    },
-    {
-      "path": "docs/04-report/pre-flight-order-check.report.md",
-      "accessCount": 1,
-      "lastAccessed": 1772426120642,
-      "type": "file"
     }
   ],
   "userDirectives": []
