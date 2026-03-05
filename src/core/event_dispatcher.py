@@ -110,7 +110,7 @@ class EventDispatcher:
         )
 
         # 2. Routing (Issue #42)
-        current_position = self._position_cache_manager.get(candle.symbol)
+        current_position = await self._position_cache_manager.get(candle.symbol)
 
         # Issue #41: Handle uncertain position state.
         # If _position_cache.get returns None, it could be "No Position" or "API Failure".
@@ -293,7 +293,7 @@ class EventDispatcher:
             sl_side = OrderSide.SELL if position.side == "LONG" else OrderSide.BUY
 
             # Update exchange SL
-            result = self._order_gateway.update_stop_loss(
+            result = await self._order_gateway.update_stop_loss(
                 symbol=candle.symbol,
                 new_stop_price=current_trailing,
                 side=sl_side,

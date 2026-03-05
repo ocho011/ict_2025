@@ -18,7 +18,7 @@ from src.models.signal import Signal
 from src.strategies.buffer_manager import BufferManager
 
 if TYPE_CHECKING:
-    from src.strategies.indicator_cache import IndicatorStateCache
+    from src.strategies.feature_store import FeatureStore
 
 
 class BaseStrategy(ABC):
@@ -52,8 +52,8 @@ class BaseStrategy(ABC):
         # Delegate buffer management to BufferManager
         self._buffer = BufferManager(self.buffer_size, _intervals)
 
-        # Indicator cache for pre-computed indicators (Issue #19)
-        self._indicator_cache: Optional["IndicatorStateCache"] = None
+        # Feature store for centralized indicator management (composable architecture)
+        self._feature_store: Optional["FeatureStore"] = None
 
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -77,21 +77,18 @@ class BaseStrategy(ABC):
     def _initialized(self) -> Dict[str, bool]:
         return self._buffer._initialized
 
+    def get_buffer(self, interval: str) -> Optional[deque]:
+        """Get the candle buffer for a specific interval."""
+        return self.buffers.get(interval)
+
     def initialize_with_historical_data(
         self, candles: List[Candle], interval: Optional[str] = None
     ) -> None:
         """Initialize strategy buffer with historical candle data."""
         def _on_initialized(target_interval: str, candle_list: List[Candle]) -> None:
-            if self._indicator_cache is not None and candle_list:
-                indicator_counts = self._indicator_cache.initialize_from_history(
-                    target_interval, candle_list
-                )
-                self.logger.info(
-                    "%s %s indicators initialized: OBs=%d, FVGs=%d",
-                    self.symbol, target_interval,
-                    indicator_counts.get("order_blocks", 0),
-                    indicator_counts.get("fvgs", 0),
-                )
+            # Note: FeatureStore initialization is now handled by TradingEngine
+            # to coordinate across multiple strategies/intervals if needed.
+            pass
 
         self._buffer.initialize(candles, interval, on_initialized=_on_initialized)
 
@@ -127,25 +124,23 @@ class BaseStrategy(ABC):
         return ModuleRequirements.empty()
 
     # ------------------------------------------------------------------
-    # Indicator cache
+    # Feature store
     # ------------------------------------------------------------------
 
     @property
-    def indicator_cache(self) -> Optional["IndicatorStateCache"]:
-        """Get the indicator cache instance."""
-        return self._indicator_cache
+    def feature_store(self) -> Optional["FeatureStore"]:
+        """Get the feature store instance."""
+        return self._feature_store
 
-    def set_indicator_cache(self, cache: "IndicatorStateCache") -> None:
-        """Set the indicator cache for pre-computed indicator management."""
-        self._indicator_cache = cache
-        self.logger.info("Indicator cache configured for %s", self.symbol)
+    def set_feature_store(self, store: "FeatureStore") -> None:
+        """Set the feature store for centralized indicator management."""
+        self._feature_store = store
+        self.logger.info("FeatureStore configured for %s", self.symbol)
 
     def _update_feature_cache(self, candle: Candle) -> None:
-        """Update indicator cache with new candle data."""
-        if self._indicator_cache is not None and candle.interval in self.intervals:
-            self._indicator_cache.update_on_new_candle(
-                candle.interval, candle, self.buffers[candle.interval]
-            )
+        """Update feature store with new candle data."""
+        # Note: FeatureStore.update is called by TradingEngine directly
+        pass
 
     # ------------------------------------------------------------------
     # Abstract interface

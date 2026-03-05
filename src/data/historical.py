@@ -93,7 +93,7 @@ class HistoricalDataProvider(MarketDataProvider):
     def is_running(self) -> bool:
         return self._is_running
 
-    def get_historical_candles(
+    async def get_historical_candles(
         self, symbol: str, interval: str, limit: int = 500
     ) -> List[Candle]:
         """Return up to *limit* candles for initialisation.

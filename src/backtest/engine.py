@@ -145,7 +145,7 @@ class BacktestEngine:
             self._exchange.set_leverage(symbol, self._config.leverage)
 
         # 2. Initialize strategies with historical backfill
-        self._initialize_strategies()
+        await self._initialize_strategies()
 
         # 3. Replay remaining candles
         candles_processed = await self._replay_candles()
@@ -181,11 +181,11 @@ class BacktestEngine:
 
         return result
 
-    def _initialize_strategies(self) -> None:
+    async def _initialize_strategies(self) -> None:
         """Feed initial historical window to strategies for buffer warmup."""
         for symbol, strategy in self._strategies.items():
             for interval in strategy.intervals:
-                candles = self._data_provider.get_historical_candles(
+                candles = await self._data_provider.get_historical_candles(
                     symbol=symbol,
                     interval=interval,
                     limit=self._config.backfill_limit,
@@ -430,7 +430,7 @@ class BacktestEngine:
     ) -> None:
         """Execute an exit signal via MockExchange."""
         # Cancel pending orders
-        self._exchange.cancel_all_orders(signal.symbol)
+        await self._exchange.cancel_all_orders(signal.symbol)
 
         # Close position
         close_side = (

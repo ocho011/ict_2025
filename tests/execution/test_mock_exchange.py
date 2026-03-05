@@ -322,16 +322,16 @@ class TestCancelAllOrders:
 
     def test_cancel_returns_count(self, exchange, long_signal):
         exchange.execute_signal(long_signal, quantity=0.1)
-        count = exchange.cancel_all_orders("BTCUSDT")
+        count = await exchange.cancel_all_orders("BTCUSDT")
         assert count == 2  # TP + SL
 
     def test_cancel_empty_returns_zero(self, exchange):
-        count = exchange.cancel_all_orders("BTCUSDT")
+        count = await exchange.cancel_all_orders("BTCUSDT")
         assert count == 0
 
     def test_cancel_clears_open_orders(self, exchange, long_signal):
         exchange.execute_signal(long_signal, quantity=0.1)
-        exchange.cancel_all_orders("BTCUSDT")
+        await exchange.cancel_all_orders("BTCUSDT")
         assert len(exchange.get_open_orders("BTCUSDT")) == 0
 
     def test_cancel_does_not_affect_other_symbol(
@@ -339,7 +339,7 @@ class TestCancelAllOrders:
     ):
         exchange.execute_signal(long_signal, quantity=0.1)
         exchange.execute_signal(short_signal, quantity=1.0)
-        exchange.cancel_all_orders("BTCUSDT")
+        await exchange.cancel_all_orders("BTCUSDT")
         assert len(exchange.get_open_orders("ETHUSDT")) == 2
 
 

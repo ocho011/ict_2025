@@ -13,7 +13,7 @@ import logging
 from typing import Dict, List, Optional, Tuple
 
 from src.config.symbol_config import SymbolConfig
-from src.pricing.base import StrategyModuleConfig
+from src.strategies.modules.base.pricing import StrategyModuleConfig
 from src.strategies.module_registry import ModuleCategory, ModuleRegistry
 
 logger = logging.getLogger(__name__)
@@ -63,31 +63,27 @@ class DynamicAssembler:
         Returns:
             (StrategyModuleConfig, intervals, min_rr_ratio)
         """
-        modules_spec = symbol_config.modules if symbol_config.modules else {}
+        # Try new explicit config fields first, then fallback to modules dict
+        entry_spec = symbol_config.entry_config or symbol_config.modules.get('entry', {})
+        exit_spec = symbol_config.exit_config or symbol_config.modules.get('exit', {})
+        sl_spec = symbol_config.stop_loss_config or symbol_config.modules.get('stop_loss', {})
+        tp_spec = symbol_config.take_profit_config or symbol_config.modules.get('take_profit', {})
 
-        # If no modules spec, fall back to legacy builder
-        if not modules_spec:
+        # If all specs are empty, fall back to legacy builder
+        if not any([entry_spec, exit_spec, sl_spec, tp_spec]):
             return self._legacy_fallback(symbol_config)
 
         # Create 4 modules dynamically
-        entry = self._create_module(
-            ModuleCategory.ENTRY, modules_spec.get('entry', {}), symbol_config.symbol
-        )
-        stop_loss = self._create_module(
-            ModuleCategory.STOP_LOSS, modules_spec.get('stop_loss', {}), symbol_config.symbol
-        )
-        take_profit = self._create_module(
-            ModuleCategory.TAKE_PROFIT, modules_spec.get('take_profit', {}), symbol_config.symbol
-        )
-        exit_det = self._create_module(
-            ModuleCategory.EXIT, modules_spec.get('exit', {}), symbol_config.symbol
-        )
+        entry = self._create_module(ModuleCategory.ENTRY, entry_spec, symbol_config.symbol)
+        stop_loss = self._create_module(ModuleCategory.STOP_LOSS, sl_spec, symbol_config.symbol)
+        take_profit = self._create_module(ModuleCategory.TAKE_PROFIT, tp_spec, symbol_config.symbol)
+        exit_det = self._create_module(ModuleCategory.EXIT, exit_spec, symbol_config.symbol)
 
         # Validate combination
-        entry_type = modules_spec.get('entry', {}).get('type', _DEFAULT_MODULES[ModuleCategory.ENTRY][0])
-        sl_type = modules_spec.get('stop_loss', {}).get('type', _DEFAULT_MODULES[ModuleCategory.STOP_LOSS][0])
-        tp_type = modules_spec.get('take_profit', {}).get('type', _DEFAULT_MODULES[ModuleCategory.TAKE_PROFIT][0])
-        exit_type = modules_spec.get('exit', {}).get('type', _DEFAULT_MODULES[ModuleCategory.EXIT][0])
+        entry_type = self._get_module_type(entry_spec) or _DEFAULT_MODULES[ModuleCategory.ENTRY][0]
+        sl_type = self._get_module_type(sl_spec) or _DEFAULT_MODULES[ModuleCategory.STOP_LOSS][0]
+        tp_type = self._get_module_type(tp_spec) or _DEFAULT_MODULES[ModuleCategory.TAKE_PROFIT][0]
+        exit_type = self._get_module_type(exit_spec) or _DEFAULT_MODULES[ModuleCategory.EXIT][0]
 
         warnings = self._registry.validate_combination(entry_type, sl_type, tp_type, exit_type)
         for w in warnings:
@@ -108,8 +104,8 @@ class DynamicAssembler:
         )
 
         # Extract min_rr_ratio from take_profit params or default
-        tp_params = modules_spec.get('take_profit', {}).get('params', {})
-        min_rr_ratio = tp_params.get('risk_reward_ratio', 1.5)
+        tp_params = self._get_module_params(tp_spec)
+        min_rr_ratio = tp_params.get('take_profit_ratio', tp_params.get('risk_reward_ratio', 1.5))
 
         logger.info(
             "[%s] Dynamic assembly complete: entry=%s, sl=%s, tp=%s, exit=%s, intervals=%s",
@@ -118,10 +114,18 @@ class DynamicAssembler:
 
         return module_config, intervals, min_rr_ratio
 
+    def _get_module_type(self, spec: dict) -> Optional[str]:
+        """Normalize module type/strategy name."""
+        return spec.get('strategy') or spec.get('type')
+
+    def _get_module_params(self, spec: dict) -> dict:
+        """Normalize module parameters."""
+        return spec.get('parameters') or spec.get('params', {})
+
     def _create_module(self, category: str, spec: dict, symbol: str):
         """Create a single module. Uses default if spec is empty."""
-        module_type = spec.get('type')
-        params = spec.get('params', {})
+        module_type = self._get_module_type(spec)
+        params = self._get_module_params(spec)
 
         if not module_type:
             default_type, default_params = _DEFAULT_MODULES[category]

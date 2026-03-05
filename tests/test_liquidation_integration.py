@@ -55,10 +55,10 @@ def mock_order_gateway_with_positions():
     manager.get_all_positions = AsyncMock(side_effect=mock_get_positions)
 
     # Mock cancel_all_orders - returns cancel count
-    def mock_cancel_orders(symbol):
+    async def mock_cancel_orders(symbol):
         return 2 if symbol == "BTCUSDT" else 1
 
-    manager.cancel_all_orders = MagicMock(side_effect=mock_cancel_orders)
+    manager.cancel_all_orders = AsyncMock(side_effect=mock_cancel_orders)
 
     # Mock execute_market_close - returns success
     async def mock_execute_close(symbol, position_amt, side, reduce_only=True):
@@ -182,7 +182,7 @@ class TestRetryLogicWithExponentialBackoff:
         mock_order_gateway = MagicMock()
 
         # Mock failures then success
-        mock_order_gateway.cancel_all_orders = MagicMock(
+        mock_order_gateway.cancel_all_orders = AsyncMock(
             side_effect=[
                 Exception("API error"),  # Attempt 1: fail
                 Exception("Timeout"),    # Attempt 2: fail
@@ -263,7 +263,7 @@ class TestRetryLogicWithExponentialBackoff:
         mock_order_gateway = MagicMock()
 
         # Always fail
-        mock_order_gateway.cancel_all_orders = MagicMock(
+        mock_order_gateway.cancel_all_orders = AsyncMock(
             side_effect=Exception("Persistent API error")
         )
 
@@ -376,7 +376,7 @@ class TestSecurityRequirements:
             return []  # Empty - positions with 0 amount are already filtered
 
         mock_order_gateway.get_all_positions = AsyncMock(side_effect=mock_get_positions)
-        mock_order_gateway.cancel_all_orders = MagicMock(return_value=0)
+        mock_order_gateway.cancel_all_orders = AsyncMock(return_value=0)
         mock_order_gateway.execute_market_close = AsyncMock()
 
         manager = LiquidationManager(
@@ -452,7 +452,7 @@ class TestEdgeCases:
 
         # Return empty list
         mock_order_gateway.get_all_positions = AsyncMock(return_value=[])
-        mock_order_gateway.cancel_all_orders = MagicMock(return_value=0)
+        mock_order_gateway.cancel_all_orders = AsyncMock(return_value=0)
 
         manager = LiquidationManager(
             order_gateway=mock_order_gateway,

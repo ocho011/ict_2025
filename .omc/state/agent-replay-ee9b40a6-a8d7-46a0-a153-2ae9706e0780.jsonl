@@ -1,0 +1,8 @@
+{"t":0,"agent":"a2094f3","agent_type":"Plan","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"abf51fc","agent_type":"Bash","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a594964","agent_type":"Explore","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"abf51fc","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a2094f3","agent_type":"unknown","event":"agent_stop","success":true}
+{"t":0,"agent":"a594964","agent_type":"Explore","event":"agent_stop","success":true,"duration_ms":2706}
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"pipeline"}
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"research"}

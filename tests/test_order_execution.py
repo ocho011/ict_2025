@@ -495,7 +495,7 @@ class TestExecuteSignal:
     def test_execute_signal_long_entry_success(self, manager, mock_client, long_entry_signal):
         """LONG_ENTRY signal execution success"""
         # execute_signal returns (Order, List[Order]) tuple
-        entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
+        entry_order, tpsl_orders = await manager.execute_signal(long_entry_signal, quantity=0.001)
 
         # Verify Order object
         assert entry_order.symbol == "BTCUSDT"
@@ -518,7 +518,7 @@ class TestExecuteSignal:
         """SHORT_ENTRY signal execution success"""
         mock_client.new_order.return_value["side"] = "SELL"
 
-        entry_order, tpsl_orders = manager.execute_signal(short_entry_signal, quantity=0.001)
+        entry_order, tpsl_orders = await manager.execute_signal(short_entry_signal, quantity=0.001)
 
         # Verify Order object
         assert entry_order.side == OrderSide.SELL
@@ -530,7 +530,7 @@ class TestExecuteSignal:
 
     def test_execute_signal_reduce_only_true(self, manager, mock_client, long_entry_signal):
         """Pass reduce_only=True parameter"""
-        manager.execute_signal(long_entry_signal, quantity=0.001, reduce_only=True)
+        await manager.execute_signal(long_entry_signal, quantity=0.001, reduce_only=True)
 
         # Verify reduceOnly=True passed in API call (check entry order in first call)
         first_call = mock_client.new_order.call_args_list[0]
@@ -539,12 +539,12 @@ class TestExecuteSignal:
     def test_execute_signal_invalid_quantity_zero(self, manager, long_entry_signal):
         """quantity=0 → ValidationError"""
         with pytest.raises(ValidationError, match="Quantity must be > 0"):
-            manager.execute_signal(long_entry_signal, quantity=0)
+            await manager.execute_signal(long_entry_signal, quantity=0)
 
     def test_execute_signal_invalid_quantity_negative(self, manager, long_entry_signal):
         """quantity < 0 → ValidationError"""
         with pytest.raises(ValidationError, match="Quantity must be > 0"):
-            manager.execute_signal(long_entry_signal, quantity=-0.001)
+            await manager.execute_signal(long_entry_signal, quantity=-0.001)
 
     def test_execute_signal_binance_rejection(self, manager, mock_client, long_entry_signal):
         """Binance API rejection -> OrderRejectedError"""
@@ -553,19 +553,19 @@ class TestExecuteSignal:
         )
 
         with pytest.raises(OrderRejectedError, match="Binance rejected order"):
-            manager.execute_signal(long_entry_signal, quantity=0.001)
+            await manager.execute_signal(long_entry_signal, quantity=0.001)
 
     def test_execute_signal_network_error(self, manager, mock_client, long_entry_signal):
         """Network error -> OrderExecutionError"""
         mock_client.new_order.side_effect = Exception("Network unreachable")
 
         with pytest.raises(OrderExecutionError, match="Failed to execute order"):
-            manager.execute_signal(long_entry_signal, quantity=0.001)
+            await manager.execute_signal(long_entry_signal, quantity=0.001)
 
     def test_execute_signal_logging_intent(self, manager, mock_client, long_entry_signal, caplog):
         """Verify intent logging before execution"""
         with caplog.at_level(logging.INFO):
-            manager.execute_signal(long_entry_signal, quantity=0.001)
+            await manager.execute_signal(long_entry_signal, quantity=0.001)
 
             # Verify intent logging
             assert "Executing long_entry signal" in caplog.text
@@ -575,7 +575,7 @@ class TestExecuteSignal:
     def test_execute_signal_logging_success(self, manager, mock_client, long_entry_signal, caplog):
         """Verify execution success logging"""
         with caplog.at_level(logging.INFO):
-            manager.execute_signal(long_entry_signal, quantity=0.001)
+            await manager.execute_signal(long_entry_signal, quantity=0.001)
 
             # Verify success logging (message changed)
             assert "Entry order executed" in caplog.text
@@ -590,7 +590,7 @@ class TestExecuteSignal:
 
         with caplog.at_level(logging.ERROR):
             try:
-                manager.execute_signal(long_entry_signal, quantity=0.001)
+                await manager.execute_signal(long_entry_signal, quantity=0.001)
             except OrderRejectedError:
                 pass
 
@@ -606,7 +606,7 @@ class TestExecuteSignal:
         # Mock cancel_all_orders to track calls
         with patch.object(manager, "cancel_all_orders", return_value=2) as mock_cancel:
             # Execute signal
-            manager.execute_signal(long_entry_signal, quantity=0.001)
+            await manager.execute_signal(long_entry_signal, quantity=0.001)
 
             # Verify cancel_all_orders was called with correct symbol
             # May be called more than once (pre-entry cleanup + _ensure_tpsl_completeness)
@@ -620,7 +620,7 @@ class TestExecuteSignal:
         with patch.object(manager, "cancel_all_orders", side_effect=Exception("Cancel failed")):
             with caplog.at_level(logging.WARNING):
                 # Should not raise - should continue with TP/SL placement
-                entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
+                entry_order, tpsl_orders = await manager.execute_signal(long_entry_signal, quantity=0.001)
 
                 # Verify execution succeeded despite cancellation failure
                 assert entry_order is not None
@@ -636,7 +636,7 @@ class TestExecuteSignal:
         # Mock cancel_all_orders to return count
         with patch.object(manager, "cancel_all_orders", return_value=3):
             with caplog.at_level(logging.INFO):
-                manager.execute_signal(long_entry_signal, quantity=0.001)
+                await manager.execute_signal(long_entry_signal, quantity=0.001)
 
                 # Verify cancellation count was logged
                 assert "Cancelled 3 existing orders before placing new TP/SL orders" in caplog.text
@@ -648,7 +648,7 @@ class TestExecuteSignal:
         # Mock cancel_all_orders to track calls
         with patch.object(manager, "cancel_all_orders", return_value=1) as mock_cancel:
             # Execute close signal
-            manager.execute_signal(close_long_signal, quantity=0.001)
+            await manager.execute_signal(close_long_signal, quantity=0.001)
 
             # Verify cancel_all_orders WAS called for close signals
             mock_cancel.assert_called_once_with("BTCUSDT")
@@ -1038,7 +1038,7 @@ class TestTPSLPlacement:
             },
         ]
 
-        entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
+        entry_order, tpsl_orders = await manager.execute_signal(long_entry_signal, quantity=0.001)
 
         # Entry order assertions
         assert entry_order.order_id == "123456789"
@@ -1122,7 +1122,7 @@ class TestTPSLPlacement:
             },
         ]
 
-        entry_order, tpsl_orders = manager.execute_signal(short_entry_signal, quantity=0.001)
+        entry_order, tpsl_orders = await manager.execute_signal(short_entry_signal, quantity=0.001)
 
         assert entry_order.side == OrderSide.SELL
         assert len(tpsl_orders) == 2
@@ -1143,7 +1143,7 @@ class TestTPSLPlacement:
             "updateTime": 1678886400000,
         }
 
-        entry_order, tpsl_orders = manager.execute_signal(close_long_signal, quantity=0.001)
+        entry_order, tpsl_orders = await manager.execute_signal(close_long_signal, quantity=0.001)
 
         assert entry_order.side == OrderSide.SELL
         assert len(tpsl_orders) == 0  # No TP/SL for close signals
@@ -1160,7 +1160,7 @@ class TestTPSLPlacement:
         )
 
         with pytest.raises(OrderRejectedError, match="Margin is insufficient"):
-            manager.execute_signal(long_entry_signal, quantity=0.001)
+            await manager.execute_signal(long_entry_signal, quantity=0.001)
 
         # Verify only entry order was attempted
         assert mock_client.new_order.call_count == 1
@@ -1234,7 +1234,7 @@ class TestTPSLPlacement:
             },
         ]
 
-        entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
+        entry_order, tpsl_orders = await manager.execute_signal(long_entry_signal, quantity=0.001)
 
         # Entry succeeded
         assert entry_order.status == OrderStatus.FILLED
@@ -1264,7 +1264,7 @@ class TestTPSLPlacement:
             ClientError(status_code=400, error_code=-2010, error_message="SL error", header={}),
         ]
 
-        entry_order, tpsl_orders = manager.execute_signal(long_entry_signal, quantity=0.001)
+        entry_order, tpsl_orders = await manager.execute_signal(long_entry_signal, quantity=0.001)
 
         # Entry succeeded, no TP/SL orders
         assert entry_order.status == OrderStatus.FILLED
@@ -1444,7 +1444,7 @@ class TestQueryMethods:
         """LONG position query success"""
         mock_client.get_position_risk.return_value = mock_position_long
 
-        position = manager.get_position("BTCUSDT")
+        position = await manager.get_position("BTCUSDT")
 
         assert position is not None
         assert position.symbol == "BTCUSDT"
@@ -1461,7 +1461,7 @@ class TestQueryMethods:
         """SHORT position query success"""
         mock_client.get_position_risk.return_value = mock_position_short
 
-        position = manager.get_position("BTCUSDT")
+        position = await manager.get_position("BTCUSDT")
 
         assert position is not None
         assert position.symbol == "BTCUSDT"
@@ -1476,7 +1476,7 @@ class TestQueryMethods:
         """No position (positionAmt=0)"""
         mock_client.get_position_risk.return_value = mock_position_zero
 
-        position = manager.get_position("BTCUSDT")
+        position = await manager.get_position("BTCUSDT")
 
         assert position is None
         mock_client.get_position_risk.assert_called_once_with(symbol="BTCUSDT")
@@ -1488,7 +1488,7 @@ class TestQueryMethods:
         )
 
         with pytest.raises(ValidationError, match="Invalid symbol"):
-            manager.get_position("INVALID")
+            await manager.get_position("INVALID")
 
     def test_get_position_api_error(self, manager, mock_client):
         """API Authentication Error"""
@@ -1497,7 +1497,7 @@ class TestQueryMethods:
         )
 
         with pytest.raises(OrderExecutionError, match="API authentication failed"):
-            manager.get_position("BTCUSDT")
+            await manager.get_position("BTCUSDT")
 
     # ========== get_account_balance() Tests ==========
 
@@ -1505,7 +1505,7 @@ class TestQueryMethods:
         """USDT balance fetch success"""
         mock_client.account.return_value = mock_account_with_usdt
 
-        balance = manager.get_account_balance()
+        balance = await manager.get_account_balance()
 
         assert balance == 1234.56
         mock_client.account.assert_called_once()
@@ -1516,7 +1516,7 @@ class TestQueryMethods:
         """USDT not in assets"""
         mock_client.account.return_value = mock_account_without_usdt
 
-        balance = manager.get_account_balance()
+        balance = await manager.get_account_balance()
 
         assert balance == 0.0
         mock_client.account.assert_called_once()
@@ -1528,7 +1528,7 @@ class TestQueryMethods:
         )
 
         with pytest.raises(OrderExecutionError, match="API authentication failed"):
-            manager.get_account_balance()
+            await manager.get_account_balance()
 
     # ========== cancel_all_orders() Tests ==========
 
@@ -1543,7 +1543,7 @@ class TestQueryMethods:
         ]
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
 
-        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=False)
+        cancelled_count = await manager.cancel_all_orders("BTCUSDT", verify=False)
 
         assert cancelled_count == 2
         mock_client.cancel_open_orders.assert_called_once_with(symbol="BTCUSDT")
@@ -1553,7 +1553,7 @@ class TestQueryMethods:
         # get_open_orders returns empty list
         mock_client.get_orders.return_value = []
 
-        cancelled_count = manager.cancel_all_orders("BTCUSDT")
+        cancelled_count = await manager.cancel_all_orders("BTCUSDT")
 
         assert cancelled_count == 0
         # cancel_open_orders should NOT be called - this is the Issue #65 fix
@@ -1565,7 +1565,7 @@ class TestQueryMethods:
         mock_client.get_orders.side_effect = Exception("Failed to query")
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
 
-        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=False)
+        cancelled_count = await manager.cancel_all_orders("BTCUSDT", verify=False)
 
         # Should still proceed with cancel as fallback
         assert cancelled_count == 2
@@ -1580,7 +1580,7 @@ class TestQueryMethods:
         )
 
         with pytest.raises(ValidationError, match="Invalid symbol"):
-            manager.cancel_all_orders("INVALID")
+            await manager.cancel_all_orders("INVALID")
 
     def test_cancel_all_orders_api_error(self, manager, mock_client):
         """API Error"""
@@ -1591,7 +1591,7 @@ class TestQueryMethods:
         )
 
         with pytest.raises(OrderExecutionError, match="Order cancellation failed"):
-            manager.cancel_all_orders("BTCUSDT")
+            await manager.cancel_all_orders("BTCUSDT")
 
     # ========== get_open_orders() Tests ==========
 
@@ -1710,7 +1710,7 @@ class TestQueryMethods:
         # First call: initial check (has orders), subsequent: verification (empty)
         mock_client.get_orders.side_effect = [initial_orders, [], []]
 
-        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True)
+        cancelled_count = await manager.cancel_all_orders("BTCUSDT", verify=True)
 
         assert cancelled_count == 2
         mock_client.cancel_open_orders.assert_called_once()
@@ -1732,7 +1732,7 @@ class TestQueryMethods:
         mock_client.get_orders.side_effect = [initial_orders, remaining_orders, [], []]
         mock_client.cancel_order.return_value = {"status": "CANCELED"}
 
-        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=3)
+        cancelled_count = await manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=3)
 
         assert cancelled_count == 3  # 2 from bulk + 1 from individual
         assert mock_client.cancel_order.call_count == 1
@@ -1753,7 +1753,7 @@ class TestQueryMethods:
         mock_client.cancel_order.return_value = {"status": "NEW"}  # Failed to cancel
 
         with caplog.at_level(logging.WARNING):
-            cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=2)
+            cancelled_count = await manager.cancel_all_orders("BTCUSDT", verify=True, max_retries=2)
 
         # Should log warning about remaining orders
         assert "still open" in caplog.text.lower() or "remain" in caplog.text.lower()
@@ -1768,7 +1768,7 @@ class TestQueryMethods:
         mock_client.get_orders.return_value = initial_orders
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
 
-        cancelled_count = manager.cancel_all_orders("BTCUSDT", verify=False)
+        cancelled_count = await manager.cancel_all_orders("BTCUSDT", verify=False)
 
         assert cancelled_count == 2
         mock_client.cancel_open_orders.assert_called_once()
@@ -1785,7 +1785,7 @@ class TestQueryMethods:
         mock_client.cancel_open_orders.return_value = mock_cancel_with_orders
         mock_client.get_orders.side_effect = [initial_orders, [], []]
 
-        manager.cancel_all_orders("BTCUSDT")  # Default verify=True
+        await manager.cancel_all_orders("BTCUSDT")  # Default verify=True
 
         # get_orders called multiple times: initial check + verification
         assert mock_client.get_orders.call_count >= 2

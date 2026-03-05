@@ -4,16 +4,15 @@ Order execution and management with Binance Futures API integration.
 
 import logging
 import time
+import asyncio
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from binance.error import ClientError, ServerError
-
 from src.core.audit_logger import AuditEventType, AuditLogger
-from src.core.binance_service import BinanceServiceClient
-from src.core.circuit_breaker import CircuitBreaker
+from src.core.async_binance_client import AsyncBinanceClient
+from src.core.async_circuit_breaker import AsyncCircuitBreaker
 from src.core.exceptions import OrderExecutionError, OrderRejectedError, ValidationError
-from src.core.retry import retry_with_backoff
+from src.core.async_retry import async_retry_with_backoff
 from src.models.order import Order, OrderSide, OrderStatus, OrderType
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
@@ -58,7 +57,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
     def __init__(
         self,
         audit_logger: Optional[AuditLogger] = None,
-        binance_service: Optional[BinanceServiceClient] = None,
+        binance_service: Optional[AsyncBinanceClient] = None,
     ) -> None:
         """
         Initialize OrderGateway.
@@ -66,13 +65,13 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         Args:
             audit_logger: Optional AuditLogger instance for structured logging.
                          If None, uses singleton instance from AuditLogger.get_instance()
-            binance_service: Centralized BinanceServiceClient instance
+            binance_service: Centralized AsyncBinanceClient instance
         """
         # Store injected service and components
         self.client = binance_service
         self.binance_service = binance_service
         self.audit_logger = audit_logger or AuditLogger.get_instance()
-        self.weight_tracker = binance_service.weight_tracker if binance_service else None
+        self.weight_tracker = None # Async client handles weight internally or later
 
         # Configure logger
         self.logger = logging.getLogger(__name__)
@@ -86,7 +85,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         self._open_orders_cache_ttl: float = 30.0  # 30 second TTL
 
         # Circuit breaker for position queries - more tolerant settings
-        self._position_circuit_breaker = CircuitBreaker(
+        self._position_circuit_breaker = AsyncCircuitBreaker(
             failure_threshold=5,
             recovery_timeout=60,  # Increased from 3 to 5, 30s to 60s
         )
@@ -95,8 +94,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         self._exchange_info_cache: Dict[str, Dict[str, float]] = {}
         self._cache_timestamp: Optional[datetime] = None
 
-    @retry_with_backoff(max_retries=3, initial_delay=1.0)
-    def set_leverage(self, symbol: str, leverage: int) -> bool:
+    @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
         """
         Set leverage for a symbol.
 
@@ -127,63 +126,37 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             False
         """
         try:
-            # Call Binance API
-            response = self.client.change_leverage(symbol=symbol, leverage=leverage)
+            # Call Binance API asynchronously
+            response = await self.client.request(
+                "POST", "/fapi/v1/leverage", signed=True,
+                params={"symbol": symbol, "leverage": leverage}
+            )
 
             # Audit log success
             self.audit_logger.log_event(
                 event_type=AuditEventType.LEVERAGE_SET,
                 operation="set_leverage",
                 symbol=symbol,
-                response={"leverage": leverage, "status": "success"},
+                response={"leverage": leverage, "status": "success", "api_response": response},
             )
 
             # Log success
-            self.logger.info(f"Leverage set to {leverage}x for {symbol}")
+            self.logger.info(f"Leverage successfully set to {leverage}x for {symbol}")
             return True
 
-        except ClientError as e:
-            # Audit log API error
-            self.audit_logger.log_event(
-                event_type=AuditEventType.API_ERROR,
-                operation="set_leverage",
-                symbol=symbol,
-                error={
-                    "status_code": e.status_code,
-                    "error_code": e.error_code,
-                    "error_message": e.error_message,
-                },
-            )
-
-            # Binance API error (4xx status codes)
-            self.logger.error(
-                f"Failed to set leverage for {symbol}: "
-                f"code={e.error_code}, msg={e.error_message}"
-            )
-            return False
-
-        except ServerError as e:
-            # Handle server errors and audit log
-            self.audit_logger.log_event(
-                event_type=AuditEventType.API_ERROR,
-                operation="set_leverage",
-                symbol=symbol,
-                error={"status_code": e.status_code, "message": e.message},
-            )
-
-            self.logger.error(
-                f"Server error setting leverage for {symbol}: "
-                f"status={e.status_code}, msg={e.message}"
-            )
-            return False
-
         except Exception as e:
-            # Unexpected errors
-            self.logger.error(f"Unexpected error setting leverage for {symbol}: {e}")
+            # Audit log failure
+            self.audit_logger.log_event(
+                event_type=AuditEventType.API_ERROR,
+                operation="set_leverage",
+                symbol=symbol,
+                error=str(e),
+            )
+            self.logger.error(f"Failed to set leverage for {symbol}: {e}")
             return False
 
-    @retry_with_backoff(max_retries=3, initial_delay=1.0)
-    def set_margin_type(self, symbol: str, margin_type: str = "ISOLATED") -> bool:
+    @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
+    async def set_margin_type(self, symbol: str, margin_type: str = "ISOLATED") -> bool:
         """
         Set margin type (ISOLATED or CROSSED).
 
@@ -217,9 +190,10 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             True
         """
         try:
-            # Call Binance API
-            response = self.client.change_margin_type(
-                symbol=symbol, marginType=margin_type
+            # Call Binance API asynchronously
+            response = await self.client.request(
+                "POST", "/fapi/v1/marginType", signed=True,
+                params={"symbol": symbol, "marginType": margin_type}
             )
 
             # Audit log success
@@ -227,61 +201,33 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 event_type=AuditEventType.MARGIN_TYPE_SET,
                 operation="set_margin_type",
                 symbol=symbol,
-                response={"margin_type": margin_type, "status": "success"},
+                response={"margin_type": margin_type, "status": "success", "api_response": response},
             )
 
             # Log success
-            self.logger.info(f"Margin type set to {margin_type} for {symbol}")
+            self.logger.info(f"Margin type successfully set to {margin_type} for {symbol}")
             return True
 
-        except ClientError as e:
-            # Treat "No need to change" error as success
-            if "No need to change margin type" in e.error_message:
+        except Exception as e:
+            # Error -4046: "No need to change margin type."
+            # This is a success case: the exchange is already in the desired state.
+            if "-4046" in str(e) or "No need to change margin type" in str(e):
                 self.logger.debug(
                     f"Margin type already set to {margin_type} for {symbol}"
                 )
                 return True
 
-            # Audit log API error
+            # Audit log failure
             self.audit_logger.log_event(
                 event_type=AuditEventType.API_ERROR,
                 operation="set_margin_type",
                 symbol=symbol,
-                error={
-                    "status_code": e.status_code,
-                    "error_code": e.error_code,
-                    "error_message": e.error_message,
-                },
+                error=str(e),
             )
-
-            # Other ClientErrors are failures
-            self.logger.error(
-                f"Failed to set margin type for {symbol}: "
-                f"code={e.error_code}, msg={e.error_message}"
-            )
+            self.logger.error(f"Failed to set margin type for {symbol}: {e}")
             return False
 
-        except ServerError as e:
-            # Handle server errors and audit log
-            self.audit_logger.log_event(
-                event_type=AuditEventType.API_ERROR,
-                operation="set_margin_type",
-                symbol=symbol,
-                error={"status_code": e.status_code, "message": e.message},
-            )
-
-            self.logger.error(
-                f"Server error setting margin type for {symbol}: "
-                f"status={e.status_code}, msg={e.message}"
-            )
-            return False
-
-        except Exception as e:
-            # Unexpected errors
-            self.logger.error(f"Unexpected error setting margin type for {symbol}: {e}")
-            return False
-
-    def _format_price(self, price: float, symbol: str) -> str:
+    async def _format_price(self, price: float, symbol: str) -> str:
         """
         Format price according to symbol's tick size specification.
 
@@ -299,14 +245,14 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             OrderExecutionError: Exchange info fetch fails critically
 
         Example:
-            >>> manager._format_price(50123.456, 'BTCUSDT')
+            >>> await manager._format_price(50123.456, 'BTCUSDT')
             '50123.46'  # 2 decimals for BTCUSDT
 
-            >>> manager._format_price(492.1234, 'BNBUSDT')
+            >>> await manager._format_price(492.1234, 'BNBUSDT')
             '492.123'  # 3 decimals for BNBUSDT
         """
         # 1. Get symbol-specific tick size (with caching)
-        tick_size = self._get_tick_size(symbol)
+        tick_size = await self._get_tick_size(symbol)
 
         # 2. Calculate decimal precision from tick size
         decimal_places = self._calculate_precision(tick_size)
@@ -360,17 +306,14 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         age = datetime.now() - self._cache_timestamp
         return age > timedelta(hours=24)
 
-    @retry_with_backoff(max_retries=3, initial_delay=1.0)
-    def _refresh_exchange_info(self) -> None:
+    @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
+    async def _refresh_exchange_info(self) -> None:
         """Fetch and cache exchange information from Binance."""
-        self.logger.info("Fetching exchange information from Binance")
+        self.logger.info("Fetching exchange information from Binance asynchronously")
 
         try:
-            # Call Binance API to fetch exchange info
-            response = self.client.exchange_info()
-
-            # Handle Binance API response structure (already unwrapped by service)
-            exchange_data = response
+            # Call Binance API to fetch exchange info asynchronously
+            exchange_data = await self.client.get_exchange_info()
 
             if not isinstance(exchange_data, dict):
                 raise OrderExecutionError(
@@ -422,39 +365,15 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             self.logger.info(f"Exchange info cached: {symbols_parsed} symbols loaded")
 
-        except ClientError as e:
-            # Audit log API error
-            self.audit_logger.log_event(
-                event_type=AuditEventType.API_ERROR,
-                operation="_refresh_exchange_info",
-                error={
-                    "status_code": e.status_code,
-                    "error_code": e.error_code,
-                    "error_message": e.error_message,
-                },
-            )
-
-            self.logger.error(f"Failed to fetch exchange info: {e}")
-            raise OrderExecutionError(
-                f"Exchange info fetch failed: code={e.error_code}, msg={e.error_message}"
-            )
-
-        except ServerError as e:
-            # Handle server errors and audit log
-            self.audit_logger.log_event(
-                event_type=AuditEventType.API_ERROR,
-                operation="_refresh_exchange_info",
-                error={"status_code": e.status_code, "message": e.message},
-            )
-
-            self.logger.error(f"Server error fetching exchange info: {e}")
-            raise OrderExecutionError(f"Exchange info fetch failed: {e.message}")
-
         except Exception as e:
             self.logger.error(f"Failed to fetch exchange info: {e}")
-            raise OrderExecutionError(f"Exchange info fetch failed: {e}")
+            raise OrderExecutionError(f"Exchange info fetch failed: {e}") from e
 
-    def _get_tick_size(self, symbol: str) -> float:
+    async def refresh_exchange_info(self) -> None:
+        """Public method to refresh exchange info cache."""
+        await self._refresh_exchange_info()
+
+    async def _get_tick_size(self, symbol: str) -> float:
         """
         Get tick size for symbol from exchange info (cached).
 
@@ -472,7 +391,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         """
         # 1. Check cache validity
         if self._is_cache_expired():
-            self._refresh_exchange_info()
+            await self._refresh_exchange_info()
 
         # 2. Look up symbol in cache
         if symbol in self._exchange_info_cache:
@@ -488,7 +407,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         )
         return 0.01  # Default for USDT pairs
 
-    def _get_step_size(self, symbol: str) -> float:
+    async def _get_step_size(self, symbol: str) -> float:
         """
         Get step size (quantity precision) for symbol from exchange info (cached).
 
@@ -503,7 +422,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         """
         # 1. Check cache validity
         if self._is_cache_expired():
-            self._refresh_exchange_info()
+            await self._refresh_exchange_info()
 
         # 2. Look up symbol in cache
         if symbol in self._exchange_info_cache:
@@ -519,7 +438,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         )
         return 0.001  # Default
 
-    def _format_quantity(self, quantity: float, symbol: str) -> str:
+    async def _format_quantity(self, quantity: float, symbol: str) -> str:
         """
         Format quantity according to symbol's step size specification.
 
@@ -531,11 +450,11 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             Quantity formatted as string with symbol-specific precision
 
         Example:
-            >>> manager._format_quantity(10.123456, 'XRPUSDT')
+            >>> await manager._format_quantity(10.123456, 'XRPUSDT')
             '10.1'  # 1 decimal for XRPUSDT
         """
         # 1. Get symbol-specific step size (with caching)
-        step_size = self._get_step_size(symbol)
+        step_size = await self._get_step_size(symbol)
 
         # 2. Calculate decimal precision from step size
         decimal_places = self._calculate_precision(step_size)
@@ -718,8 +637,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         except (ValueError, TypeError) as e:
             raise OrderExecutionError(f"Invalid data type in API response: {e}")
 
-    @retry_with_backoff(max_retries=3)
-    def _place_sl_order(
+    @async_retry_with_backoff(max_retries=3)
+    async def _place_sl_order(
         self,
         signal: Signal,
         side: OrderSide,
@@ -755,7 +674,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             # CRITICAL: Order uses workingType=MARK_PRICE, so validate against mark price
             if adjusted_stop_loss:
                 try:
-                    mark_price = self.client.get_mark_price(signal.symbol)
+                    mark_price = await self.client.get_mark_price(signal.symbol)
                 except Exception as e:
                     self.logger.warning(f"Failed to get mark price, using entry: {e}")
                     mark_price = signal.entry_price if hasattr(signal, "entry_price") else 0.0
@@ -798,11 +717,11 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                         )
 
             # Format stop price for API
-            stop_price_str = self._format_price(adjusted_stop_loss, signal.symbol)
+            stop_price_str = await self._format_price(adjusted_stop_loss, signal.symbol)
 
             # Place STOP_MARKET order via Binance Algo Order API
             # Since 2025-12-09, conditional orders require /fapi/v1/algoOrder endpoint
-            response = self.client.new_algo_order(
+            response = await self.client.new_algo_order(
                 symbol=signal.symbol,
                 side=side.value,  # SELL for long, BUY for short
                 type=OrderType.STOP_MARKET.value,  # "STOP_MARKET"
@@ -845,16 +764,16 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return order
 
-        except ClientError as e:
+        except Exception as e:
             # Handle -4130: Duplicate TP/SL order with closePosition exists
-            if e.error_code == -4130:
+            if "-4130" in str(e):
                 self.logger.warning(
                     f"SL order rejected (-4130): existing algo order with closePosition "
                     f"detected for {signal.symbol}. Attempting to cancel existing algo orders..."
                 )
                 try:
                     # Cancel existing algo orders (TP/SL) for future attempts
-                    algo_results = self.client.cancel_all_algo_orders(signal.symbol)
+                    algo_results = await self.client.cancel_all_algo_orders(signal.symbol)
                     algo_cancelled = len(algo_results) if algo_results else 0
                     if algo_cancelled > 0:
                         self.logger.info(
@@ -866,31 +785,6 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                         f"Failed to cancel existing algo orders: {cancel_err}"
                     )
 
-            # Binance API error (4xx) - log but don't raise
-            self.logger.error(
-                f"SL order rejected: code={e.error_code}, msg={e.error_message}"
-            )
-
-            # Audit log: SL order rejected
-            try:
-                self.audit_logger.log_order_rejected(
-                    symbol=signal.symbol,
-                    order_data={
-                        "order_type": "STOP_MARKET",
-                        "side": side.value,
-                        "stop_price": signal.stop_loss,
-                    },
-                    error={
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                    },
-                )
-            except Exception:
-                pass  # Don't double-log
-
-            return None
-
-        except Exception as e:
             # Unexpected error - log but don't raise
             self.logger.error(f"SL order placement failed: {type(e).__name__}: {e}")
 
@@ -909,7 +803,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return None
 
-    def update_stop_loss(
+    async def update_stop_loss(
         self,
         symbol: str,
         new_stop_price: float,
@@ -932,7 +826,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         try:
             # 1. Get current mark price for validation
             try:
-                mark_price = self.client.get_mark_price(symbol)
+                mark_price = await self.client.get_mark_price(symbol)
             except Exception as e:
                 self.logger.warning(f"Failed to get mark price for SL update: {e}")
                 return None
@@ -961,8 +855,9 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             # 3. Cancel existing SL algo orders only (preserve TP)
             try:
                 sl_types = ["STOP", "STOP_MARKET"]
-                algo_results = self.client.cancel_algo_orders_by_type(symbol, sl_types)
+                algo_results = await self.client.cancel_algo_orders_by_type(symbol, sl_types)
                 cancelled = len(algo_results) if algo_results else 0
+
                 self.logger.info(
                     f"Cancelled {cancelled} existing SL algo orders for {symbol} before SL update"
                 )
@@ -971,8 +866,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 return None
 
             # 4. Place new SL order
-            stop_price_str = self._format_price(new_stop_price, symbol)
-            response = self.client.new_algo_order(
+            stop_price_str = await self._format_price(new_stop_price, symbol)
+            response = await self.client.new_algo_order(
                 symbol=symbol,
                 side=side.value,
                 type=OrderType.STOP_MARKET.value,
@@ -1011,17 +906,12 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return order
 
-        except ClientError as e:
-            self.logger.error(
-                f"SL dynamic update rejected: code={e.error_code}, msg={e.error_message}"
-            )
-            return None
         except Exception as e:
             self.logger.error(f"SL dynamic update failed: {type(e).__name__}: {e}")
             return None
 
-    @retry_with_backoff(max_retries=3, initial_delay=1.0)
-    def _place_tp_order(
+    @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
+    async def _place_tp_order(
         self,
         signal: Signal,
         side: OrderSide,
@@ -1051,7 +941,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             adjusted_take_profit = original_take_profit
 
             try:
-                mark_price = self.client.get_mark_price(signal.symbol)
+                mark_price = await self.client.get_mark_price(signal.symbol)
             except Exception as e:
                 self.logger.warning(f"Failed to get mark price, using entry: {e}")
                 mark_price = signal.entry_price if hasattr(signal, "entry_price") else 0.0
@@ -1093,11 +983,11 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                     )
 
             # Format stop price for API
-            stop_price_str = self._format_price(adjusted_take_profit, signal.symbol)
+            stop_price_str = await self._format_price(adjusted_take_profit, signal.symbol)
 
             # Place TAKE_PROFIT_MARKET order via Binance Algo Order API
             # Since 2025-12-09, conditional orders require /fapi/v1/algoOrder endpoint
-            response = self.client.new_algo_order(
+            response = await self.client.new_algo_order(
                 symbol=signal.symbol,
                 side=side.value,  # SELL for long, BUY for short
                 type=OrderType.TAKE_PROFIT_MARKET.value,  # "TAKE_PROFIT_MARKET"
@@ -1140,16 +1030,16 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return order
 
-        except ClientError as e:
+        except Exception as e:
             # Handle -4130: Duplicate TP/SL order with closePosition exists
-            if e.error_code == -4130:
+            if "-4130" in str(e):
                 self.logger.warning(
                     f"TP order rejected (-4130): existing algo order with closePosition "
                     f"detected for {signal.symbol}. Attempting to cancel existing algo orders..."
                 )
                 try:
                     # Cancel existing algo orders (TP/SL) for future attempts
-                    algo_results = self.client.cancel_all_algo_orders(signal.symbol)
+                    algo_results = await self.client.cancel_all_algo_orders(signal.symbol)
                     algo_cancelled = len(algo_results) if algo_results else 0
                     if algo_cancelled > 0:
                         self.logger.info(
@@ -1161,31 +1051,6 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                         f"Failed to cancel existing algo orders: {cancel_err}"
                     )
 
-            # Binance API error (4xx) - log but don't raise
-            self.logger.error(
-                f"TP order rejected: code={e.error_code}, msg={e.error_message}"
-            )
-
-            # Audit log: TP order rejected
-            try:
-                self.audit_logger.log_order_rejected(
-                    symbol=signal.symbol,
-                    order_data={
-                        "order_type": "TAKE_PROFIT_MARKET",
-                        "side": side.value,
-                        "stop_price": signal.take_profit,
-                    },
-                    error={
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                    },
-                )
-            except Exception:
-                pass  # Don't double-log
-
-            return None
-
-        except Exception as e:
             # Unexpected error - log but don't raise
             self.logger.error(f"TP order placement failed: {type(e).__name__}: {e}")
 
@@ -1204,8 +1069,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return None
 
-    @retry_with_backoff(max_retries=3, initial_delay=1.0)
-    def execute_signal(
+    @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
+    async def execute_signal(
         self, signal: Signal, quantity: float, reduce_only: bool = False
     ) -> tuple[Order, list[Order]]:
         """
@@ -1245,7 +1110,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             ...     strategy_name='SMA_Crossover',
             ...     timestamp=datetime.now(timezone.utc)
             ... )
-            >>> entry_order, tpsl_orders = manager.execute_signal(signal, quantity=0.001)
+            >>> entry_order, tpsl_orders = await manager.execute_signal(signal, quantity=0.001)
             >>> print(f"Entry ID: {entry_order.order_id}")
             >>> print(f"TP/SL placed: {len(tpsl_orders)}")
             Entry ID: 123456789
@@ -1260,13 +1125,13 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
         # Log order intent
         self.logger.info(
-            f"Executing {signal.signal_type.value} signal: "
+            f"Executing {signal.signal_type.value} signal asynchronously: "
             f"{signal.symbol} {side.value} {quantity} "
             f"(strategy: {signal.strategy_name})"
         )
         # Prepare order parameters for market entry order
         # Format quantity according to symbol's step size (precision)
-        formatted_qty = self._format_quantity(quantity, signal.symbol)
+        formatted_qty = await self._format_quantity(quantity, signal.symbol)
 
         order_params = {
             "symbol": signal.symbol,
@@ -1277,8 +1142,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         }
 
         try:
-            # Submit market order to Binance
-            response = self.client.new_order(**order_params)
+            # Submit market order to Binance asynchronously
+            response = await self.client.new_order(**order_params)
 
             # Parse API response into Order object
             entry_order = self._parse_order_response(
@@ -1304,62 +1169,28 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 f"filled={entry_order.quantity} @ {entry_order.price}"
             )
 
-        except ClientError as e:
-            # Audit log order rejection
+        except Exception as e:
+            # Handle order rejection and execution errors
             self.audit_logger.log_order_rejected(
                 symbol=signal.symbol,
                 order_data=order_params,
-                error={
-                    "status_code": e.status_code,
-                    "error_code": e.error_code,
-                    "error_message": e.error_message,
-                },
+                error=str(e),
             )
 
-            # Binance API errors (4xx status codes)
-            self.logger.error(
-                f"Entry order rejected by Binance: "
-                f"code={e.error_code}, msg={e.error_message}"
-            )
-            raise OrderRejectedError(
-                f"Binance rejected order: {e.error_message}"
-            ) from e
-
-        except ServerError as e:
-            # Handle server errors and audit log
-            self.audit_logger.log_event(
-                event_type=AuditEventType.API_ERROR,
-                operation="execute_signal",
-                symbol=signal.symbol,
-                order_data=order_params,
-                error={"status_code": e.status_code, "message": e.message},
-            )
-
-            self.logger.error(
-                f"Binance server error placing order: "
-                f"status={e.status_code}, msg={e.message}"
-            )
-            raise OrderExecutionError(f"Binance server error: {e.message}") from e
-
-        except Exception as e:
-            # Unexpected errors (network, parsing, etc.)
-            self.logger.error(f"Entry order execution failed: {type(e).__name__}: {e}")
+            self.logger.error(f"Entry order failed for {signal.symbol}: {e}")
             raise OrderExecutionError(f"Failed to execute order: {e}") from e
 
         # Check if TP/SL orders are needed
         tpsl_orders: list[Order] = []
 
         # Determine TP/SL side (opposite of entry side)
-        # LONG_ENTRY: entry is BUY → TP/SL are SELL
-        # SHORT_ENTRY: entry is SELL → TP/SL are BUY
         tpsl_side = OrderSide.SELL if side == OrderSide.BUY else OrderSide.BUY
 
         # Handle different signal types
         if signal.signal_type in (SignalType.LONG_ENTRY, SignalType.SHORT_ENTRY):
             # Entry signals: Cancel existing orders before placing new TP/SL orders
-            # This prevents orphaned TP/SL orders from previous positions
             try:
-                cancelled_count = self.cancel_all_orders(signal.symbol)
+                cancelled_count = await self.cancel_all_orders(signal.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"Cancelled {cancelled_count} existing orders "
@@ -1373,21 +1204,20 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 )
 
         # Place TP order
-        tp_order = self._place_tp_order(signal, tpsl_side)
+        tp_order = await self._place_tp_order(signal, tpsl_side)
         if tp_order:
             tpsl_orders.append(tp_order)
 
         # Place SL order
-        sl_order = self._place_sl_order(signal, tpsl_side)
+        sl_order = await self._place_sl_order(signal, tpsl_side)
         if sl_order:
             tpsl_orders.append(sl_order)
 
         # Handle different post-entry processing based on signal type
         if signal.signal_type in (SignalType.CLOSE_LONG, SignalType.CLOSE_SHORT):
-            # Close signals: Cancel all remaining TP/SL orders (Issue #9)
-            # Position is being closed, so any remaining TP/SL orders should be cancelled
+            # Close signals: Cancel all remaining TP/SL orders
             try:
-                cancelled_count = self.cancel_all_orders(signal.symbol)
+                cancelled_count = await self.cancel_all_orders(signal.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"Position closed: cancelled {cancelled_count} remaining "
@@ -1405,7 +1235,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 )
         else:
             # Entry signals: TP/SL completeness check with retry + escalation
-            tpsl_orders = self._ensure_tpsl_completeness(
+            tpsl_orders = await self._ensure_tpsl_completeness(
                 signal=signal,
                 tpsl_orders=tpsl_orders,
                 tpsl_side=tpsl_side,
@@ -1415,8 +1245,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         # Return entry order and TP/SL orders
         return (entry_order, tpsl_orders)
 
-    @retry_with_backoff(max_retries=3, initial_delay=1.0)
-    def get_position(self, symbol: str) -> Optional[Position]:
+    @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
+    async def get_position(self, symbol: str) -> Optional[Position]:
         """
         Query current position information for a symbol.
 
@@ -1434,7 +1264,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             OrderExecutionError: API call fails or response parsing error
 
         Example:
-            >>> position = manager.get_position('BTCUSDT')
+            >>> position = await manager.get_position('BTCUSDT')
             >>> if position:
             ...     print(f"{position.side} position: {position.quantity} @ {position.entry_price}")
             ... else:
@@ -1445,12 +1275,11 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             raise ValidationError(f"Invalid symbol: {symbol}")
 
         # 2. Log API call
-        self.logger.info(f"Querying position for {symbol}")
+        self.logger.info(f"Querying position for {symbol} asynchronously")
 
         try:
-            # 3. Call Binance API through circuit breaker
-            self.logger.debug(f"Calling get_position_risk for {symbol}")
-            response = self._position_circuit_breaker.call(
+            # 3. Call Binance API asynchronously through circuit breaker
+            response = await self._position_circuit_breaker.call(
                 self.client.get_position_risk, symbol=symbol
             )
             self.logger.debug(
@@ -1462,18 +1291,14 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 self.logger.error(f"Position API failed for {symbol} - no response")
                 return None
 
-            # Handler Binance API response structure (now already unwrapped by BinanceServiceClient)
-            unwrapped = response
-
-            if isinstance(unwrapped, list):
-                # Direct list response or unwrapped data list
-                if len(unwrapped) == 0:
+            if isinstance(response, list):
+                if len(response) == 0:
                     self.logger.info(f"No active position for {symbol} (empty data)")
                     return None
-                position_data = unwrapped[0]
+                position_data = response[0]
             else:
                 raise OrderExecutionError(
-                    f"Unexpected response type: {type(unwrapped).__name__}"
+                    f"Unexpected response type: {type(response).__name__}"
                 )
 
             # Extract position amount
@@ -1539,48 +1364,20 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return position
 
-        except (ClientError, ServerError) as e:
-            # Audit log: API error during position query
+        except Exception as e:
+            # Audit log failure
             try:
                 from src.core.audit_logger import AuditEventType
-
-                if isinstance(e, ServerError):
-                    error_info = {
-                        "status_code": e.status_code,
-                        "error_message": e.message,
-                        "error_type": "ServerError",
-                    }
-                else:
-                    error_info = {
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                        "error_type": "ClientError",
-                    }
-
                 self.audit_logger.log_event(
                     event_type=AuditEventType.API_ERROR,
                     operation="get_position",
                     symbol=symbol,
-                    error=error_info,
+                    error=str(e),
                 )
             except Exception:
-                pass  # Don't double-log
+                pass
 
-            if isinstance(e, ServerError):
-                raise OrderExecutionError(
-                    f"Position query failed: server error {e.status_code}, msg={e.message}"
-                )
-            else:
-                if e.error_code == -1121:
-                    raise ValidationError(f"Invalid symbol: {symbol}")
-                elif e.error_code == -2015:
-                    raise OrderExecutionError(
-                        f"API authentication failed: {e.error_message}"
-                    )
-                else:
-                    raise OrderExecutionError(
-                        f"Position query failed: code={e.error_code}, msg={e.error_message}"
-                    )
+            raise OrderExecutionError(f"Position query failed for {symbol}: {e}") from e
         except (KeyError, ValueError, TypeError) as e:
             # Audit log: parsing error
             try:
@@ -1597,7 +1394,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             raise OrderExecutionError(f"Failed to parse position data: {e}")
 
-    def get_account_balance(self) -> float:
+    async def get_account_balance(self) -> float:
         """
         Query USDT wallet balance.
 
@@ -1611,19 +1408,15 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             OrderExecutionError: API call fails or response parsing error
 
         Example:
-            >>> balance = manager.get_account_balance()
+            >>> balance = await manager.get_account_balance()
             >>> print(f"Available USDT: {balance:.2f}")
         """
         # 1. Log API call
-        self.logger.info("Querying account balance")
+        self.logger.info("Querying account balance asynchronously")
 
         try:
-            # 2. Call Binance API
-            response = self.client.account()
-
-            # 3. Extract account data
-            # Handle Binance API response structure (now already unwrapped by BinanceServiceClient)
-            account_data = response
+            # 2. Call Binance API asynchronously
+            account_data = await self.client.request("GET", "/fapi/v2/account", signed=True)
 
             if not isinstance(account_data, dict):
                 raise OrderExecutionError(
@@ -1667,20 +1460,25 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return usdt_balance
 
-        except ClientError as e:
-            # Handle Binance API errors
-            if e.error_code == -2015:
-                raise OrderExecutionError(
-                    f"API authentication failed: {e.error_message}"
-                )
-            else:
-                raise OrderExecutionError(
-                    f"Balance query failed: code={e.error_code}, msg={e.error_message}"
-                )
-        except (KeyError, ValueError, TypeError) as e:
-            raise OrderExecutionError(f"Failed to parse account data: {e}")
+        except Exception as e:
+            # Wrap API errors in OrderExecutionError
+            error_msg = f"Failed to query account balance: {e}"
+            self.logger.error(error_msg)
 
-    def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
+            # Audit log
+            try:
+                self.audit_logger.log_event(
+                    event_type=AuditEventType.API_ERROR,
+                    operation="get_account_balance",
+                    symbol="GLOBAL",
+                    error=str(e),
+                )
+            except Exception:
+                pass
+
+            raise OrderExecutionError(error_msg) from e
+
+    async def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
         """
         Query all open orders for a symbol.
 
@@ -1704,7 +1502,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             OrderExecutionError: API call fails
 
         Example:
-            >>> orders = manager.get_open_orders('BTCUSDT')
+            >>> orders = await manager.get_open_orders('BTCUSDT')
             >>> for order in orders:
             ...     print(f"Order {order['orderId']}: {order['type']}")
         """
@@ -1712,13 +1510,14 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         if not symbol or not isinstance(symbol, str):
             raise ValidationError(f"Invalid symbol: {symbol}")
 
-        self.logger.debug(f"Querying open orders for {symbol}")
+        self.logger.debug(f"Querying open orders for {symbol} asynchronously")
 
         try:
-            # Call Binance API (proxied via BinanceServiceClient)
-            response = self.client.get_orders(symbol=symbol)
+            # Call Binance API asynchronously
+            response = await self.client.request(
+                "GET", "/fapi/v1/openOrders", signed=True, params={"symbol": symbol}
+            )
 
-            # Response is already unwrapped by BinanceServiceClient
             if isinstance(response, list):
                 self.logger.debug(f"Found {len(response)} open orders for {symbol}")
                 return response
@@ -1728,21 +1527,12 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 )
                 return []
 
-        except ClientError as e:
-            if e.error_code == -1121:
-                raise ValidationError(f"Invalid symbol: {symbol}")
-            elif e.error_code == -2015:
-                raise OrderExecutionError(
-                    f"API authentication failed: {e.error_message}"
-                )
-            else:
-                raise OrderExecutionError(
-                    f"Failed to query open orders: code={e.error_code}, msg={e.error_message}"
-                )
         except Exception as e:
-            raise OrderExecutionError(f"Unexpected error querying open orders: {e}")
+            if "Invalid symbol" in str(e):
+                raise ValidationError(f"Invalid symbol: {symbol}")
+            raise OrderExecutionError(f"Failed to query open orders: {e}")
 
-    def get_open_orders_cached(self, symbol: str) -> List[Dict[str, Any]]:
+    async def get_open_orders_cached(self, symbol: str) -> List[Dict[str, Any]]:
         """
         Get open orders with caching to reduce API calls.
 
@@ -1772,7 +1562,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
         # Cache miss or expired - query from API
         try:
-            orders = self.get_open_orders(symbol)
+            orders = await self.get_open_orders(symbol)
             self._open_orders_cache[symbol] = (orders, current_time)
             return orders
         except Exception as e:
@@ -1852,7 +1642,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         # Update cache with new timestamp
         self._open_orders_cache[symbol] = (cached_orders, current_time)
 
-    def _cancel_order_by_id(self, symbol: str, order_id: int) -> bool:
+    async def _cancel_order_by_id(self, symbol: str, order_id: int) -> bool:
         """
         Cancel a single order by its ID.
 
@@ -1866,13 +1656,16 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             True if cancellation successful, False otherwise
 
         Example:
-            >>> success = manager._cancel_order_by_id('BTCUSDT', 123456789)
+            >>> success = await manager._cancel_order_by_id('BTCUSDT', 123456789)
             >>> if success:
             ...     print("Order cancelled")
         """
         try:
-            self.logger.debug(f"Cancelling order {order_id} for {symbol}")
-            response = self.client.cancel_order(symbol=symbol, orderId=order_id)
+            self.logger.debug(f"Cancelling order {order_id} for {symbol} asynchronously")
+            response = await self.client.request(
+                "DELETE", "/fapi/v1/order", signed=True,
+                params={"symbol": symbol, "orderId": order_id}
+            )
 
             # Check if cancelled successfully
             if isinstance(response, dict):
@@ -1886,23 +1679,21 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return True
 
-        except ClientError as e:
+        except Exception as e:
             # Order already cancelled or doesn't exist - not an error
-            if e.error_code in (-2011, -2013):  # Unknown order, order does not exist
+            if "-2011" in str(e) or "-2013" in str(e):
                 self.logger.debug(
-                    f"Order {order_id} already cancelled or doesn't exist: {e.error_message}"
+                    f"Order {order_id} already cancelled or doesn't exist: {e}"
                 )
                 return True
             else:
                 self.logger.warning(
-                    f"Failed to cancel order {order_id}: code={e.error_code}, msg={e.error_message}"
+                    f"Failed to cancel order {order_id} for {symbol}: {e}"
                 )
                 return False
-        except Exception as e:
-            self.logger.warning(f"Unexpected error cancelling order {order_id}: {e}")
-            return False
 
-    def cancel_all_orders(
+    @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
+    async def cancel_all_orders(
         self,
         symbol: str,
         verify: bool = True,
@@ -1928,11 +1719,11 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             OrderExecutionError: API call fails
 
         Example:
-            >>> cancelled_count = manager.cancel_all_orders('BTCUSDT')
+            >>> cancelled_count = await manager.cancel_all_orders('BTCUSDT')
             >>> print(f"Cancelled {cancelled_count} orders")
 
             >>> # Without verification (legacy behavior)
-            >>> cancelled_count = manager.cancel_all_orders('BTCUSDT', verify=False)
+            >>> cancelled_count = await manager.cancel_all_orders('BTCUSDT', verify=False)
         """
         # 1. Validate input
         if not symbol or not isinstance(symbol, str):
@@ -1940,8 +1731,16 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
         # 2. Check for open orders first to avoid unnecessary API calls (Issue #65, #41)
         # Use cached version to reduce rate limit pressure
+        open_orders = None
         try:
-            open_orders = self.get_open_orders_cached(symbol)
+            coro = self.get_open_orders_cached(symbol)
+            open_orders = await coro
+            
+            # Defensive check for nested coroutines
+            while asyncio.iscoroutine(open_orders):
+                self.logger.warning(f"Double await required for get_open_orders_cached on {symbol}")
+                open_orders = await open_orders
+                
             if not open_orders:
                 self.logger.debug(
                     f"No open orders for {symbol}, skipping cancel API call"
@@ -1956,70 +1755,62 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             open_orders = None  # Unknown state, proceed with cancel
 
         # 3. Log API call (only when orders exist)
+        num_to_cancel = len(open_orders) if isinstance(open_orders, list) else "all"
         self.logger.info(
-            f"Cancelling {len(open_orders) if open_orders else 'all'} orders for {symbol}"
+            f"Cancelling {num_to_cancel} orders for {symbol}"
         )
 
         try:
-            # 4. Call Binance API (bulk cancel)
-            response = self.client.cancel_open_orders(symbol=symbol)
+            # 4. Call Binance API (bulk cancel) asynchronously
+            response = await self.client.request(
+                "DELETE", "/fapi/v1/allOpenOrders", signed=True, params={"symbol": symbol}
+            )
 
-            # 5. Parse response (now already unwrapped by BinanceServiceClient)
-            unwrapped = response
-
-            if isinstance(unwrapped, list):
-                # Response is a list of cancelled order objects
-                cancelled_count = len(unwrapped)
+            # 5. Parse response
+            cancelled_count = 0
+            if isinstance(response, list):
+                cancelled_count = len(response)
                 self.logger.info(f"Cancelled {cancelled_count} orders for {symbol}")
-            elif isinstance(unwrapped, dict) and unwrapped.get("code") == 200:
-                # Response is a success message (no orders to cancel or success msg)
+            elif isinstance(response, dict) and response.get("code") == 200:
                 cancelled_count = 0
                 self.logger.info(
-                    f"Success: {unwrapped.get('msg', 'Orders cancelled')} for {symbol}"
+                    f"Success: {response.get('msg', 'Orders cancelled')} for {symbol}"
                 )
             else:
-                # Unexpected response format
                 self.logger.warning(f"Unexpected response format: {response}")
                 cancelled_count = 0
 
             # 5.5 Cancel Algo Orders (TP/SL placed via Algo Order API)
-            # Standard cancel_open_orders does NOT cancel algo orders - they use separate API
             try:
-                algo_results = self.client.cancel_all_algo_orders(symbol)
-                algo_cancelled = len(algo_results) if algo_results else 0
+                algo_results = await self.client.cancel_all_algo_orders(symbol)
+                algo_cancelled = len(algo_results) if isinstance(algo_results, (list, dict)) else 0
                 if algo_cancelled > 0:
                     self.logger.info(
                         f"Cancelled {algo_cancelled} algo orders (TP/SL) for {symbol}"
                     )
                     cancelled_count += algo_cancelled
             except Exception as e:
-                # Log warning but don't fail - algo orders may not exist
                 self.logger.debug(f"Algo order cancellation note: {e}")
 
-            # 6. Invalidate cache after cancel API call (Issue #41 rate limit fix)
+            # 6. Invalidate cache after cancel API call
             self.invalidate_open_orders_cache(symbol)
 
-            # 7. Verification loop (if enabled) - with rate limit protection
+            # 7. Verification loop (if enabled)
             if verify:
-                import asyncio
                 for attempt in range(max_retries):
                     try:
-                        # Use fresh API call for verification (cache was just invalidated)
-                        # Add small delay between verification attempts to avoid rate limit
                         if attempt > 0:
-                            time.sleep(0.5)  # 500ms delay between retries
+                            await asyncio.sleep(0.5)
 
-                        remaining = self.get_open_orders(symbol)
-                        # Update cache with fresh data
+                        remaining = await self.get_open_orders(symbol)
                         self._open_orders_cache[symbol] = (remaining, time.time())
 
                         if not remaining:
                             self.logger.debug(
                                 f"Verification passed: all orders cancelled for {symbol}"
                             )
-                            break  # All cancelled successfully
+                            break
 
-                        # Orders remain - cancel individually
                         self.logger.warning(
                             f"Verification attempt {attempt + 1}/{max_retries}: "
                             f"{len(remaining)} orders still open for {symbol}"
@@ -2028,11 +1819,10 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                         for order in remaining:
                             order_id = order.get("orderId")
                             if order_id:
-                                if self._cancel_order_by_id(symbol, order_id):
+                                if await self._cancel_order_by_id(symbol, order_id):
                                     cancelled_count += 1
 
-                    except OrderExecutionError as e:
-                        # Rate limit or API error - skip further verification
+                    except Exception as e:
                         if "-1003" in str(e):
                             self.logger.warning(
                                 f"Rate limited during verification, skipping: {e}"
@@ -2041,14 +1831,6 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                         self.logger.warning(
                             f"Verification attempt {attempt + 1} failed: {e}"
                         )
-                    except Exception as e:
-                        self.logger.warning(
-                            f"Verification attempt {attempt + 1} failed: {e}"
-                        )
-
-                # Skip final check if we hit rate limit - trust the bulk cancel worked
-                # Final check after all retries (only if not rate limited)
-                # Removed to reduce API calls - WebSocket will update cache
 
             # Audit log: order cancellation
             try:
@@ -2073,22 +1855,10 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return cancelled_count
 
-        except ClientError as e:
-            # Handle Binance API errors
-            if e.error_code == -1121:
-                raise ValidationError(f"Invalid symbol: {symbol}")
-            elif e.error_code == -2015:
-                raise OrderExecutionError(
-                    f"API authentication failed: {e.error_message}"
-                )
-            else:
-                raise OrderExecutionError(
-                    f"Order cancellation failed: code={e.error_code}, msg={e.error_message}"
-                )
         except Exception as e:
-            raise OrderExecutionError(
-                f"Unexpected error during order cancellation: {e}"
-            )
+            if "Invalid symbol" in str(e):
+                raise ValidationError(f"Invalid symbol: {symbol}")
+            raise OrderExecutionError(f"Failed to cancel orders: {e}")
 
     async def get_all_positions(self, symbols: List[str]) -> List[Dict[str, Any]]:
         """
@@ -2116,8 +1886,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         self.logger.info(f"Querying positions for symbols: {symbols}")
 
         try:
-            # Call Binance API without symbol parameter to get all positions
-            response = self.client.get_position_risk()
+            # Call Binance API asynchronously without symbol parameter to get all positions
+            response = await self.client.get_position_risk()
 
             # Handle Binance API response structure
             if isinstance(response, dict) and "data" in response:
@@ -2167,30 +1937,21 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             return filtered_positions
 
-        except ClientError as e:
-            # Audit log API error
+        except Exception as e:
+            # Audit log failure
             try:
                 from src.core.audit_logger import AuditEventType
-
                 self.audit_logger.log_event(
                     event_type=AuditEventType.API_ERROR,
                     operation="get_all_positions",
-                    error={
-                        "status_code": e.status_code,
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                    },
+                    error=str(e),
                 )
             except Exception:
                 pass
 
-            raise OrderExecutionError(
-                f"Position query failed: code={e.error_code}, msg={e.error_message}"
-            )
-        except Exception as e:
-            raise OrderExecutionError(f"Unexpected error querying positions: {e}")
+            raise OrderExecutionError(f"Position query failed: {e}")
 
-    def _ensure_tpsl_completeness(
+    async def _ensure_tpsl_completeness(
         self,
         signal: Signal,
         tpsl_orders: list[Order],
@@ -2235,20 +1996,20 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         )
 
         for attempt in range(1, max_retries + 1):
-            time.sleep(retry_delay)
+            await asyncio.sleep(retry_delay)
             self.logger.info(
                 f"TP/SL retry attempt {attempt}/{max_retries} for {signal.symbol}"
             )
 
             if not has_tp:
-                tp_order = self._place_tp_order(signal, tpsl_side)
+                tp_order = await self._place_tp_order(signal, tpsl_side)
                 if tp_order:
                     tpsl_orders.append(tp_order)
                     has_tp = True
                     self.logger.info("TP order placed on retry")
 
             if not has_sl:
-                sl_order = self._place_sl_order(signal, tpsl_side)
+                sl_order = await self._place_sl_order(signal, tpsl_side)
                 if sl_order:
                     tpsl_orders.append(sl_order)
                     has_sl = True
@@ -2273,7 +2034,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         qty = entry_order.quantity
 
         try:
-            result = self._execute_market_close_sync(
+            # Use the already updated async execute_market_close
+            result = await self.execute_market_close(
                 symbol=signal.symbol,
                 position_amt=qty,
                 side=close_side,
@@ -2287,7 +2049,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 )
                 # Cancel any partial TP/SL that were placed
                 try:
-                    self.cancel_all_orders(signal.symbol)
+                    await self.cancel_all_orders(signal.symbol)
                 except Exception:
                     pass
 
@@ -2320,83 +2082,6 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             )
 
         return tpsl_orders
-
-    def _execute_market_close_sync(
-        self,
-        symbol: str,
-        position_amt: float,
-        side: str,
-        reduce_only: bool = True,
-    ) -> Dict[str, Any]:
-        """Synchronous market close for use inside sync execute_signal.
-
-        Directly calls the Binance API client (which is sync) instead of
-        the async execute_market_close wrapper.
-
-        Args:
-            symbol: Trading pair
-            position_amt: Position size (absolute value)
-            side: "BUY" for closing SHORT, "SELL" for closing LONG
-            reduce_only: If True, only reduces position (enforced True)
-
-        Returns:
-            Dict with success status and order details
-        """
-        # SECURITY: Always enforce reduce_only
-        if not reduce_only:
-            self.logger.warning(
-                "SECURITY: reduceOnly=False overridden to True in sync close"
-            )
-            reduce_only = True
-
-        try:
-            response = self.client.new_order(
-                symbol=symbol,
-                side=side,
-                type=OrderType.MARKET.value,
-                quantity=position_amt,
-                reduceOnly=reduce_only,
-            )
-
-            if isinstance(response, dict) and "data" in response:
-                order_data = response["data"]
-            elif isinstance(response, dict):
-                order_data = response
-            else:
-                return {
-                    "success": False,
-                    "error": f"Unexpected response type: {type(response).__name__}",
-                }
-
-            order_id = str(order_data.get("orderId"))
-            status = order_data.get("status")
-
-            self.logger.info(
-                f"Sync market close executed: {symbol} {side} {position_amt} "
-                f"order_id={order_id} status={status}"
-            )
-
-            return {
-                "success": True,
-                "order_id": order_id,
-                "status": status,
-            }
-
-        except ClientError as e:
-            self.logger.error(
-                f"Sync market close rejected: code={e.error_code}, "
-                f"msg={e.error_message}"
-            )
-            return {
-                "success": False,
-                "error": f"Order rejected: {e.error_message}",
-            }
-        except Exception as e:
-            self.logger.error(f"Sync market close error: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-            }
 
     async def execute_market_close(
         self,
@@ -2456,8 +2141,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         )
 
         try:
-            # Place market order with reduceOnly
-            response = self.client.new_order(
+            # Place market order with reduceOnly asynchronously
+            response = await self.client.new_order(
                 symbol=symbol,
                 side=side,
                 type=OrderType.MARKET.value,
@@ -2514,7 +2199,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 "executed_qty": executed_qty,
             }
 
-        except ClientError as e:
+        except Exception as e:
             # Audit log rejection
             try:
                 from src.core.audit_logger import AuditEventType
@@ -2523,27 +2208,17 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                     event_type=AuditEventType.ORDER_REJECTED,
                     operation="execute_market_close",
                     symbol=symbol,
-                    error={
-                        "error_code": e.error_code,
-                        "error_message": e.error_message,
-                    },
+                    error=str(e),
                 )
             except Exception:
                 pass
 
             self.logger.error(
-                f"Market close order rejected: code={e.error_code}, msg={e.error_message}"
+                f"Market close order error for {symbol}: {e}"
             )
 
             return {
                 "success": False,
-                "error": f"Order rejected: {e.error_message}",
+                "error": str(e),
             }
 
-        except Exception as e:
-            self.logger.error(f"Unexpected error during market close: {e}")
-
-            return {
-                "success": False,
-                "error": f"Unexpected error: {str(e)}",
-            }

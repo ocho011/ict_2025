@@ -76,7 +76,7 @@ class MockExchange(ExecutionGateway, ExchangeProvider, PositionProvider):
 
     # ── ExecutionGateway methods ──────────────────────────────────
 
-    def execute_signal(
+    async def execute_signal(
         self, signal: Signal, quantity: float, reduce_only: bool = False
     ) -> tuple[Order, list[Order]]:
         """Execute signal with instant fill model."""
@@ -215,7 +215,7 @@ class MockExchange(ExecutionGateway, ExchangeProvider, PositionProvider):
             "status": "FILLED",
         }
 
-    def cancel_all_orders(
+    async def cancel_all_orders(
         self, symbol: str, verify: bool = True, max_retries: int = 3
     ) -> int:
         """Cancel all open orders for a symbol."""
@@ -224,11 +224,11 @@ class MockExchange(ExecutionGateway, ExchangeProvider, PositionProvider):
             order.status = OrderStatus.CANCELED
         return len(orders)
 
-    def get_account_balance(self) -> float:
+    async def get_account_balance(self) -> float:
         """Return current balance."""
         return self._balance
 
-    def update_stop_loss(
+    async def update_stop_loss(
         self,
         symbol: str,
         new_stop_price: float,
@@ -268,17 +268,17 @@ class MockExchange(ExecutionGateway, ExchangeProvider, PositionProvider):
 
     # ── ExchangeProvider methods ──────────────────────────────────
 
-    def set_leverage(self, symbol: str, leverage: int) -> bool:
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
         """Set leverage for a symbol."""
         self._leverage[symbol] = leverage
         return True
 
-    def set_margin_type(self, symbol: str, margin_type: str = "ISOLATED") -> bool:
+    async def set_margin_type(self, symbol: str, margin_type: str = "ISOLATED") -> bool:
         """Set margin type."""
         self._margin_type[symbol] = margin_type
         return True
 
-    def get_position(self, symbol: str) -> Optional[Position]:
+    async def get_position(self, symbol: str) -> Optional[Position]:
         """Get position for symbol."""
         return self._positions.get(symbol)
 
@@ -297,7 +297,7 @@ class MockExchange(ExecutionGateway, ExchangeProvider, PositionProvider):
                 })
         return result
 
-    def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
+    async def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
         """Get open orders for symbol."""
         orders = self._open_orders.get(symbol, [])
         return [
@@ -317,11 +317,11 @@ class MockExchange(ExecutionGateway, ExchangeProvider, PositionProvider):
 
     # ── PositionProvider methods ──────────────────────────────────
 
-    def get(self, symbol: str) -> Optional[Position]:
+    async def get(self, symbol: str) -> Optional[Position]:
         """Get position (same as get_position for mock)."""
         return self._positions.get(symbol)
 
-    def get_fresh(self, symbol: str) -> Optional[Position]:
+    async def get_fresh(self, symbol: str) -> Optional[Position]:
         """Get fresh position (always fresh in mock)."""
         return self._positions.get(symbol)
 

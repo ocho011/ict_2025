@@ -67,13 +67,13 @@ class TestGetPositionWithRetry:
         ]
 
         # First call - cache miss
-        position1 = manager.get_position("BTCUSDT")
+        position1 = await manager.get_position("BTCUSDT")
         assert position1 is not None
         assert position1.symbol == "BTCUSDT"
         assert position1.quantity == 0.001
 
         # Second call - no cache, hits API again
-        position2 = manager.get_position("BTCUSDT")
+        position2 = await manager.get_position("BTCUSDT")
         assert position2 is not None
         assert position2.symbol == "BTCUSDT"
 
@@ -97,7 +97,7 @@ class TestGetPositionWithRetry:
 
         # Should raise OrderExecutionError (ClientError caught internally)
         with pytest.raises(OrderExecutionError, match="Rate limit"):
-            manager.get_position("BTCUSDT")
+            await manager.get_position("BTCUSDT")
 
     def test_get_position_server_error_handling(self, manager, mock_client):
         """Test ServerError is properly handled"""
@@ -107,7 +107,7 @@ class TestGetPositionWithRetry:
 
         # Should raise OrderExecutionError for ServerError
         with pytest.raises(OrderExecutionError):
-            manager.get_position("BTCUSDT")
+            await manager.get_position("BTCUSDT")
 
     def test_get_position_circuit_breaker_opens(self, manager, mock_client):
         """Test circuit breaker opens after repeated failures (threshold=5)"""
@@ -120,14 +120,14 @@ class TestGetPositionWithRetry:
         # First 5 calls should fail with OrderExecutionError
         for i in range(5):
             with pytest.raises(OrderExecutionError):
-                manager.get_position("BTCUSDT")
+                await manager.get_position("BTCUSDT")
 
         # Circuit breaker should be OPEN after 5 failures
         assert manager._position_circuit_breaker.get_state() == "OPEN"
 
         # Next call should raise circuit breaker error
         with pytest.raises(OrderExecutionError, match="Circuit breaker OPEN"):
-            manager.get_position("BTCUSDT")
+            await manager.get_position("BTCUSDT")
 
     def test_get_position_circuit_breaker_half_open(self, manager, mock_client):
         """Test circuit breaker enters HALF_OPEN state"""
@@ -143,7 +143,7 @@ class TestGetPositionWithRetry:
         # Open circuit - each call raises OrderExecutionError
         for i in range(5):
             with pytest.raises(OrderExecutionError):
-                manager.get_position("BTCUSDT")
+                await manager.get_position("BTCUSDT")
 
         assert manager._position_circuit_breaker.get_state() == "OPEN"
 
@@ -162,7 +162,7 @@ class TestGetPositionWithRetry:
         ]
 
         # Should succeed and reset circuit breaker
-        position = manager.get_position("BTCUSDT")
+        position = await manager.get_position("BTCUSDT")
         assert position is not None
         assert position.symbol == "BTCUSDT"
         assert manager._position_circuit_breaker.get_state() == "CLOSED"
@@ -181,7 +181,7 @@ class TestGetPositionWithRetry:
         ]
 
         # Should return None for no position (same as before)
-        position = manager.get_position("BTCUSDT")
+        position = await manager.get_position("BTCUSDT")
         assert position is None
 
         # Should not raise any exceptions for valid inputs
@@ -190,7 +190,7 @@ class TestGetPositionWithRetry:
     def test_get_position_validation_error(self, manager):
         """Test validation errors are not cached or retried"""
         with pytest.raises(ValidationError, match="Invalid symbol"):
-            manager.get_position("")  # Empty symbol
+            await manager.get_position("")  # Empty symbol
 
         with pytest.raises(ValidationError, match="Invalid symbol"):
-            manager.get_position(None)  # None symbol
+            await manager.get_position(None)  # None symbol

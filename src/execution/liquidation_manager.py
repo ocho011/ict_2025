@@ -372,9 +372,17 @@ class LiquidationManager:
         for symbol in symbols:
             for attempt in range(self.config.max_retries):
                 try:
-                    # Call OrderGateway.cancel_all_orders()
-                    cancelled_count = self.order_gateway.cancel_all_orders(symbol)
-                    cancelled_total += cancelled_count
+                    # Call OrderGateway.cancel_all_orders() asynchronously
+                    coro = self.order_gateway.cancel_all_orders(symbol)
+                    cancelled_count = await coro
+                    
+                    # Safety check: if result is still a coroutine, await it again
+                    # This happens if nested wrappers return coroutines
+                    while asyncio.iscoroutine(cancelled_count):
+                        self.logger.warning(f"Double await required for cancel_all_orders on {symbol}")
+                        cancelled_count = await cancelled_count
+                        
+                    cancelled_total += int(cancelled_count)
 
                     # Audit log success
                     self.audit_logger.log_event(

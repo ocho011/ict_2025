@@ -65,7 +65,7 @@ class TradeCoordinator:
         self._pending_intended_prices: Dict[str, float] = {}
         self.logger = logging.getLogger(__name__)
 
-    def _pre_flight_check(self, symbol: str) -> bool:
+    async def _pre_flight_check(self, symbol: str) -> bool:
         """Pre-flight open order check before entry.
 
         Verifies no orphaned orders exist that could interfere with the new
@@ -82,7 +82,7 @@ class TradeCoordinator:
             True if safe to proceed with entry, False if entry should be rejected
         """
         try:
-            open_orders = self._order_gateway.get_open_orders(symbol)
+            open_orders = await self._order_gateway.get_open_orders(symbol)
         except Exception as e:
             # Conditional Fail-Open: API failure → proceed with warning
             self.logger.warning(
@@ -115,7 +115,7 @@ class TradeCoordinator:
         )
 
         try:
-            cancelled_count = self._order_gateway.cancel_all_orders(symbol)
+            cancelled_count = await self._order_gateway.cancel_all_orders(symbol)
             self.logger.info(
                 f"Pre-flight cleanup: cancelled {cancelled_count} orders for {symbol}"
             )
@@ -184,7 +184,7 @@ class TradeCoordinator:
         async with self._entry_locks[signal.symbol]:
             try:
                 # Step 2: Get current position via PositionCacheManager (fresh query)
-                current_position = self._position_cache_manager.get_fresh(signal.symbol)
+                current_position = await self._position_cache_manager.get_fresh(signal.symbol)
 
                 # Step 3: Validate signal with RiskGuard
                 is_valid = self._risk_guard.validate_risk(signal, current_position)
@@ -220,7 +220,7 @@ class TradeCoordinator:
                     return
 
                 # Step 4.5: Pre-flight open order check before entry
-                if not self._pre_flight_check(signal.symbol):
+                if not await self._pre_flight_check(signal.symbol):
                     self.logger.warning(
                         f"Signal rejected by pre-flight check: "
                         f"{signal.signal_type.value} for {signal.symbol}"
@@ -229,7 +229,7 @@ class TradeCoordinator:
 
                 # Entry signal: calculate position size and execute with TP/SL
                 # Step 5: Get account balance
-                account_balance = self._order_gateway.get_account_balance()
+                account_balance = await self._order_gateway.get_account_balance()
 
                 if account_balance <= 0:
                     self.logger.error(
@@ -248,7 +248,7 @@ class TradeCoordinator:
 
                 # Step 7: Execute signal via OrderGateway
                 # Returns (entry_order, [tp_order, sl_order])
-                entry_order, tpsl_orders = self._order_gateway.execute_signal(
+                entry_order, tpsl_orders = await self._order_gateway.execute_signal(
                     signal=signal, quantity=quantity
                 )
 
@@ -351,7 +351,7 @@ class TradeCoordinator:
 
             # Step 1: Cancel any existing TP/SL orders first
             try:
-                cancelled_count = self._order_gateway.cancel_all_orders(signal.symbol)
+                cancelled_count = await self._order_gateway.cancel_all_orders(signal.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"Cancelled {cancelled_count} existing orders before exit"
@@ -599,7 +599,7 @@ class TradeCoordinator:
             )
 
             try:
-                cancelled_count = self._order_gateway.cancel_all_orders(order.symbol)
+                cancelled_count = await self._order_gateway.cancel_all_orders(order.symbol)
                 if cancelled_count > 0:
                     self.logger.info(
                         f"TP/SL hit: cancelled {cancelled_count} remaining orders "

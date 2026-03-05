@@ -53,7 +53,7 @@ class PositionCacheManager(PositionProvider):
         """Access internal cache dict (needed by EventDispatcher for uncertain state check)."""
         return self._cache
 
-    def get(self, symbol: str) -> Optional["Position"]:
+    async def get(self, symbol: str) -> Optional["Position"]:
         """
         Get cached position for symbol, refreshing if TTL expired.
 
@@ -77,7 +77,8 @@ class PositionCacheManager(PositionProvider):
 
         # Cache expired or missing - refresh from API
         try:
-            position = self._order_gateway.get_position(symbol)
+            # Await async order gateway call
+            position = await self._order_gateway.get_position(symbol)
             self._cache[symbol] = (position, current_time)
             return position
         except Exception as e:
@@ -90,7 +91,7 @@ class PositionCacheManager(PositionProvider):
             # and failure (expired data in cache).
             return None
 
-    def get_fresh(self, symbol: str) -> Optional["Position"]:
+    async def get_fresh(self, symbol: str) -> Optional["Position"]:
         """Get guaranteed-fresh position by invalidating cache first.
 
         Use this for execution-critical paths (e.g., before placing orders)
@@ -104,7 +105,7 @@ class PositionCacheManager(PositionProvider):
             Position if exists, None otherwise
         """
         self.invalidate(symbol)
-        return self.get(symbol)
+        return await self.get(symbol)
 
     def invalidate(self, symbol: str) -> None:
         """

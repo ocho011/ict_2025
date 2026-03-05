@@ -22,19 +22,10 @@ class ExecutionGateway(ABC):
     """
 
     @abstractmethod
-    def execute_signal(
+    async def execute_signal(
         self, signal: "Signal", quantity: float, reduce_only: bool = False
     ) -> tuple["Order", list["Order"]]:
-        """Execute trading signal with TP/SL orders.
-
-        Args:
-            signal: Trading signal to execute
-            quantity: Position size
-            reduce_only: If True, only reduce existing position
-
-        Returns:
-            Tuple of (entry_order, [tp_order, sl_order])
-        """
+        """Execute trading signal with TP/SL orders."""
         ...
 
     @abstractmethod
@@ -45,145 +36,63 @@ class ExecutionGateway(ABC):
         side: str,
         reduce_only: bool = True,
     ) -> Dict[str, Any]:
-        """Close position with market order.
-
-        Args:
-            symbol: Trading symbol
-            position_amt: Position size (absolute value)
-            side: "BUY" for closing SHORT, "SELL" for closing LONG
-            reduce_only: If True, only reduces position
-
-        Returns:
-            Dict with success status and order details
-        """
+        """Close position with market order."""
         ...
 
     @abstractmethod
-    def cancel_all_orders(
+    async def cancel_all_orders(
         self, symbol: str, verify: bool = True, max_retries: int = 3
     ) -> int:
-        """Cancel all open orders for a symbol.
-
-        Args:
-            symbol: Trading pair
-            verify: Whether to verify cancellation
-            max_retries: Maximum verification retries
-
-        Returns:
-            Number of orders cancelled
-        """
+        """Cancel all open orders for a symbol."""
         ...
 
     @abstractmethod
-    def get_account_balance(self) -> float:
-        """Query account balance.
-
-        Returns:
-            Account balance as float
-        """
+    async def get_account_balance(self) -> float:
+        """Query account balance."""
         ...
 
     @abstractmethod
-    def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
-        """Query all open orders for a symbol.
-
-        Used by TradeCoordinator for pre-flight order check before entry.
-
-        Args:
-            symbol: Trading pair
-
-        Returns:
-            List of open order dictionaries
-        """
+    async def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        """Query all open orders for a symbol."""
         ...
 
     @abstractmethod
-    def update_stop_loss(
+    async def update_stop_loss(
         self,
         symbol: str,
         new_stop_price: float,
         side: "OrderSide",
     ) -> Optional["Order"]:
-        """Update exchange stop-loss order.
-
-        Args:
-            symbol: Trading pair
-            new_stop_price: New stop loss trigger price
-            side: Order side for the SL
-
-        Returns:
-            New SL Order if successful, None otherwise
-        """
+        """Update exchange stop-loss order."""
         ...
 
 
 class ExchangeProvider(ABC):
-    """Abstract interface for exchange state queries and setup.
-
-    Used by TradingEngine for leverage/margin configuration and position queries.
-    Implementations: OrderGateway (live), MockExchange (backtest/paper).
-    """
+    """Abstract interface for exchange state queries and setup."""
 
     @abstractmethod
-    def set_leverage(self, symbol: str, leverage: int) -> bool:
-        """Set leverage for a symbol.
-
-        Args:
-            symbol: Trading pair
-            leverage: Leverage multiplier
-
-        Returns:
-            True if successful
-        """
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        """Set leverage for a symbol."""
         ...
 
     @abstractmethod
-    def set_margin_type(self, symbol: str, margin_type: str = "ISOLATED") -> bool:
-        """Set margin type (ISOLATED or CROSSED).
-
-        Args:
-            symbol: Trading pair
-            margin_type: 'ISOLATED' or 'CROSSED'
-
-        Returns:
-            True if successful
-        """
+    async def set_margin_type(self, symbol: str, margin_type: str = "ISOLATED") -> bool:
+        """Set margin type (ISOLATED or CROSSED)."""
         ...
 
     @abstractmethod
-    def get_position(self, symbol: str) -> Optional["Position"]:
-        """Query current position for a symbol.
-
-        Args:
-            symbol: Trading pair
-
-        Returns:
-            Position if exists, None otherwise
-        """
+    async def get_position(self, symbol: str) -> Optional["Position"]:
+        """Query current position for a symbol."""
         ...
 
     @abstractmethod
     async def get_all_positions(self, symbols: List[str]) -> List[Dict[str, Any]]:
-        """Query all open positions for given symbols.
-
-        Args:
-            symbols: List of trading symbols
-
-        Returns:
-            List of position dictionaries
-        """
+        """Query all open positions for given symbols."""
         ...
 
     @abstractmethod
-    def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
-        """Query all open orders for a symbol.
-
-        Args:
-            symbol: Trading pair
-
-        Returns:
-            List of open order dictionaries
-        """
+    async def get_open_orders(self, symbol: str) -> List[Dict[str, Any]]:
+        """Query all open orders for a symbol."""
         ...
 
 
@@ -195,27 +104,13 @@ class PositionProvider(ABC):
     """
 
     @abstractmethod
-    def get(self, symbol: str) -> Optional["Position"]:
-        """Get cached position for symbol.
-
-        Args:
-            symbol: Trading pair
-
-        Returns:
-            Position if exists, None otherwise
-        """
+    async def get(self, symbol: str) -> Optional["Position"]:
+        """Get cached position for symbol."""
         ...
 
     @abstractmethod
-    def get_fresh(self, symbol: str) -> Optional["Position"]:
-        """Get guaranteed-fresh position (bypasses cache).
-
-        Args:
-            symbol: Trading pair
-
-        Returns:
-            Position if exists, None otherwise
-        """
+    async def get_fresh(self, symbol: str) -> Optional["Position"]:
+        """Get guaranteed-fresh position (bypasses cache)."""
         ...
 
     @abstractmethod

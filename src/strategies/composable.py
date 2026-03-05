@@ -21,13 +21,13 @@ import time
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from src.entry.base import EntryContext, EntryDecision
+from src.strategies.modules.base.entry import EntryContext, EntryDecision
 from src.models.module_requirements import ModuleRequirements
-from src.exit.base import ExitContext
+from src.strategies.modules.base.exit import ExitContext
 from src.models.candle import Candle
 from src.models.position import Position
 from src.models.signal import Signal, SignalType
-from src.pricing.base import (
+from src.strategies.modules.base.pricing import (
     PriceContext,
     StrategyModuleConfig,
 )
@@ -96,7 +96,7 @@ class ComposableStrategy(BaseStrategy):
             return None
 
         self.update_buffer(candle)
-        self._update_feature_cache(candle)
+        # FeatureStore update is handled by TradingEngine to avoid redundant calls
 
         if not self.is_ready():
             return None
@@ -106,7 +106,7 @@ class ComposableStrategy(BaseStrategy):
             symbol=self.symbol,
             candle=candle,
             buffers=self.buffers,
-            indicator_cache=self._indicator_cache,
+            feature_store=self._feature_store,
             timestamp=int(time.time() * 1000),
             config=self.config,
             intervals=self.intervals,
@@ -186,14 +186,13 @@ class ComposableStrategy(BaseStrategy):
             return None
 
         self.update_buffer(candle)
-        self._update_feature_cache(candle)
 
         exit_context = ExitContext(
             symbol=self.symbol,
             candle=candle,
             position=position,
             buffers=self.buffers,
-            indicator_cache=self._indicator_cache,
+            feature_store=self._feature_store,
             timestamp=int(time.time() * 1000),
             config=self.config,
             intervals=self.intervals,

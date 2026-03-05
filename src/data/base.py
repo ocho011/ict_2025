@@ -37,7 +37,7 @@ class MarketDataProvider(ABC):
         ...
 
     @abstractmethod
-    def get_historical_candles(
+    async def get_historical_candles(
         self, symbol: str, interval: str, limit: int = 500
     ) -> List["Candle"]:
         """Fetch historical candle data for strategy initialization.

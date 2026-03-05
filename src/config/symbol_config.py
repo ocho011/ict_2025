@@ -95,6 +95,12 @@ class SymbolConfig:
     backfill_limit: int = 200
     intervals: List[str] = field(default_factory=lambda: ["5m", "1h", "4h"])
 
+    # New Composable Configs
+    entry_config: Dict[str, Any] = field(default_factory=dict)
+    exit_config: Dict[str, Any] = field(default_factory=dict)
+    stop_loss_config: Dict[str, Any] = field(default_factory=dict)
+    take_profit_config: Dict[str, Any] = field(default_factory=dict)
+
     # Strategy-specific configuration parameters (generic, replaces ict_config/momentum_config)
     strategy_params: Dict[str, Any] = field(default_factory=dict)
 
@@ -193,9 +199,19 @@ class SymbolConfig:
         }
 
         # Add strategy-specific config (generic key)
-        strategy_config = self.get_strategy_config()
-        if strategy_config:
-            config_dict["strategy_config"] = strategy_config
+        strategy_params = self.get_strategy_config()
+        if strategy_params:
+            config_dict["strategy_params"] = strategy_params
+
+        # Add composable configs if present
+        if self.entry_config:
+            config_dict["entry_config"] = self.entry_config
+        if self.exit_config:
+            config_dict["exit_config"] = self.exit_config
+        if self.stop_loss_config:
+            config_dict["stop_loss_config"] = self.stop_loss_config
+        if self.take_profit_config:
+            config_dict["take_profit_config"] = self.take_profit_config
 
         if self.modules:
             config_dict["modules"] = self.modules

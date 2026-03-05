@@ -12,7 +12,7 @@ Exports:
 
 from typing import List, Optional
 
-from src.pricing.base import StrategyModuleConfig
+from src.strategies.modules.base.pricing import StrategyModuleConfig
 from src.strategies.base import BaseStrategy
 from src.strategies.composable import ComposableStrategy
 

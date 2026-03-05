@@ -103,7 +103,7 @@ class TradingEngine:
 
         self.logger.info("TradingEngine initialized (awaiting component injection)")
 
-    def initialize_components(
+    async def initialize_components(
         self,
         config_manager: ConfigManager,
         event_bus: EventBus,
@@ -143,17 +143,19 @@ class TradingEngine:
             config_manager.logging_config, "log_live_data", True
         )
 
-        # Step 1.5: Initialize BinanceServiceClient
-        self.logger.info("Creating BinanceServiceClient...")
-        from src.core.binance_service import BinanceServiceClient
+        # Step 1.5: Initialize AsyncBinanceClient
+        self.logger.info("Creating AsyncBinanceClient...")
+        from src.core.async_binance_client import AsyncBinanceClient
 
         binance_config = config_manager.binance_config
-        self.binance_service = BinanceServiceClient(
+        self.binance_service = AsyncBinanceClient(
             api_key=api_key,
             api_secret=api_secret,
             is_testnet=is_testnet,
             base_url=binance_config.get_rest_url(is_testnet),
         )
+        # Start the async session
+        await self.binance_service.start()
 
         # Step 2: Initialize OrderGateway
         self.logger.info("Creating OrderGateway...")
@@ -176,6 +178,13 @@ class TradingEngine:
                 "max_position_size_percent": 0.1,  # 10% of account
             },
             audit_logger=self.audit_logger,
+        )
+
+        # Step 3.5: Initialize FeatureStore (Centralized indicators)
+        self.logger.info("Creating FeatureStore...")
+        from src.strategies.feature_store import FeatureStore
+        self.feature_store = FeatureStore(
+            config=config_manager.trading_config.strategy_params
         )
 
         # Step 4/4.5: Create strategy instances via DynamicAssembler
@@ -208,6 +217,8 @@ class TradingEngine:
                 intervals=intervals,
                 min_rr_ratio=min_rr_ratio,
             )
+            # Inject FeatureStore
+            self.strategies[symbol].set_feature_store(self.feature_store)
             self.logger.info(f"  Strategy created for {symbol}")
 
         # Store assembler + hierarchical for deferred HotReloader init (after Step 6)
@@ -300,17 +311,21 @@ class TradingEngine:
         # Step 7: Setup event handlers
         self._setup_event_handlers()
 
+        # Step 7.5: Fetch exchange info (tick size, lot size)
+        self.logger.info("Fetching exchange specifications...")
+        await self.order_gateway.refresh_exchange_info()
+
         # Step 8: Configure leverage and margin type for each symbol (Issue #8)
         self.logger.info("Configuring leverage and margin type...")
         for symbol in trading_config.symbols:
-            success = self.order_gateway.set_leverage(symbol, trading_config.leverage)
+            success = await self.order_gateway.set_leverage(symbol, trading_config.leverage)
             if not success:
                 self.logger.warning(
                     f"Failed to set leverage to {trading_config.leverage}x for {symbol}. "
                     "Using current account leverage."
                 )
 
-            success = self.order_gateway.set_margin_type(
+            success = await self.order_gateway.set_margin_type(
                 symbol, trading_config.margin_type
             )
             if not success:
@@ -459,6 +474,11 @@ class TradingEngine:
                 self.logger.info("Stopping AuditLogger and flushing audit logs...")
                 self.audit_logger.stop()
 
+            # Stop AsyncBinanceClient
+            if self.binance_service:
+                self.logger.info("Stopping AsyncBinanceClient...")
+                await self.binance_service.stop()
+
             # State transition: STOPPING → STOPPED
             self._engine_state = EngineState.STOPPED
             self._ready_event.clear()
@@ -553,7 +573,7 @@ class TradingEngine:
                 for interval in strategy.intervals:
                     try:
                         limit = requirements.min_candles.get(interval, default_limit)
-                        candles = self.data_collector.get_historical_candles(
+                        candles = await self.data_collector.get_historical_candles(
                             symbol=symbol, interval=interval, limit=limit
                         )
 
@@ -565,6 +585,11 @@ class TradingEngine:
 
                             strategy.initialize_with_historical_data(
                                 candles, interval=interval
+                            )
+                            # Initialize FeatureStore for this symbol/interval
+                            self.feature_store.initialize_for_symbol(
+                                symbol=symbol,
+                                interval_data={interval: candles}
                             )
                             initialized_count += 1
                         else:
@@ -629,7 +654,20 @@ class TradingEngine:
         Callback from BinanceDataCollector on every candle update.
 
         Delegates to EventDispatcher.on_candle_received() (Issue #110 Phase 3).
+        Also updates FeatureStore if candle is closed.
         """
+        if candle.is_closed:
+            # Update FeatureStore with new closed candle
+            strategy = self.strategies.get(candle.symbol)
+            if strategy:
+                buffer = strategy.get_buffer(candle.interval)
+                if buffer:
+                    self.feature_store.update(
+                        interval=candle.interval,
+                        candle=candle,
+                        buffer=list(buffer)
+                    )
+
         self.event_dispatcher.on_candle_received(candle)
 
     def _on_order_update_from_websocket(

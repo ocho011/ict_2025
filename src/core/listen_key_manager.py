@@ -9,8 +9,6 @@ import asyncio
 import logging
 from typing import Optional
 
-from binance.error import ClientError
-
 
 class ListenKeyManager:
     """
@@ -50,7 +48,7 @@ class ListenKeyManager:
         Initialize ListenKeyManager.
 
         Args:
-            binance_service: BinanceServiceClient instance for REST API calls
+            binance_service: AsyncBinanceClient instance for REST API calls
 
         Attributes:
             logger: Logger instance
@@ -92,8 +90,8 @@ class ListenKeyManager:
         self.logger.info("Creating Binance User Data Stream listen key...")
 
         try:
-            # Create listen key via Binance API
-            response = self.binance_service.new_listen_key()
+            # Create listen key via Binance API asynchronously
+            response = await self.binance_service.new_listen_key()
 
             # Extract listen key from response
             self.listen_key = response.get("listenKey")
@@ -142,9 +140,9 @@ class ListenKeyManager:
                 if not self._running:
                     break
 
-                # Renew listen key via Binance API
+                # Renew listen key via Binance API asynchronously
                 self.logger.debug(f"Renewing listen key {self.listen_key} for keep-alive...")
-                self.binance_service.renew_listen_key(self.listen_key)
+                await self.binance_service.renew_listen_key(self.listen_key)
 
                 self.logger.debug("Listen key renewed successfully")
 
@@ -192,23 +190,20 @@ class ListenKeyManager:
             except asyncio.CancelledError:
                 pass
 
-        # Step 2: Close listen key via Binance API
+        # Step 2: Close listen key via Binance API asynchronously
         if self.listen_key:
             try:
                 self.logger.debug(f"Closing listen key: {self.listen_key}")
-                self.binance_service.close_listen_key(self.listen_key)
+                await self.binance_service.close_listen_key(self.listen_key)
                 self.logger.info("Listen key closed successfully")
-            except ClientError as e:
+            except Exception as e:
                 # Error code -1125: "This listenKey does not exist"
-                # This is expected when listen key has already expired or been invalidated
-                if e.error_code == -1125:
+                if "-1125" in str(e):
                     self.logger.debug(
-                        f"Listen key already expired or invalidated (code: {e.error_code})"
+                        f"Listen key already expired or invalidated: {e}"
                     )
                 else:
                     self.logger.warning(f"Failed to close listen key: {e}")
-            except Exception as e:
-                self.logger.warning(f"Failed to close listen key: {e}")
 
         # Step 3: Clear state
         self.listen_key = None

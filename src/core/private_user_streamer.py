@@ -19,7 +19,7 @@ from src.models.position import PositionUpdate
 # Imports for type hinting only; prevents circular dependency at runtime
 # Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
-    from src.core.binance_service import BinanceServiceClient
+    from src.core.async_binance_client import AsyncBinanceClient
 
 
 class PrivateUserStreamer(IDataStreamer):
@@ -67,7 +67,7 @@ class PrivateUserStreamer(IDataStreamer):
 
     def __init__(
         self,
-        binance_service: "BinanceServiceClient",
+        binance_service: "AsyncBinanceClient",
         is_testnet: bool = True,
         user_ws_url: Optional[str] = None,
     ) -> None:

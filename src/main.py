@@ -10,6 +10,8 @@ import logging
 import os
 import signal
 import sys
+import platform
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -165,7 +167,7 @@ class TradingBot:
         self.trading_engine = TradingEngine(audit_logger=self.audit_logger)
 
         self.logger.info("Delegating component initialization to TradingEngine...")
-        self.trading_engine.initialize_components(
+        await self.trading_engine.initialize_components(
             config_manager=self.config_manager,
             event_bus=self.event_bus,
             api_key=api_config.api_key,
@@ -325,25 +327,44 @@ class TradingBot:
         self.logger.info(f"Shutdown complete (state={self._lifecycle_state.name})")
 
 
+async def run_bot(bot: TradingBot):
+    """Coroutine to handle the full bot lifecycle in a single event loop."""
+    session_start = datetime.now()
+    
+    try:
+        # Step 1: Initialize all components
+        await bot.initialize()
+
+        # Step 2: Run trading system
+        await bot.run()
+
+    except KeyboardInterrupt:
+        if bot.logger:
+            bot.logger.info("Received keyboard interrupt (Ctrl+C)")
+    except Exception as e:
+        if bot.logger:
+            bot.logger.error(f"Fatal error during bot execution: {e}", exc_info=True)
+        raise
+    finally:
+        # Final session log summary
+        session_end = datetime.now()
+        session_duration = session_end - session_start
+        if bot.logger:
+            bot.logger.info("=" * 50)
+            bot.logger.info("🛑 TRADING BOT SESSION END")
+            bot.logger.info("=" * 50)
+            bot.logger.info(f"Session End Time: {session_end.strftime('%Y-%m-%d %H:%M:%S')}")
+            bot.logger.info(f"Session Duration: {session_duration}")
+            bot.logger.info("=" * 50)
+
+
 def main() -> None:
     """
     Application entry point with signal handling.
-
-    This function:
-    1. Logs session start with system information
-    2. Creates TradingBot instance
-    3. Initializes all components
-    4. Sets up signal handlers for graceful shutdown
-    5. Runs the trading system in asyncio event loop
-    6. Handles errors and cleanup
-    7. Logs session end with summary
+    
+    Runs the entire bot lifecycle within a single asyncio event loop
+    to prevent 'Event loop is closed' errors.
     """
-    import platform
-    from datetime import datetime
-
-    # Record session start time
-    session_start = datetime.now()
-
     bot = TradingBot()
 
     # Setup signal handlers for graceful shutdown using Event
@@ -359,49 +380,19 @@ def main() -> None:
     signal.signal(signal.SIGTERM, signal_handler)
 
     try:
-        # Initialize all components (this sets up logging)
-        asyncio.run(bot.initialize())
+        # Run everything in a single event loop
+        asyncio.run(run_bot(bot))
 
-        # Log session start with system information AFTER logger is initialized
-        logger = logging.getLogger(__name__)
-        logger.info("=" * 50)
-        logger.info("🚀 TRADING BOT SESSION START")
-        logger.info("=" * 50)
-        logger.info(f"Session Start Time: {session_start.strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"Python Version: {platform.python_version()}")
-        logger.info(f"Platform: {platform.system()} {platform.release()}")
-        logger.info(f"Working Directory: {os.getcwd()}")
-        logger.info("=" * 50)
-
-        # Run trading system
-        asyncio.run(bot.run())
-
-    except KeyboardInterrupt:
-        logger = logging.getLogger(__name__)
-        logger.info("Received keyboard interrupt (Ctrl+C)")
-
+    except (KeyboardInterrupt, SystemExit):
+        pass
     except Exception as e:
-        logger = logging.getLogger(__name__)
-        logger.error(f"Fatal error: {e}", exc_info=True)
+        print(f"Unhandled exception in main: {e}")
         sys.exit(1)
-
     finally:
-        # Log session end summary
-        session_end = datetime.now()
-        session_duration = session_end - session_start
-
-        logger = logging.getLogger(__name__)
-        logger.info("=" * 50)
-        logger.info("🛑 TRADING BOT SESSION END")
-        logger.info("=" * 50)
-        logger.info(f"Session End Time: {session_end.strftime('%Y-%m-%d %H:%M:%S')}")
-        logger.info(f"Session Duration: {session_duration}")
-        logger.info("=" * 50)
-
         # FINAL STEP: Stop QueueListener to flush remaining logs
         if bot.trading_logger:
-            # Use root logger directly for final message as QueueListener might be stopping
-            bot.logger.info("Shutting down logging system...")
+            if bot.logger:
+                bot.logger.info("Shutting down logging system...")
             bot.trading_logger.stop()
 
 

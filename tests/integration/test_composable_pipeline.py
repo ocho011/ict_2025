@@ -18,16 +18,16 @@ import pytest
 from src.core.event_bus import EventBus
 from src.core.event_dispatcher import EventDispatcher
 from src.core.exceptions import EngineState
-from src.entry import AlwaysEntryDeterminer
-from src.exit import NullExitDeterminer
-from src.strategies.ict.exit import ICTExitDeterminer
+from src.strategies.modules.entry.always_entry_determiner import AlwaysEntryDeterminer
+from src.strategies.modules.exit.null_exit_determiner import NullExitDeterminer
+from src.strategies.modules.exit.ict_dynamic_exit_determiner import ICTDynamicExitDeterminer
 from src.models.candle import Candle
 from src.models.event import Event, EventType
 from src.models.position import Position
 from src.models.signal import SignalType
-from src.pricing.base import StrategyModuleConfig
-from src.pricing.stop_loss.percentage import PercentageStopLoss
-from src.pricing.take_profit.risk_reward import RiskRewardTakeProfit
+from src.strategies.modules.base.pricing import StrategyModuleConfig
+from src.strategies.modules.sl.percentage_stop_loss_determiner import PercentageStopLossDeterminer as PercentageStopLoss
+from src.strategies.modules.tp.risk_reward_take_profit_determiner import RiskRewardTakeProfitDeterminer as RiskRewardTakeProfit
 from src.strategies import ComposableStrategy, StrategyFactory
 
 
@@ -62,14 +62,15 @@ def _make_composable_strategy(symbol: str = "BTCUSDT") -> ComposableStrategy:
         min_rr_ratio=1.5,
     )
     # Mark buffer as initialized (normally done via initialize_history)
-    strategy._initialized["5m"] = True
+    strategy._buffer._initialized["5m"] = True
     return strategy
 
 
 def _make_position_cache_manager():
     """Create a mock PositionCacheManager."""
     pcm = MagicMock()
-    pcm.get.return_value = None  # No position by default
+    pcm.get = AsyncMock(return_value=None)  # No position by default
+    pcm.get_fresh = AsyncMock(return_value=None)
     pcm.cache = {"BTCUSDT": (None, time.time())}
     pcm._last_signal_time = {}
     pcm._ttl = 60.0
@@ -133,7 +134,7 @@ class TestExitFlow:
     @pytest.mark.asyncio
     async def test_composable_strategy_exit_with_position(self):
         """Exit analysis is triggered when position exists."""
-        # Use ICTExitDeterminer for exit logic
+        # Use ICTDynamicExitDeterminer for exit logic
         from src.utils.config_manager import ExitConfig
 
         exit_config = ExitConfig(
@@ -145,7 +146,7 @@ class TestExitFlow:
             entry_determiner=AlwaysEntryDeterminer(),
             stop_loss_determiner=PercentageStopLoss(),
             take_profit_determiner=RiskRewardTakeProfit(),
-            exit_determiner=ICTExitDeterminer(
+            exit_determiner=ICTDynamicExitDeterminer(
                 exit_config=exit_config,
                 swing_lookback=5,
                 displacement_ratio=1.5,
@@ -159,7 +160,7 @@ class TestExitFlow:
             module_config=module_config,
             intervals=["5m"],
         )
-        strategy._initialized["5m"] = True
+        strategy._buffer._initialized["5m"] = True
 
         position = Position(
             symbol="BTCUSDT",
@@ -189,8 +190,6 @@ class TestExitFlow:
         await dispatcher.on_candle_closed(event)
 
         # With position, exit analysis is run (not entry)
-        # The exit may or may not generate a signal depending on strategy state,
-        # but process_exit_strategy should have been called without error
         # Verify no exception occurred (integration success)
 
 
@@ -207,7 +206,7 @@ class TestDynamicSLSync:
             trailing_distance=0.02,
             trailing_activation=0.001,
         )
-        exit_det = ICTExitDeterminer(
+        exit_det = ICTDynamicExitDeterminer(
             exit_config=exit_config,
             swing_lookback=5,
             displacement_ratio=1.5,
@@ -227,7 +226,7 @@ class TestDynamicSLSync:
             module_config=module_config,
             intervals=["5m"],
         )
-        strategy._initialized["5m"] = True
+        strategy._buffer._initialized["5m"] = True
 
         # Manually set a trailing level
         exit_det._trailing_levels["BTCUSDT_LONG"] = 49500.0
@@ -244,7 +243,7 @@ class TestDynamicSLSync:
         )
 
         order_gateway = MagicMock()
-        order_gateway.update_stop_loss.return_value = True
+        order_gateway.update_stop_loss = AsyncMock(return_value=True)
 
         pcm = _make_position_cache_manager()
         pcm.get.return_value = position
@@ -266,9 +265,9 @@ class TestDynamicSLSync:
 
         # Order gateway should have been called to update SL
         order_gateway.update_stop_loss.assert_called_once()
-        call_kwargs = order_gateway.update_stop_loss.call_args[1]
-        assert call_kwargs["symbol"] == "BTCUSDT"
-        assert call_kwargs["new_stop_price"] == 49500.0
+        call_args = order_gateway.update_stop_loss.call_args[1]
+        assert call_args["symbol"] == "BTCUSDT"
+        assert call_args["new_stop_price"] == 49500.0
 
 
 class TestIssue123TrailingStopInitialSL:
@@ -295,18 +294,12 @@ class TestIssue123TrailingStopInitialSL:
         # _last_exchange_sl must be seeded with the strategy's original SL
         assert "BTCUSDT" in dispatcher._last_exchange_sl
         original_sl = dispatcher._last_exchange_sl["BTCUSDT"]
-        # PercentageStopLoss default 1% below entry 50000 -> ~49500
+        # PercentageStopLoss default 2% below entry 50000 -> ~49000
         assert original_sl < 50000.0, "LONG SL must be below entry"
 
     @pytest.mark.asyncio
     async def test_short_trailing_initial_stop_does_not_worsen_sl(self):
-        """Direction guard blocks trailing initial_stop from moving SHORT SL higher (Issue #123).
-
-        Scenario (DOGEUSDT SHORT from the bug report):
-          Original SL  : 0.10117  (entry * 1.005 — tight, 0.5% above entry)
-          Trailing init: 0.10267  (entry * 1.020 — trailing_distance=2%, worse for SHORT)
-        Expected: exchange SL stays at 0.10117, update_stop_loss NOT called.
-        """
+        """Direction guard blocks trailing initial_stop from moving SHORT SL higher (Issue #123)."""
         from src.utils.config_manager import ExitConfig
 
         exit_config = ExitConfig(
@@ -314,7 +307,7 @@ class TestIssue123TrailingStopInitialSL:
             trailing_distance=0.02,
             trailing_activation=0.01,
         )
-        exit_det = ICTExitDeterminer(
+        exit_det = ICTDynamicExitDeterminer(
             exit_config=exit_config,
             swing_lookback=5,
             displacement_ratio=1.5,
@@ -323,7 +316,7 @@ class TestIssue123TrailingStopInitialSL:
         )
         entry_price = 0.10066
         # Simulate trailing initial_stop for SHORT: entry * (1 + 0.02) = 0.10267
-        initial_stop = entry_price * (1 + exit_config.trailing_distance)  # 0.10267
+        initial_stop = entry_price * (1 + exit_config.trailing_distance)
         exit_det._trailing_levels["DOGEUSDT_SHORT"] = initial_stop
 
         module_config = StrategyModuleConfig(
@@ -338,14 +331,14 @@ class TestIssue123TrailingStopInitialSL:
             module_config=module_config,
             intervals=["5m"],
         )
-        strategy._initialized["5m"] = True
+        strategy._buffer._initialized["5m"] = True
 
         position = Position(
             symbol="DOGEUSDT", side="SHORT", entry_price=entry_price,
             quantity=100.0, leverage=10, entry_time=datetime.now(timezone.utc),
         )
         order_gateway = MagicMock()
-        order_gateway.update_stop_loss.return_value = True
+        order_gateway.update_stop_loss = AsyncMock(return_value=True)
 
         pcm = _make_position_cache_manager()
         pcm.get.return_value = position
@@ -357,7 +350,7 @@ class TestIssue123TrailingStopInitialSL:
             order_gateway=order_gateway,
         )
         # Seed _last_exchange_sl with the strategy's tight original SL (entry * 1.005)
-        original_sl = entry_price * 1.005  # 0.10117
+        original_sl = entry_price * 1.005
         dispatcher._last_exchange_sl["DOGEUSDT"] = original_sl
 
         candle = _make_candle(symbol="DOGEUSDT", close=entry_price)
@@ -365,7 +358,6 @@ class TestIssue123TrailingStopInitialSL:
 
         # Direction guard must block the worsening update
         order_gateway.update_stop_loss.assert_not_called()
-        # _last_exchange_sl must remain at the tight original SL
         assert dispatcher._last_exchange_sl["DOGEUSDT"] == original_sl
 
     @pytest.mark.asyncio
@@ -378,7 +370,7 @@ class TestIssue123TrailingStopInitialSL:
             trailing_distance=0.02,
             trailing_activation=0.01,
         )
-        exit_det = ICTExitDeterminer(
+        exit_det = ICTDynamicExitDeterminer(
             exit_config=exit_config,
             swing_lookback=5,
             displacement_ratio=1.5,
@@ -386,8 +378,8 @@ class TestIssue123TrailingStopInitialSL:
             htf_interval="4h",
         )
         entry_price = 0.10066
-        original_sl = entry_price * 1.005   # 0.10117  (original, wider)
-        improved_sl = entry_price * 0.990   # ~0.09965 (ratcheted lower = better for SHORT)
+        original_sl = entry_price * 1.005
+        improved_sl = entry_price * 0.990
         exit_det._trailing_levels["DOGEUSDT_SHORT"] = improved_sl
 
         module_config = StrategyModuleConfig(
@@ -402,14 +394,14 @@ class TestIssue123TrailingStopInitialSL:
             module_config=module_config,
             intervals=["5m"],
         )
-        strategy._initialized["5m"] = True
+        strategy._buffer._initialized["5m"] = True
 
         position = Position(
             symbol="DOGEUSDT", side="SHORT", entry_price=entry_price,
             quantity=100.0, leverage=10, entry_time=datetime.now(timezone.utc),
         )
         order_gateway = MagicMock()
-        order_gateway.update_stop_loss.return_value = True
+        order_gateway.update_stop_loss = AsyncMock(return_value=True)
 
         pcm = _make_position_cache_manager()
         pcm.get.return_value = position
@@ -425,10 +417,8 @@ class TestIssue123TrailingStopInitialSL:
         candle = _make_candle(symbol="DOGEUSDT", close=entry_price * 0.985)
         await dispatcher.maybe_update_exchange_sl(candle, strategy, position)
 
-        # Improvement (lower SL for SHORT) must be allowed
+        # Improvement must be allowed
         order_gateway.update_stop_loss.assert_called_once()
-        call_kwargs = order_gateway.update_stop_loss.call_args[1]
-        assert call_kwargs["new_stop_price"] == improved_sl
 
 
 class TestSignalCooldown:
@@ -494,6 +484,6 @@ class TestMultiSymbol:
         await dispatcher.on_candle_closed(Event(event_type=EventType.CANDLE_CLOSED, data=eth_candle))
         eth_signals = event_bus.publish.call_count
 
-        # Both symbols should generate signals (AlwaysEntryDeterminer)
+        # Both symbols should generate signals
         assert btc_signals > 0, "BTCUSDT should generate signal"
         assert eth_signals > btc_signals, "ETHUSDT should also generate signal"

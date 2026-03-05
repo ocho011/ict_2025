@@ -20,7 +20,7 @@ from src.data.base import MarketDataProvider
 # Imports for type hinting only; prevents circular dependency at runtime
 # Only imported during static analysis (e.g., mypy, IDE)
 if TYPE_CHECKING:
-    from src.core.binance_service import BinanceServiceClient
+    from src.core.async_binance_client import AsyncBinanceClient
 
 
 class BinanceDataCollector(MarketDataProvider):
@@ -69,7 +69,7 @@ class BinanceDataCollector(MarketDataProvider):
 
     def __init__(
         self,
-        binance_service: "BinanceServiceClient",
+        binance_service: "AsyncBinanceClient",
         market_streamer: PublicMarketStreamer,
         user_streamer: Optional[PrivateUserStreamer] = None,
     ) -> None:
@@ -327,7 +327,7 @@ class BinanceDataCollector(MarketDataProvider):
             )
             raise ValueError(f"Invalid kline data format: {e}")
 
-    def get_historical_candles(
+    async def get_historical_candles(
         self, symbol: str, interval: str, limit: int = 500
     ) -> List[Candle]:
         """
@@ -349,7 +349,7 @@ class BinanceDataCollector(MarketDataProvider):
             ConnectionError: If API request fails (rate limit, network error)
 
         Example:
-            >>> candles = collector.get_historical_candles('BTCUSDT', '1h', limit=100)
+            >>> candles = await collector.get_historical_candles('BTCUSDT', '1h', limit=100)
             >>> print(f"Retrieved {len(candles)} candles")
             >>> print(f"Oldest: {candles[0].open_time}, Newest: {candles[-1].open_time}")
         """
@@ -360,11 +360,11 @@ class BinanceDataCollector(MarketDataProvider):
         if not 1 <= limit <= 1000:
             raise ValueError(f"limit must be between 1 and 1000, got {limit}")
 
-        self.logger.info(f"Fetching {limit} historical candles for {symbol} {interval}")
+        self.logger.info(f"Fetching {limit} historical candles for {symbol} {interval} asynchronously")
 
         try:
-            # Call Binance REST API
-            klines_list = self.binance_service.klines(
+            # Call Binance REST API asynchronously
+            klines_list = await self.binance_service.get_klines(
                 symbol=symbol, interval=interval, limit=limit
             )
 

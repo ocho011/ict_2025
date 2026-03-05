@@ -200,7 +200,7 @@ class TradingConfig:
     stop_loss_percent: float
     backfill_limit: int = 100  # Default 100 candles
     margin_type: str = "ISOLATED"  # Default to ISOLATED margin (safer than CROSSED)
-    strategy_config: Dict[str, Any] = field(default_factory=dict)  # Strategy-specific configuration
+    strategy_params: Dict[str, Any] = field(default_factory=dict)  # Strategy-specific configuration
     exit_config: Optional[ExitConfig] = None  # Dynamic exit configuration (Issue #43)
     max_symbols: int = (
         10  # Maximum symbols allowed (Issue #69: configurable MAX_SYMBOLS)
@@ -857,7 +857,7 @@ class ConfigManager:
             )
 
         # strategy_params replaces the old [ict_strategy] INI section
-        strategy_config = defaults.get("strategy_params", {})
+        strategy_params = defaults.get("strategy_params", {})
 
         return TradingConfig(
             symbols=symbols,
@@ -869,7 +869,7 @@ class ConfigManager:
             stop_loss_percent=float(defaults.get("stop_loss_percent", 0.02)),
             backfill_limit=int(defaults.get("backfill_limit", 100)),
             margin_type=defaults.get("margin_type", "ISOLATED"),
-            strategy_config=strategy_config,
+            strategy_params=strategy_params,
             exit_config=exit_config,
             max_symbols=max_symbols,
             strategy_type=defaults.get("strategy_type", "composable"),

@@ -40,7 +40,7 @@ def test_rest_api():
     # Get historical candles
     print("\n3. Fetching historical candles (last 10)...")
     try:
-        candles = collector.get_historical_candles(
+        candles = await collector.get_historical_candles(
             symbol="BTCUSDT",
             interval="1m",
             limit=10

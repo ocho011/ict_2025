@@ -42,18 +42,14 @@ liquidation:
 # Trading Configuration
 trading:
   defaults:
-    # Strategy to use: mock_sma, always_signal, ict_strategy
-    strategy: "ict_strategy"
-    # Strategy assembly type: composable (modular) or monolithic (legacy, deprecated)
+    # Strategy to use: composable_strategy
+    strategy: "composable_strategy"
+    # Strategy assembly type: composable (modular)
     strategy_type: "composable"
     # Leverage (1-125x for Binance Futures)
     leverage: 1
     # Maximum risk per trade (0.01 = 1% of account)
     max_risk_per_trade: 0.01
-    # Take profit ratio relative to risk (2.0 = 2:1 reward:risk)
-    take_profit_ratio: 2.0
-    # Stop loss percentage (0.02 = 2%)
-    stop_loss_percent: 0.02
     # Maximum symbols allowed (1-20)
     max_symbols: 10
     # Historical candles to backfill at startup (0-1000)
@@ -61,42 +57,43 @@ trading:
     # Margin type: ISOLATED or CROSSED
     margin_type: "ISOLATED"
     # Timeframe intervals for ICT Multi-Timeframe analysis
-    # Must match ltf/mtf/htf in strategy_params
     intervals:
       - "1m"
       - "5m"
       - "15m"
 
-    # ICT Strategy Parameters
-    # Profile options: strict (1-2 sig/wk), balanced (5-10), relaxed (15-20)
-    strategy_params:
-      ltf_interval: "1m"
-      mtf_interval: "5m"
-      htf_interval: "15m"
-      active_profile: "RELAXED"
-      buffer_size: 200
-      rr_ratio: 2.0
-      # Kill zone filter: true for production, false for testing
-      use_killzones: false
+    # Composable Entry Configuration
+    entry_config:
+      strategy: "ict_optimal_entry"
+      parameters:
+        ltf_interval: "1m"
+        mtf_interval: "5m"
+        htf_interval: "15m"
+        active_profile: "RELAXED"
+        buffer_size: 200
+        use_killzones: false
 
-    # Dynamic Exit Configuration
+    # Composable Exit Configuration
     exit_config:
-      dynamic_exit_enabled: true
-      # Options: trailing_stop, breakeven, timed, indicator_based
-      exit_strategy: "trailing_stop"
-      # Trailing Stop: distance (2%) and activation threshold (1%)
-      trailing_distance: 0.02
-      trailing_activation: 0.01
-      # BreakEven: move SL to entry after profit threshold
-      breakeven_enabled: true
-      breakeven_offset: 0.001
-      # Time-based exit (default: disabled for ICT)
-      timeout_enabled: false
-      timeout_minutes: 240
-      # Volatility-based exit using ATR
-      volatility_enabled: false
-      atr_period: 14
-      atr_multiplier: 2.0
+      strategy: "ict_dynamic_exit"
+      parameters:
+        dynamic_exit_enabled: true
+        trailing_distance: 0.02
+        trailing_activation: 0.01
+        breakeven_enabled: true
+        breakeven_offset: 0.001
+
+    # Composable Stop Loss Configuration
+    stop_loss_config:
+      strategy: "fixed_percent_sl"
+      parameters:
+        stop_loss_percent: 0.02
+
+    # Composable Take Profit Configuration
+    take_profit_config:
+      strategy: "fixed_rr_tp"
+      parameters:
+        take_profit_ratio: 2.0
 
   # Per-symbol configuration overrides
   # Each symbol inherits from defaults and can override any field

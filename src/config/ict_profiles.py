@@ -1,2 +1,3 @@
-"""Backward compatibility re-export. Canonical: src.strategies.ict.profiles"""
-from src.strategies.ict.profiles import *  # noqa: F401,F403
+"""Backward compatibility re-export. Canonical: src.strategies.modules.ict_profiles"""
+from src.strategies.modules.ict_profiles import *  # noqa: F401,F403
+
