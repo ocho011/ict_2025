@@ -810,104 +810,107 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
         side: OrderSide,
     ) -> Optional[Order]:
         """
-        Dynamically update exchange SL order by cancel-and-replace (Issue #104).
-
-        Atomically cancels the existing SL algo order and places a new one.
-        Includes a minimum movement threshold (0.1%) to avoid excessive API calls.
-
-        Args:
-            symbol: Trading pair (e.g., 'BTCUSDT')
-            new_stop_price: New stop loss trigger price
-            side: Order side for the SL (SELL for long position, BUY for short)
-
-        Returns:
-            New Order object if successful, None if skipped or failed
+        Dynamically update Stop Loss order for an open position.
+        
+        This robust implementation follows a "Fetch -> Filter -> Cancel -> Place" flow:
+        1. Query all current open algo orders.
+        2. Identify and filter matching STOP_MARKET orders.
+        3. Deterministically cancel existing orders (ignoring already-processed errors).
+        4. Place new order with collision detection (-4130) and automatic re-sync.
         """
         try:
-            # 1. Get current mark price for validation
+            # 1. Validation and adjustment logic
             try:
                 mark_price = await self.client.get_mark_price(symbol)
             except Exception as e:
                 self.logger.warning(f"Failed to get mark price for SL update: {e}")
                 return None
 
-            # 2. Validate new SL is on correct side of mark price
-            min_buffer = mark_price * 0.002  # 0.2% minimum distance
-            if side == OrderSide.SELL:
-                # Closing LONG - SL must be below mark price
+            min_buffer = mark_price * 0.001  # 0.1% minimum buffer
+            if side == OrderSide.SELL: # Position is LONG, SL must be below mark
                 if new_stop_price >= mark_price:
-                    self.logger.warning(
-                        f"SL update skipped: new SL {new_stop_price:.4f} >= mark {mark_price:.4f}"
-                    )
+                    self.logger.warning(f"SL update skipped: new SL {new_stop_price:.4f} >= mark {mark_price:.4f}")
                     return None
                 if mark_price - new_stop_price < min_buffer:
                     new_stop_price = mark_price - min_buffer
-            else:  # OrderSide.BUY
-                # Closing SHORT - SL must be above mark price
+            else: # Position is SHORT, SL must be above mark
                 if new_stop_price <= mark_price:
-                    self.logger.warning(
-                        f"SL update skipped: new SL {new_stop_price:.4f} <= mark {mark_price:.4f}"
-                    )
+                    self.logger.warning(f"SL update skipped: new SL {new_stop_price:.4f} <= mark {mark_price:.4f}")
                     return None
                 if new_stop_price - mark_price < min_buffer:
                     new_stop_price = mark_price + min_buffer
 
-            # 3. Cancel existing SL algo orders only (preserve TP)
+            # 2. Robust SL Sync Logic (Fetch -> Filter -> Cancel -> Place)
             try:
-                sl_types = ["STOP", "STOP_MARKET"]
-                algo_results = await self.client.cancel_algo_orders_by_type(symbol, sl_types)
-                cancelled = len(algo_results) if algo_results else 0
+                open_algo_orders = await self.client.get_open_algo_orders(symbol)
+                existing_sls = [o for o in open_algo_orders if o.get("type") in ["STOP", "STOP_MARKET"]]
 
-                self.logger.info(
-                    f"Cancelled {cancelled} existing SL algo orders for {symbol} before SL update"
-                )
+                for old_order in existing_sls:
+                    old_price = float(old_order.get("stopPrice", 0) or old_order.get("triggerPrice", 0))
+                    algo_id = str(old_order.get("algoId"))
+                    
+                    if abs(old_price - new_stop_price) < 1e-8:
+                        self.logger.info(f"Existing SL for {symbol} matches target {new_stop_price}. Skipping update.")
+                        return self._parse_order_response(old_order, symbol, side, OrderType.STOP_MARKET)
+
+                    try:
+                        await self.client.cancel_algo_order(symbol, algo_id)
+                        self.logger.debug(f"Cancelled old SL {algo_id} for {symbol}")
+                    except Exception as e:
+                        if any(code in str(e) for code in ["-2011", "-4137", "-4138"]):
+                            self.logger.warning(f"SL {algo_id} for {symbol} already gone. Proceeding.")
+                            continue
+                        raise e
+
             except Exception as e:
-                self.logger.error(f"Failed to cancel existing algo orders for SL update: {e}")
+                self.logger.error(f"Failed to synchronize existing SL orders for {symbol}: {e}")
                 return None
 
-            # 4. Place new SL order
+            # 3. Place new SL order with collision handling and retries
             stop_price_str = await self._format_price(new_stop_price, symbol)
-            response = await self.client.new_algo_order(
-                symbol=symbol,
-                side=side.value,
-                type=OrderType.STOP_MARKET.value,
-                triggerPrice=stop_price_str,
-                closePosition="true",
-                workingType="MARK_PRICE",
-            )
+            max_place_retries = 2
+            
+            for attempt in range(max_place_retries + 1):
+                try:
+                    response = await self.client.new_algo_order(
+                        symbol=symbol, side=side.value, type=OrderType.STOP_MARKET.value,
+                        triggerPrice=stop_price_str, closePosition="true", workingType="MARK_PRICE"
+                    )
+                    order = self._parse_order_response(response, symbol, side, OrderType.STOP_MARKET)
+                    order.stop_price = new_stop_price
+                    self.logger.info(f"SL dynamically updated for {symbol}: new stopPrice={stop_price_str} (Attempt {attempt+1})")
+                    
+                    try:
+                        self.audit_logger.log_order_placed(
+                            symbol=symbol,
+                            order_data={"order_type": "STOP_MARKET", "side": side.value, "stop_price": new_stop_price, "close_position": True, "update_reason": "trailing_stop_dynamic_update"},
+                            response={"order_id": order.order_id, "status": order.status.value},
+                        )
+                    except Exception: pass
+                    return order
 
-            order = self._parse_order_response(
-                response=response,
-                symbol=symbol,
-                side=side,
-                expected_order_type=OrderType.STOP_MARKET,
-            )
-            order.stop_price = new_stop_price
+                except Exception as e:
+                    if "-4130" in str(e) and attempt < max_place_retries:
+                        self.logger.warning(f"SL collision (-4130) for {symbol}. Force re-syncing...")
+                        try:
+                            fresh = await self.client.get_open_algo_orders(symbol)
+                            for o in fresh:
+                                if o.get("type") in ["STOP", "STOP_MARKET"]:
+                                    await self.client.cancel_algo_order(symbol, str(o.get("algoId")))
+                            continue
+                        except Exception: break
+                    
+                    if "-4112" in str(e):
+                        self.logger.critical(f"ReduceOnly rejected for {symbol} SL: {e}")
+                        break
+                        
+                    self.logger.error(f"New SL placement failed for {symbol} (Attempt {attempt+1}): {e}")
+                    if attempt < max_place_retries: await asyncio.sleep(0.5 * (attempt + 1))
+                    else: break
 
-            self.logger.info(
-                f"SL dynamically updated for {symbol}: new stopPrice={stop_price_str}"
-            )
-
-            # Audit log
-            try:
-                self.audit_logger.log_order_placed(
-                    symbol=symbol,
-                    order_data={
-                        "order_type": "STOP_MARKET",
-                        "side": side.value,
-                        "stop_price": new_stop_price,
-                        "close_position": True,
-                        "update_reason": "trailing_stop_dynamic_update",
-                    },
-                    response={"order_id": order.order_id, "status": order.status.value},
-                )
-            except Exception:
-                pass
-
-            return order
-
+            return None
         except Exception as e:
-            self.logger.error(f"SL dynamic update failed: {type(e).__name__}: {e}")
+            self.logger.error(f"SL dynamic update failed: {e}")
             return None
 
     @async_retry_with_backoff(max_retries=3, initial_delay=1.0)

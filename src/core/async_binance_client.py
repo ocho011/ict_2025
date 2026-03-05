@@ -186,34 +186,56 @@ class AsyncBinanceClient:
         )
 
     async def cancel_all_algo_orders(self, symbol: str) -> Any:
-        """DELETE /fapi/v1/allOpenAlgoOrders (Signed)"""
+        """DELETE /fapi/v1/algoOpenOrders (Signed) - For Strategy Orders (VP/TWAP)"""
         return await self.request(
-            "DELETE", "/fapi/v1/allOpenAlgoOrders", signed=True, params={"symbol": symbol}
+            "DELETE", "/fapi/v1/algoOpenOrders", signed=True, params={"symbol": symbol}
         )
+
+    async def get_open_algo_orders(self, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
+        """GET /fapi/v1/openAlgoOrders (Signed) - Get open conditional/strategy orders"""
+        params = {}
+        if symbol:
+            params["symbol"] = symbol
+        return await self.request("GET", "/fapi/v1/openAlgoOrders", signed=True, params=params)
+
+    async def cancel_algo_order(self, symbol: str, algoId: str) -> Dict[str, Any]:
+        """DELETE /fapi/v1/algoOrder (Signed) - Cancel a specific conditional order"""
+        params = {"symbol": symbol, "algoId": algoId}
+        return await self.request("DELETE", "/fapi/v1/algoOrder", signed=True, params=params)
 
     async def cancel_algo_orders_by_type(self, symbol: str, types: List[str]) -> List[Dict[str, Any]]:
         """
         Cancel open algo orders filtered by type.
-        Note: Binance doesn't have a direct 'by type' endpoint, 
-        so we get all and filter/cancel if needed, or just cancel all for simplicity
-        if types include both STOP and TAKE_PROFIT.
+        Since Binance doesn't have a direct 'by type' endpoint for all types,
+        we fetch all open algo orders and cancel the ones matching the requested types.
         """
-        # For now, let's implement by getting all and cancelling selected ones
-        # This matches the spirit of the original sync client's behavior
         results = []
         try:
-            # Note: There isn't a direct 'get open algo orders' endpoint that returns a list
-            # to filter from in the same way as regular orders.
-            # Most users just use cancel_all_algo_orders.
-            # But let's try to be specific if possible.
-            
-            # If both types are requested, just cancel all
-            if "STOP" in types and "TAKE_PROFIT" in types:
-                return await self.cancel_all_algo_orders(symbol)
-            
-            # If only one type, we still probably have to cancel all or handle individually
-            # For this system, TP/SL are usually the only algo orders.
-            return await self.cancel_all_algo_orders(symbol)
+            # 1. Fetch all open algo orders for the symbol
+            open_orders = await self.get_open_algo_orders(symbol)
+            if not open_orders:
+                return []
+
+            # 2. Filter and cancel matching orders
+            for order in open_orders:
+                # 'type' field exists for CONDITIONAL orders
+                order_type = order.get("type")
+                if order_type in types:
+                    algo_id = order.get("algoId")
+                    if algo_id:
+                        try:
+                            cancel_res = await self.cancel_algo_order(symbol, str(algo_id))
+                            results.append(cancel_res)
+                        except Exception as e:
+                            self.logger.warning(f"Failed to cancel specific algo order {algo_id}: {e}")
+
+            # 3. If no specific type matches but we have types, fallback to generic cancel
+            # (Optional: Only if we want to ensure everything is cleared)
+            if not results and ("STOP" in types or "TAKE_PROFIT" in types):
+                # We tried specific cancellation, if it didn't find anything, we're likely clear.
+                pass
+
+            return results
             
         except Exception as e:
             self.logger.warning(f"Failed to cancel algo orders by type: {e}")
