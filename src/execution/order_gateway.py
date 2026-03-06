@@ -843,11 +843,11 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             # 2. Robust SL Sync Logic (Fetch -> Filter -> Cancel -> Place)
             try:
                 open_algo_orders = await self.client.get_open_algo_orders(symbol)
-                # CRITICAL FIX: Include TAKE_PROFIT_MARKET in filter to avoid -4130 collisions
+                # CRITICAL FIX: Include TRAILING_STOP_MARKET in filter to avoid -4130 collisions
                 # Binance only allows one closePosition=true order per side.
                 existing_exits = [
                     o for o in open_algo_orders 
-                    if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET"]
+                    if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"]
                 ]
 
                 for old_order in existing_exits:
@@ -902,9 +902,12 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                         try:
                             fresh = await self.client.get_open_algo_orders(symbol)
                             for o in fresh:
-                                # Fix: Check all relevant algo types for closePosition conflict
-                                if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET"]:
-                                    await self.client.cancel_algo_order(symbol, str(o.get("algoId")))
+                                # Fix: Include TRAILING_STOP_MARKET to fully clear potential collisions
+                                if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"]:
+                                    try:
+                                        await self.client.cancel_algo_order(symbol, str(o.get("algoId")))
+                                    except Exception: pass
+                            await asyncio.sleep(0.5) # Allow exchange state to sync
                             continue
                         except Exception: break
                     
