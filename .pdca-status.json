@@ -1,6 +1,6 @@
 {
   "version": "2.0",
-  "lastUpdated": "2026-03-05T05:54:17.090Z",
+  "lastUpdated": "2026-03-06T00:37:58.388Z",
   "activeFeatures": [
     "strategies",
     "ict",
@@ -298,9 +298,9 @@
     "phaseHistory": []
   },
   "session": {
-    "startedAt": "2026-03-05T05:54:17.128Z",
+    "startedAt": "2026-03-05T09:09:21.510Z",
     "onboardingCompleted": false,
-    "lastActivity": "2026-03-05T05:54:17.128Z"
+    "lastActivity": "2026-03-05T09:09:21.510Z"
   },
   "history": [
     {
@@ -1244,8 +1244,18 @@
       "action": "session_end",
       "feature": "trailing-stop-logging-optimization",
       "details": "Session ended"
+    },
+    {
+      "timestamp": "2026-03-05T08:41:51.665Z",
+      "action": "session_end",
+      "feature": "trailing-stop-logging-optimization",
+      "details": "Session ended"
+    },
+    {
+      "timestamp": "2026-03-05T08:41:51.692Z",
+      "action": "session_end",
+      "feature": "trailing-stop-logging-optimization",
+      "details": "Session ended"
     }
-  ],
-  "_snapshotTimestamp": "2026-03-05T06:33:46.381Z",
-  "_reason": "pre-compress"
+  ]
 }

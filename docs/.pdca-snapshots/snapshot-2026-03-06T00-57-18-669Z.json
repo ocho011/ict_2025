@@ -1,0 +1,73 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-03-05T15:00:00.000Z",
+  "primaryFeature": "error-diagnosis",
+  "activeFeatures": [
+    "strategies",
+    "ict",
+    "pricing",
+    "stop_loss",
+    "take_profit",
+    "entry",
+    "exit",
+    "config",
+    "events",
+    "core",
+    "tests",
+    "elements",
+    "hud",
+    "ict_2025",
+    "pre-flight-order-check",
+    "execution",
+    "logging-cost-tracking",
+    "trailing-stop-logging-optimization",
+    "error-diagnosis"
+  ],
+  "features": {
+    "error-diagnosis": {
+      "phase": "complete",
+      "phaseNumber": 5,
+      "matchRate": 100,
+      "iterationCount": 0,
+      "requirements": [
+        "Fix Binance API -5000 path error",
+        "Resolve Binance API -4130 order collision",
+        "Implement state-based SL synchronization",
+        "Add resilience testing suite (5 cases)"
+      ],
+      "documents": {
+        "plan": "docs/01-plan/features/error-diagnosis.plan.md",
+        "design": "docs/02-design/features/error-diagnosis.design.md",
+        "report": "docs/04-report/features/error-diagnosis.report.md"
+      },
+      "timestamps": {
+        "started": "2026-03-05T13:30:00.000Z",
+        "lastUpdated": "2026-03-05T15:00:00.000Z"
+      },
+      "lastFile": "tests/test_order_resilience.py"
+    },
+    "trailing-stop-logging-optimization": {
+      "phase": "complete",
+      "phaseNumber": 5,
+      "matchRate": 96,
+      "iterationCount": 0,
+      "requirements": [
+        "MFE/MAE tracking per position",
+        "High-water mark / Low-water mark price logging",
+        "TRAILING_STOP_RATCHETED audit event"
+      ],
+      "documents": {
+        "plan": "docs/01-plan/features/trailing-stop-logging-optimization.plan.md",
+        "design": "docs/02-design/features/trailing-stop-logging-optimization.design.md",
+        "analysis": "docs/03-analysis/features/trailing-stop-logging-optimization.analysis.md",
+        "report": "docs/04-report/features/trailing-stop-logging-optimization.report.md"
+      },
+      "timestamps": {
+        "started": "2026-03-03T03:00:00.000Z",
+        "lastUpdated": "2026-03-03T04:45:00.000Z"
+      }
+    }
+  },
+  "_snapshotTimestamp": "2026-03-06T00:57:18.670Z",
+  "_reason": "pre-compress"
+}

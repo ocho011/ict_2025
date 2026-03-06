@@ -843,19 +843,26 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
             # 2. Robust SL Sync Logic (Fetch -> Filter -> Cancel -> Place)
             try:
                 open_algo_orders = await self.client.get_open_algo_orders(symbol)
-                existing_sls = [o for o in open_algo_orders if o.get("type") in ["STOP", "STOP_MARKET"]]
+                # CRITICAL FIX: Include TAKE_PROFIT_MARKET in filter to avoid -4130 collisions
+                # Binance only allows one closePosition=true order per side.
+                existing_exits = [
+                    o for o in open_algo_orders 
+                    if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET"]
+                ]
 
-                for old_order in existing_sls:
+                for old_order in existing_exits:
                     old_price = float(old_order.get("stopPrice", 0) or old_order.get("triggerPrice", 0))
                     algo_id = str(old_order.get("algoId"))
+                    order_type = old_order.get("type")
                     
-                    if abs(old_price - new_stop_price) < 1e-8:
+                    # Only skip if it's the SAME type and SAME price
+                    if order_type in ["STOP", "STOP_MARKET"] and abs(old_price - new_stop_price) < 1e-8:
                         self.logger.info(f"Existing SL for {symbol} matches target {new_stop_price}. Skipping update.")
                         return self._parse_order_response(old_order, symbol, side, OrderType.STOP_MARKET)
 
                     try:
                         await self.client.cancel_algo_order(symbol, algo_id)
-                        self.logger.debug(f"Cancelled old SL {algo_id} for {symbol}")
+                        self.logger.debug(f"Cancelled old {order_type} {algo_id} for {symbol}")
                     except Exception as e:
                         if any(code in str(e) for code in ["-2011", "-4137", "-4138"]):
                             self.logger.warning(f"SL {algo_id} for {symbol} already gone. Proceeding.")
@@ -895,7 +902,8 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                         try:
                             fresh = await self.client.get_open_algo_orders(symbol)
                             for o in fresh:
-                                if o.get("type") in ["STOP", "STOP_MARKET"]:
+                                # Fix: Check all relevant algo types for closePosition conflict
+                                if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET"]:
                                     await self.client.cancel_algo_order(symbol, str(o.get("algoId")))
                             continue
                         except Exception: break

@@ -1,0 +1,43 @@
+# bkit-gemini v1.5.7 - Dynamic Level Policy
+# Balanced policy for fullstack development
+# Auto-generated for Gemini CLI v0.31.0+ Project-Level Policy Engine (Tier 3)
+# Generated: 2026-03-05
+
+[[rule]]
+toolName = "write_file"
+decision = "allow"
+priority = 10
+
+[[rule]]
+toolName = "replace"
+decision = "allow"
+priority = 10
+
+[[rule]]
+toolName = "run_shell_command"
+decision = "allow"
+priority = 10
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "rm -rf"
+decision = "deny"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "git push --force"
+decision = "deny"
+priority = 100
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "git reset --hard"
+decision = "ask_user"
+priority = 50
+
+[[rule]]
+toolName = "run_shell_command"
+commandPrefix = "docker system prune"
+decision = "ask_user"
+priority = 50
