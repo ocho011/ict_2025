@@ -875,7 +875,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
             # 3. Place new SL order with collision handling and retries
             stop_price_str = await self._format_price(new_stop_price, symbol)
-            max_place_retries = 2
+            max_place_retries = 5
             
             for attempt in range(max_place_retries + 1):
                 try:
@@ -898,16 +898,18 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
 
                 except Exception as e:
                     if "-4130" in str(e) and attempt < max_place_retries:
-                        self.logger.warning(f"SL collision (-4130) for {symbol}. Force re-syncing...")
+                        self.logger.warning(f"SL collision (-4130) for {symbol}. Attempting recovery {attempt+1}/{max_place_retries}...")
                         try:
                             fresh = await self.client.get_open_algo_orders(symbol)
                             for o in fresh:
                                 # Fix: Include TRAILING_STOP_MARKET to fully clear potential collisions
                                 if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"]:
                                     try:
-                                        await self.client.cancel_algo_order(symbol, str(o.get("algoId")))
+                                        algo_id = str(o.get("algoId"))
+                                        await self.client.cancel_algo_order(symbol, algo_id)
+                                        self.logger.info(f"Recovery: Cancelled conflicting order {algo_id} for {symbol}")
                                     except Exception: pass
-                            await asyncio.sleep(0.5) # Allow exchange state to sync
+                            await asyncio.sleep(1.5) # Increased delay for engine synchronization
                             continue
                         except Exception: break
                     

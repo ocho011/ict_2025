@@ -81,6 +81,11 @@ class PublicMarketStreamer(IDataStreamer):
         if not intervals:
             raise ValueError("intervals list cannot be empty")
 
+        import certifi
+        import os
+        # Ensure SSL certificate verification works on all platforms (macOS fix)
+        os.environ['SSL_CERT_FILE'] = certifi.where()
+
         self.symbols = [s.upper() for s in symbols]
         self.intervals = intervals
         self.is_testnet = is_testnet

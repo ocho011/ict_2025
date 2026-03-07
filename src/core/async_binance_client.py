@@ -56,9 +56,19 @@ class AsyncBinanceClient:
     async def start(self):
         """Initialize the aiohttp session."""
         if self._session is None:
+            import ssl
+            import certifi
+            
+            # Use certifi to ensure proper CA bundle on all platforms (macOS fix)
+            ssl_context = ssl.create_default_context(cafile=certifi.where())
+            
+            # Create session with the specific SSL context
+            connector = aiohttp.TCPConnector(ssl=ssl_context)
+            
             self._session = aiohttp.ClientSession(
                 headers={"X-MBX-APIKEY": self.api_key},
-                timeout=aiohttp.ClientTimeout(total=10)
+                timeout=aiohttp.ClientTimeout(total=10),
+                connector=connector
             )
             self.logger.info("Async Binance session started (testnet=%s)", self.is_testnet)
 
