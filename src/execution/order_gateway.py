@@ -840,43 +840,47 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                 if new_stop_price - mark_price < min_buffer:
                     new_stop_price = mark_price + min_buffer
 
-            # 2. Robust SL Sync Logic (Fetch -> Filter -> Cancel -> Place)
+            # 2. Cancel existing algo orders (nuclear approach) with TP preservation
+            tp_trigger_price = None
             try:
+                # 2a. Fetch existing orders to check same-price and preserve TP info
                 open_algo_orders = await self.client.get_open_algo_orders(symbol)
-                # CRITICAL FIX: Include TRAILING_STOP_MARKET in filter to avoid -4130 collisions
-                # Binance only allows one closePosition=true order per side.
-                existing_exits = [
-                    o for o in open_algo_orders 
-                    if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"]
-                ]
-
-                for old_order in existing_exits:
-                    old_price = float(old_order.get("stopPrice", 0) or old_order.get("triggerPrice", 0))
-                    algo_id = str(old_order.get("algoId"))
-                    order_type = old_order.get("type")
-                    
-                    # Only skip if it's the SAME type and SAME price
-                    if order_type in ["STOP", "STOP_MARKET"] and abs(old_price - new_stop_price) < 1e-8:
-                        self.logger.info(f"Existing SL for {symbol} matches target {new_stop_price}. Skipping update.")
-                        return self._parse_order_response(old_order, symbol, side, OrderType.STOP_MARKET)
-
-                    try:
-                        await self.client.cancel_algo_order(symbol, algo_id)
-                        self.logger.debug(f"Cancelled old {order_type} {algo_id} for {symbol}")
-                    except Exception as e:
-                        if any(code in str(e) for code in ["-2011", "-4137", "-4138"]):
-                            self.logger.warning(f"SL {algo_id} for {symbol} already gone. Proceeding.")
+                if open_algo_orders:
+                    self.logger.info(
+                        f"Open algo orders for {symbol} before SL update: "
+                        f"{[{k: o.get(k) for k in ['algoId', 'type', 'side', 'triggerPrice', 'stopPrice', 'closePosition', 'algoType']} for o in open_algo_orders]}"
+                    )
+                    for o in open_algo_orders:
+                        trigger = float(o.get("triggerPrice", 0) or o.get("stopPrice", 0))
+                        if trigger <= 0:
                             continue
-                        raise e
+                        # Same-price optimization: skip if existing order matches target SL
+                        if abs(trigger - new_stop_price) < 1e-8:
+                            self.logger.info(f"Existing SL for {symbol} matches target {new_stop_price}. Skipping update.")
+                            return self._parse_order_response(o, symbol, side, OrderType.STOP_MARKET)
+                        # Identify TP by trigger direction vs mark price
+                        # SELL (closing LONG): TP > mark, SL < mark
+                        # BUY (closing SHORT): TP < mark, SL > mark
+                        is_tp = (side == OrderSide.SELL and trigger > mark_price) or \
+                                (side == OrderSide.BUY and trigger < mark_price)
+                        if is_tp:
+                            tp_trigger_price = trigger
+                            self.logger.info(f"Preserving TP for {symbol}: triggerPrice={trigger}")
+
+                # 2b. Nuclear cancel (proven at position close path)
+                await self.client.cancel_all_algo_orders(symbol)
+                self.logger.info(f"Cancelled all algo orders for {symbol} before SL update")
+                await asyncio.sleep(0.3)
 
             except Exception as e:
-                self.logger.error(f"Failed to synchronize existing SL orders for {symbol}: {e}")
+                self.logger.error(f"Failed to clear existing orders for {symbol}: {e}")
                 return None
 
-            # 3. Place new SL order with collision handling and retries
+            # 3. Place new SL order with collision recovery
             stop_price_str = await self._format_price(new_stop_price, symbol)
             max_place_retries = 5
-            
+            order = None
+
             for attempt in range(max_place_retries + 1):
                 try:
                     response = await self.client.new_algo_order(
@@ -886,7 +890,7 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                     order = self._parse_order_response(response, symbol, side, OrderType.STOP_MARKET)
                     order.stop_price = new_stop_price
                     self.logger.info(f"SL dynamically updated for {symbol}: new stopPrice={stop_price_str} (Attempt {attempt+1})")
-                    
+
                     try:
                         self.audit_logger.log_order_placed(
                             symbol=symbol,
@@ -894,37 +898,81 @@ class OrderGateway(ExecutionGateway, ExchangeProvider):
                             response={"order_id": order.order_id, "status": order.status.value},
                         )
                     except Exception: pass
-                    return order
+                    break  # SUCCESS: exit loop, fall through to TP restoration
 
                 except Exception as e:
                     if "-4130" in str(e) and attempt < max_place_retries:
-                        self.logger.warning(f"SL collision (-4130) for {symbol}. Attempting recovery {attempt+1}/{max_place_retries}...")
+                        self.logger.warning(
+                            f"SL collision (-4130) for {symbol}. Recovery {attempt+1}/{max_place_retries}..."
+                        )
                         try:
-                            fresh = await self.client.get_open_algo_orders(symbol)
-                            for o in fresh:
-                                # Fix: Include TRAILING_STOP_MARKET to fully clear potential collisions
-                                if o.get("type") in ["STOP", "STOP_MARKET", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"]:
-                                    try:
-                                        algo_id = str(o.get("algoId"))
-                                        await self.client.cancel_algo_order(symbol, algo_id)
-                                        self.logger.info(f"Recovery: Cancelled conflicting order {algo_id} for {symbol}")
-                                    except Exception: pass
-                            await asyncio.sleep(1.5) # Increased delay for engine synchronization
+                            await self.client.cancel_all_algo_orders(symbol)
+                            self.logger.info(f"Recovery: nuclear cancel completed for {symbol}")
+                            await asyncio.sleep(0.5)
                             continue
-                        except Exception: break
-                    
+                        except Exception as cancel_err:
+                            self.logger.error(f"Recovery cancel failed for {symbol}: {cancel_err}")
+                            break
+
                     if "-4112" in str(e):
                         self.logger.critical(f"ReduceOnly rejected for {symbol} SL: {e}")
                         break
-                        
-                    self.logger.error(f"New SL placement failed for {symbol} (Attempt {attempt+1}): {e}")
-                    if attempt < max_place_retries: await asyncio.sleep(0.5 * (attempt + 1))
-                    else: break
 
-            return None
+                    self.logger.error(f"New SL placement failed for {symbol} (Attempt {attempt+1}): {e}")
+                    if attempt < max_place_retries:
+                        await asyncio.sleep(0.5 * (attempt + 1))
+                    else:
+                        break
+
+            # 4. Restore TP if it was cancelled during SL update
+            if tp_trigger_price is not None:
+                await self._restore_tp_order(symbol, side, tp_trigger_price)
+
+            return order
         except Exception as e:
             self.logger.error(f"SL dynamic update failed: {e}")
             return None
+
+    async def _restore_tp_order(
+        self, symbol: str, side: OrderSide, tp_trigger_price: float
+    ) -> None:
+        """Re-place TP order after nuclear cancel during SL update, with mark price validation."""
+        try:
+            mark_price = await self.client.get_mark_price(symbol)
+            min_buffer = mark_price * 0.002  # 0.2% buffer (same as _place_tp_order)
+
+            # Validate TP trigger price relative to mark (same logic as _place_tp_order)
+            if side == OrderSide.SELL:
+                # Closing LONG: TP must be ABOVE mark
+                if tp_trigger_price <= mark_price:
+                    tp_trigger_price = mark_price + min_buffer
+                    self.logger.warning(f"TP restore adjusted for {symbol}: trigger <= mark, new={tp_trigger_price:.4f}")
+                elif tp_trigger_price - mark_price < min_buffer:
+                    tp_trigger_price = mark_price + min_buffer
+                    self.logger.warning(f"TP restore adjusted for {symbol}: too close to mark, new={tp_trigger_price:.4f}")
+            else:  # BUY - closing SHORT
+                if tp_trigger_price >= mark_price:
+                    tp_trigger_price = mark_price - min_buffer
+                    self.logger.warning(f"TP restore adjusted for {symbol}: trigger >= mark, new={tp_trigger_price:.4f}")
+                elif mark_price - tp_trigger_price < min_buffer:
+                    tp_trigger_price = mark_price - min_buffer
+                    self.logger.warning(f"TP restore adjusted for {symbol}: too close to mark, new={tp_trigger_price:.4f}")
+
+            tp_price_str = await self._format_price(tp_trigger_price, symbol)
+            await self.client.new_algo_order(
+                symbol=symbol,
+                side=side.value,
+                type=OrderType.TAKE_PROFIT_MARKET.value,
+                triggerPrice=tp_price_str,
+                closePosition="true",
+                workingType="MARK_PRICE",
+            )
+            self.logger.info(f"TP restored for {symbol}: triggerPrice={tp_price_str}")
+        except Exception as e:
+            self.logger.error(
+                f"CRITICAL: Failed to restore TP for {symbol}: {e}. "
+                f"Position has SL but NO TP protection. Manual intervention may be needed."
+            )
 
     @async_retry_with_backoff(max_retries=3, initial_delay=1.0)
     async def _place_tp_order(

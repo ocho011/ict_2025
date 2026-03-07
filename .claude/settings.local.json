@@ -64,7 +64,8 @@
       "Bash(git fetch:*)",
       "Bash(wc -l:*)",
       "Bash(find:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(pip3 install:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

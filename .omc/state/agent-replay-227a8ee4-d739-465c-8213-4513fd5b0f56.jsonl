@@ -1,0 +1,17 @@
+{"t":0,"agent":"system","event":"keyword_detected","keyword":"ralplan"}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"oh-my-claudecode:ralplan"}
+{"t":0,"agent":"acde78c","agent_type":"critic","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"acde78c","agent_type":"critic","event":"agent_stop","success":true,"duration_ms":92202}
+{"t":0,"agent":"a0dfd43","agent_type":"critic","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a0dfd43","agent_type":"critic","event":"agent_stop","success":true,"duration_ms":91118}
+{"t":0,"agent":"aabe0ef","agent_type":"critic","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"aabe0ef","agent_type":"critic","event":"agent_stop","success":true,"duration_ms":82244}
+{"t":0,"agent":"a3e1a31","agent_type":"critic","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"a3e1a31","agent_type":"critic","event":"agent_stop","success":true,"duration_ms":83500}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"pdca"}
+{"t":0,"agent":"abb577b","agent_type":"bkit:gap-detector","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"abb577b","agent_type":"bkit:gap-detector","event":"agent_stop","success":true,"duration_ms":75521}
+{"t":0,"agent":"system","event":"skill_invoked","skill_name":"pdca"}
+{"t":0,"agent":"aa3657d","agent_type":"bkit:report-generator","event":"agent_start","parent_mode":"none"}
+{"t":0,"agent":"aa3657d","agent_type":"bkit:report-generator","event":"agent_stop","success":true,"duration_ms":72246}
+{"t":0,"agent":"a3440d0","agent_type":"unknown","event":"agent_stop","success":true}

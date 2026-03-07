@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "lastScanned": 1772649214142,
-  "projectRoot": "/Users/osangwon/github/ict_2025_review2",
+  "lastScanned": 1772871665837,
+  "projectRoot": "/Users/osangwon/github/ict_2025_temp",
   "techStack": {
     "languages": [
       {
@@ -57,14 +57,14 @@
       "path": "analysis_log",
       "purpose": null,
       "fileCount": 0,
-      "lastAccessed": 1772649214130,
+      "lastAccessed": 1772871665821,
       "keyFiles": []
     },
     "conductor": {
       "path": "conductor",
       "purpose": null,
       "fileCount": 6,
-      "lastAccessed": 1772649214130,
+      "lastAccessed": 1772871665822,
       "keyFiles": [
         "index.md",
         "product-guidelines.md",
@@ -76,9 +76,10 @@
     "configs": {
       "path": "configs",
       "purpose": null,
-      "fileCount": 1,
-      "lastAccessed": 1772649214131,
+      "fileCount": 2,
+      "lastAccessed": 1772871665822,
       "keyFiles": [
+        "api_keys.ini",
         "base.yaml"
       ]
     },
@@ -86,16 +87,25 @@
       "path": "docs",
       "purpose": "Documentation",
       "fileCount": 3,
-      "lastAccessed": 1772649214131,
+      "lastAccessed": 1772871665823,
       "keyFiles": [
         "PDCA-Strategy-Abstraction-Redesign.report.md"
+      ]
+    },
+    "logs": {
+      "path": "logs",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1772871665823,
+      "keyFiles": [
+        "trading.log"
       ]
     },
     "scripts": {
       "path": "scripts",
       "purpose": "Build/utility scripts",
-      "fileCount": 10,
-      "lastAccessed": 1772649214131,
+      "fileCount": 11,
+      "lastAccessed": 1772871665825,
       "keyFiles": [
         "analyze_ict_conditions.py",
         "benchmark_metrics.py",
@@ -108,7 +118,7 @@
       "path": "src",
       "purpose": "Source code",
       "fileCount": 2,
-      "lastAccessed": 1772649214131,
+      "lastAccessed": 1772871665826,
       "keyFiles": [
         "__init__.py",
         "main.py"
@@ -118,7 +128,7 @@
       "path": "temp",
       "purpose": null,
       "fileCount": 4,
-      "lastAccessed": 1772649214131,
+      "lastAccessed": 1772871665827,
       "keyFiles": [
         "20260304_1530_Composable_Strategy_Architecture_Refactoring.md",
         "circuit_breaker_analysis.md",
@@ -129,8 +139,8 @@
     "tests": {
       "path": "tests",
       "purpose": "Test files",
-      "fileCount": 29,
-      "lastAccessed": 1772649214131,
+      "fileCount": 30,
+      "lastAccessed": 1772871665827,
       "keyFiles": [
         "analysis_script.py",
         "test_audit_logger.py",
@@ -143,7 +153,7 @@
       "path": "configs/examples",
       "purpose": "Example code",
       "fileCount": 5,
-      "lastAccessed": 1772649214132,
+      "lastAccessed": 1772871665829,
       "keyFiles": [
         "README.md",
         "api_keys.ini.example",
@@ -154,7 +164,7 @@
       "path": "src/config",
       "purpose": "Configuration files",
       "fileCount": 4,
-      "lastAccessed": 1772649214132,
+      "lastAccessed": 1772871665830,
       "keyFiles": [
         "__init__.py",
         "ict_profiles.py",
@@ -165,7 +175,7 @@
       "path": "src/data",
       "purpose": "Data files",
       "fileCount": 3,
-      "lastAccessed": 1772649214132,
+      "lastAccessed": 1772871665830,
       "keyFiles": [
         "__init__.py",
         "base.py",
@@ -176,7 +186,7 @@
       "path": "tests/data",
       "purpose": "Data files",
       "fileCount": 2,
-      "lastAccessed": 1772649214132,
+      "lastAccessed": 1772871665831,
       "keyFiles": [
         "__init__.py",
         "test_historical.py"
@@ -186,12 +196,55 @@
       "path": "tests/models",
       "purpose": "Data models",
       "fileCount": 1,
-      "lastAccessed": 1772649214132,
+      "lastAccessed": 1772871665831,
       "keyFiles": [
         "test_enriched_candle.py"
       ]
     }
   },
-  "hotPaths": [],
+  "hotPaths": [
+    {
+      "path": "src/execution/order_gateway.py",
+      "accessCount": 44,
+      "lastAccessed": 1772878828178,
+      "type": "file"
+    },
+    {
+      "path": "src/core/async_binance_client.py",
+      "accessCount": 8,
+      "lastAccessed": 1772874430617,
+      "type": "directory"
+    },
+    {
+      "path": "src/core/event_dispatcher.py",
+      "accessCount": 8,
+      "lastAccessed": 1772874719011,
+      "type": "file"
+    },
+    {
+      "path": "logs/trading.log",
+      "accessCount": 5,
+      "lastAccessed": 1772874250921,
+      "type": "directory"
+    },
+    {
+      "path": "src",
+      "accessCount": 5,
+      "lastAccessed": 1772874870901,
+      "type": "directory"
+    },
+    {
+      "path": "docs/03-analysis/features/fix-4130-sl-collision.analysis.md",
+      "accessCount": 2,
+      "lastAccessed": 1772878827810,
+      "type": "file"
+    },
+    {
+      "path": "docs/04-report/features/fix-4130-sl-collision.report.md",
+      "accessCount": 2,
+      "lastAccessed": 1772878888897,
+      "type": "file"
+    }
+  ],
   "userDirectives": []
 }
