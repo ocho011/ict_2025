@@ -220,7 +220,7 @@ api_secret = mainnet_secret_abc
 
         # Capture logging output
         with caplog.at_level(logging.INFO):
-            config.validate()
+            config.summarize_config()
 
         # Check log messages
         assert "TESTNET mode" in caplog.text
@@ -246,7 +246,7 @@ api_secret = mainnet_secret_abc
 
         # Capture logging output
         with caplog.at_level(logging.WARNING):
-            config.validate()
+            config.summarize_config()
 
         # Check log messages
         assert "PRODUCTION mode" in caplog.text

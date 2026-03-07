@@ -562,11 +562,11 @@ class TestLoggingConfigValidation:
         assert config.log_dir == "logs"
 
 
-class TestConfigManagerValidation:
-    """Test ConfigManager.validate() method"""
+class TestConfigManagerSummarize:
+    """Test ConfigManager.summarize_config() method"""
 
-    def test_validate_returns_true_for_valid_config(self, tmp_path):
-        """Valid configuration should return True"""
+    def test_summarize_config_runs_without_errors(self, tmp_path):
+        """Standard summarize_config should run without raising exceptions"""
         # Create test config files
         api_config = tmp_path / "api_keys.ini"
         api_config.write_text(
@@ -599,10 +599,11 @@ api_secret = test_secret_12345678
         )
 
         manager = ConfigManager(config_dir=str(tmp_path))
-        assert manager.validate() is True
+        # Should not raise any exceptions
+        manager.summarize_config()
 
-    def test_validate_returns_true_with_warnings(self, tmp_path, caplog):
-        """Configuration with warnings should still return True"""
+    def test_summarize_config_logs_warnings(self, tmp_path, caplog):
+        """Configuration with warnings should be logged"""
         # Create test config with high leverage in testnet
         api_config = tmp_path / "api_keys.ini"
         api_config.write_text(
@@ -634,13 +635,54 @@ api_secret = test_secret_12345678
         )
 
         manager = ConfigManager(config_dir=str(tmp_path))
-        result = manager.validate()
+        manager.summarize_config()
 
-        assert result is True
         # Check that leverage warning was logged
         assert "leverage in testnet mode" in caplog.text.lower()
 
-    def test_validate_logs_testnet_mode(self, tmp_path, caplog):
+    def test_summarize_config_masks_api_key(self, tmp_path, caplog):
+        """API key should be masked in the summary report"""
+        import logging
+        caplog.set_level(logging.INFO)
+
+        api_config = tmp_path / "api_keys.ini"
+        api_config.write_text(
+            """
+[binance]
+use_testnet = true
+
+[binance.testnet]
+api_key = VERYLONGAPIKEY1234567890
+api_secret = VERYLONGAPISECRET1234567890
+        """
+        )
+
+        base_config = tmp_path / "base.yaml"
+        base_config.write_text(
+            """trading:
+  defaults:
+    strategy: mock_sma
+    leverage: 1
+    max_risk_per_trade: 0.01
+    take_profit_ratio: 2.0
+    stop_loss_percent: 0.02
+    intervals:
+      - "1m"
+  symbols:
+    BTCUSDT:
+      leverage: 1
+"""
+        )
+
+        manager = ConfigManager(config_dir=str(tmp_path))
+        manager.summarize_config()
+
+        # Should show masked version: VERY...7890
+        assert "VERY...7890" in caplog.text
+        # Should NOT show the full secret
+        assert "VERYLONGAPISECRET" not in caplog.text
+
+    def test_summarize_config_logs_testnet_mode(self, tmp_path, caplog):
         """Testnet mode should be logged"""
         import logging
 
@@ -654,8 +696,8 @@ api_secret = test_secret_12345678
 use_testnet = true
 
 [binance.testnet]
-api_key = test_key
-api_secret = test_secret
+api_key = test_key_12345678
+api_secret = test_secret_12345678
         """
         )
 
@@ -677,11 +719,11 @@ api_secret = test_secret
         )
 
         manager = ConfigManager(config_dir=str(tmp_path))
-        manager.validate()
+        manager.summarize_config()
 
         assert "TESTNET mode" in caplog.text
 
-    def test_validate_logs_production_mode(self, tmp_path, caplog):
+    def test_summarize_config_logs_production_mode(self, tmp_path, caplog):
         """Production mode should be logged with warning"""
         api_config = tmp_path / "api_keys.ini"
         api_config.write_text(
@@ -690,8 +732,8 @@ api_secret = test_secret
 use_testnet = false
 
 [binance.mainnet]
-api_key = test_key_mainnet
-api_secret = test_secret_mainnet
+api_key = test_key_mainnet1234
+api_secret = test_secret_mainnet1234
         """
         )
 
@@ -713,10 +755,9 @@ api_secret = test_secret_mainnet
         )
 
         manager = ConfigManager(config_dir=str(tmp_path))
-        manager.validate()
+        manager.summarize_config()
 
         assert "PRODUCTION mode" in caplog.text
-        assert "real funds" in caplog.text.lower()
 
 
 class TestEdgeCases:

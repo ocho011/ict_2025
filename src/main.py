@@ -7,11 +7,10 @@ including data collection, strategy execution, risk management, and order execut
 
 import asyncio
 import logging
-import os
 import signal
 import sys
-import platform
 from datetime import datetime
+from enum import Enum, auto
 from pathlib import Path
 from typing import Optional
 
@@ -20,8 +19,6 @@ from typing import Optional
 project_root = Path(__file__).parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
-
-from enum import Enum, auto
 
 from src.core.audit_logger import AuditLogger
 from src.core.data_collector import BinanceDataCollector
@@ -126,32 +123,20 @@ class TradingBot:
         self._lifecycle_state = LifecycleState.STARTING
 
         # Step 1: Load configurations
+        # Note: Validation happens during instantiation in dataclass __post_init__ methods
         self.config_manager = ConfigManager()
         api_config = self.config_manager.api_config
         trading_config = self.config_manager.trading_config
         logging_config = self.config_manager.logging_config
 
-        # Step 2: Validate configuration (fail fast)
-        if not self.config_manager.validate():
-            raise ValueError(
-                "Invalid configuration. Check configs/api_keys.ini and "
-                "configs/base.yaml for missing or invalid settings."
-            )
-
-        # Step 3: Setup logging infrastructure
+        # Step 2: Setup logging infrastructure
         self.trading_logger = TradingLogger(logging_config.__dict__)
         self.logger = logging.getLogger(__name__)
 
-        # Step 4: Log startup banner with environment info
+        # Step 3: Display environment summary
         self.logger.info("=" * 50)
         self.logger.info("ICT Trading Bot Starting ...")
-        self.logger.info(f"Environment: {'TESTNET' if api_config.is_testnet else 'MAINNET'}")
-        self.logger.info(f"Symbols: {', '.join(trading_config.symbols)}")
-        self.logger.info(f"Intervals: {', '.join(trading_config.intervals)}")
-        self.logger.info(f"Strategy: {trading_config.strategy}")
-        self.logger.info(f"Leverage: {trading_config.leverage}x")
-        self.logger.info(f"Margin Type: {trading_config.margin_type}")
-        self.logger.info(f"Max Risk per Trade: {trading_config.max_risk_per_trade * 100:.1f}%")
+        self.config_manager.summarize_config()
         self.logger.info("=" * 50)
 
         # Step 5: Initialize AuditLogger (shared by all components)

@@ -243,7 +243,7 @@ class TradeCoordinator:
                     entry_price=signal.entry_price,
                     stop_loss_price=signal.stop_loss,
                     leverage=self._config_manager.trading_config.leverage,
-                    symbol_info=None,  # OrderGateway will handle rounding internally
+                    symbol_info={"symbol": signal.symbol},  # Pass symbol for logging
                 )
 
                 # Step 7: Execute signal via OrderGateway

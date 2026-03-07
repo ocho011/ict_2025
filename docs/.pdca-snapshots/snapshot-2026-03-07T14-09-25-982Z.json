@@ -21,7 +21,8 @@
     "execution",
     "logging-cost-tracking",
     "trailing-stop-logging-optimization",
-    "error-diagnosis"
+    "error-diagnosis",
+    "formal-defect-correction"
   ],
   "features": {
     "error-diagnosis": {
@@ -66,8 +67,29 @@
         "started": "2026-03-03T03:00:00.000Z",
         "lastUpdated": "2026-03-03T04:45:00.000Z"
       }
+    },
+    "formal-defect-correction": {
+      "phase": "complete",
+      "phaseNumber": 5,
+      "matchRate": 100,
+      "iterationCount": 0,
+      "requirements": [
+        "Remove unused imports in main.py",
+        "Replace wildcard imports in detectors",
+        "Improve type hints"
+      ],
+      "documents": {
+        "plan": "docs/01-plan/features/formal-defect-correction.plan.md",
+        "design": "docs/02-design/features/formal-defect-correction.design.md",
+        "analysis": "docs/03-analysis/features/formal-defect-correction.analysis.md",
+        "report": "docs/04-report/features/formal-defect-correction.report.md"
+      },
+      "timestamps": {
+        "started": "2026-03-07T12:00:00Z",
+        "lastUpdated": "2026-03-07T12:15:00Z"
+      }
     }
   },
-  "_snapshotTimestamp": "2026-03-07T06:46:48.850Z",
+  "_snapshotTimestamp": "2026-03-07T14:09:25.983Z",
   "_reason": "pre-compress"
 }

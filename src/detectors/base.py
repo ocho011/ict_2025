@@ -19,11 +19,11 @@ class BaseDetector(ABC):
     @abstractmethod
     def calculate(self, data: pd.DataFrame) -> Any:
         """
-        Detect ICT concepts from market data
+        Detect ICT concepts from market data.
 
         Args:
             data: OHLCV dataframe
 
         Returns:
-            Detected concept indicators
+            Detected concept indicators (e.g., List of OrderBlocks, FairValueGaps, etc.)
         """

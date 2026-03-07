@@ -121,10 +121,11 @@ class RiskGuard:
         max_quantity = max_position_value / entry_price
 
         # Step 7: Apply position size limit
+        symbol = symbol_info.get("symbol", "UNKNOWN") if symbol_info else "UNKNOWN"
         if quantity > max_quantity:
             original_quantity = quantity  # Store for audit logging
             self.logger.warning(
-                f"Position size {quantity:.4f} exceeds maximum {max_quantity:.4f} "
+                f"[{symbol}] Position size {quantity:.4f} exceeds maximum {max_quantity:.4f} "
                 f"({self.max_position_size_percent:.1%} of account with {leverage}x leverage), "
                 f"capping to {max_quantity:.4f}"
             )
@@ -137,7 +138,7 @@ class RiskGuard:
                 self.audit_logger.log_event(
                     event_type=AuditEventType.POSITION_SIZE_CAPPED,
                     operation="calculate_position_size",
-                    symbol=symbol_info.get("symbol") if symbol_info else None,
+                    symbol=symbol,
                     additional_data={
                         "requested_quantity": original_quantity,
                         "capped_quantity": max_quantity,
@@ -158,7 +159,7 @@ class RiskGuard:
 
         # Step 9: Log final quantity
         self.logger.info(
-            f"Final position size: {quantity} "
+            f"[{symbol}] Final position size: {quantity} "
             f"(risk={risk_amount:.2f} USDT, "
             f"SL distance={sl_distance_percent:.2%}, "
             f"max_allowed={max_quantity:.4f})"
@@ -171,7 +172,7 @@ class RiskGuard:
             self.audit_logger.log_event(
                 event_type=AuditEventType.POSITION_SIZE_CALCULATED,
                 operation="calculate_position_size",
-                symbol=symbol_info.get("symbol") if symbol_info else None,
+                symbol=symbol,
                 additional_data={
                     "account_balance": account_balance,
                     "entry_price": entry_price,

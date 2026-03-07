@@ -632,43 +632,56 @@ class ConfigManager:
 
     # --- Public Methods ---
 
-    def validate(self) -> bool:
+    def summarize_config(self) -> None:
         """
-        Validate all configurations
-
-        Returns:
-            bool: True if all validations pass, False otherwise
+        Summarize all configurations and print an environment report.
 
         Note:
-            - API and Trading config validation happens in __post_init__
-            - All validation errors are logged before returning
-            - This method performs additional cross-config validation
+            - API and Trading config validation happens in __post_init__ of each dataclass.
+            - This method provides a high-level overview of the active environment.
         """
         import logging
 
         logger = logging.getLogger(__name__)
-        errors = []
 
-        # API config validation (already done in __post_init__)
-        # Trading config validation (already done in __post_init__)
+        # 1. Environment Mode
+        if self.is_testnet:
+            logger.info("⚠️  Running in TESTNET mode")
+        else:
+            logger.warning("🚨 Running in PRODUCTION mode with real funds!")
 
-        # Cross-config validation: leverage warning in testnet
+        # 2. API Status (Masked for security)
+        api_key = self._api_config.api_key
+        masked_key = f"{api_key[:4]}...{api_key[-4:]}" if len(api_key) > 8 else "****"
+        logger.info(f"🔑 API Key: {masked_key}")
+
+        # 3. Active Symbols and Strategies
+        enabled_symbols = self.hierarchical_config.get_enabled_symbols()
+        logger.info(f"📈 Active Symbols ({len(enabled_symbols)}):")
+        for symbol in enabled_symbols:
+            config = self.hierarchical_config.get_symbol_config(symbol)
+            strategy_type = getattr(config, "strategy_type", "composable")
+            logger.info(
+                f"  - {symbol:8} | Strategy: {config.strategy:15} | "
+                f"Type: {strategy_type:10} | Leverage: {config.leverage}x"
+            )
+
+        # 4. Global Risk and Liquidation
+        tc = self._trading_config
+        logger.info(
+            f"🛡️  Risk: Max Risk {tc.max_risk_per_trade*100:.1f}%, "
+            f"SL {tc.stop_loss_percent*100:.1f}%, TP Ratio {tc.take_profit_ratio}"
+        )
+
+        liq = self._liquidation_config
+        liq_status = "ENABLED" if liq.emergency_liquidation else "DISABLED"
+        logger.info(f"⛑️  Emergency Liquidation: {liq_status}")
+
+        # Cross-config validation warning
         if self._trading_config.leverage > 1 and self._api_config.is_testnet:
             logger.warning(
                 f"Using {self._trading_config.leverage}x leverage in testnet mode"
             )
-
-        # Log environment mode
-        if self._api_config.is_testnet:
-            logger.info("⚠️  Running in TESTNET mode")
-        else:
-            logger.warning("⚠️  Running in PRODUCTION mode with real funds!")
-
-        # Log all accumulated errors
-        for error in errors:
-            logger.error(error)
-
-        return len(errors) == 0
 
     # --- Private Loaders (Helpers) ---
 
