@@ -11,6 +11,13 @@
 > **목적**: 이벤트 기반 실시간 자동매매 시스템 개발 시 준수해야 할 트레이드오프 기준 및 구현 지침
 > **핵심 원칙**: 실시간 성능이 최우선. 안정성/편의성 도입 시 지연시간(Latency) 영향을 최소화할 것.
 
+### 0. Context & Workspace Optimization (LLM Efficiency)
+
+**지침**
+- **LLM Context Optimization**: 대용량 테스트(`tests/`) 및 아카이브된 스크립트(`scripts/archived/`)는 `.llmignore`를 통해 기본적으로 제외됨. 필요한 경우에만 명시적으로 참조할 것.
+- **Core Protection**: `src/` 디렉토리 내의 프로젝트 파일은 어떠한 경우에도 최적화 대상(삭제/이동/무시)에서 제외되며, 그 무결성을 절대적으로 보존해야 함.
+- **Archive Policy**: 1회성 검증 스크립트나 임시 설계 문서는 루트에 방치하지 않고 각각 `scripts/archived/`, `docs/**/archived/`로 격리함.
+
 ### 1. 데이터 검증 및 객체화 (Data Validation & Serialization)
 
 **기준**

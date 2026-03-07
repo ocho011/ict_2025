@@ -1,0 +1,27 @@
+# LLM Context Ignore Rules (workspace-optimize)
+# This file defines patterns that should be ignored by default to save context tokens.
+# Always preserve the integrity of the 'src/' directory.
+
+# Fixed Infrastructure Directories
+logs/
+backups/
+.venv/
+__pycache__/
+*.pyc
+
+# Archived Scripts and Documents (One-off or old architecture)
+scripts/archived/
+docs/**/archived/
+
+# Large Test Files (>1000 LOC, >30KB) - Load only on request
+tests/test_order_execution.py
+tests/core/test_trading_engine.py
+
+# Explicit Preservation (DO NOT IGNORE)
+!src/
+!src/**/*
+!configs/
+!README.md
+!CLAUDE.md
+!TODO.md
+!.pdca-status.json
