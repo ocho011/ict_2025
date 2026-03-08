@@ -13,7 +13,7 @@ from pathlib import Path
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.utils.config_manager import LiquidationConfig
+from src.utils.config_manager import ConfigManager
 from src.execution.config_validator import LiquidationConfigValidator
 
 
@@ -32,8 +32,9 @@ def main():
     )
     args = parser.parse_args()
 
-    # Load configuration
-    config = LiquidationConfig()
+    # Load configuration using ConfigManager
+    config_manager = ConfigManager()
+    config = config_manager.liquidation_config
 
     # Validate
     validator = LiquidationConfigValidator()

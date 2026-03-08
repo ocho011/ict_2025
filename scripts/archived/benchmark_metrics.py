@@ -18,10 +18,10 @@ import time
 from pathlib import Path
 
 # Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from monitoring import EventID, MetricsCollector, measure, measure_async
-from monitoring.ring_buffer import LockFreeRingBuffer, MetricType
+from src.monitoring import EventID, MetricsCollector, measure, measure_async
+from src.monitoring.ring_buffer import LockFreeRingBuffer, MetricType
 
 
 def benchmark_ring_buffer():

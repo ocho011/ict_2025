@@ -47,17 +47,21 @@ def parse_log_file(log_file: Path, hours: int = 24) -> Dict[str, any]:
     # Calculate time threshold
     cutoff_time = datetime.now() - timedelta(hours=hours)
 
-    # Regex patterns for log parsing
-    condition_pattern = re.compile(
-        r"ICT Conditions Check: trend=(\w+), killzone=(True|False), "
-        r"in_zone=(True|False), fvgs=(\d+), obs=(\d+), "
-        r"inducements=(\d+), displacements=(\d+)"
-    )
-
+    # Regex patterns for log parsing (Updated for ICTOptimalEntryDeterminer)
     signal_pattern = re.compile(
         r"ICT (LONG|SHORT) Signal: trend=(\w+), zone=(\w+), "
         r"fvg=(True|False), ob=(True|False), "
         r"inducement=(True|False), displacement=(True|False)"
+    )
+
+    # Fail patterns (Debug logs)
+    fail_pattern = re.compile(
+        r"(LONG|SHORT) Conditions Fail: Inducement=(True|False), "
+        r"Displacement=(True|False), FVG/OB=(True|False)"
+    )
+
+    zone_fail_pattern = re.compile(
+        r"Zone/Trend Fail: Trend=(\w+), InDiscount=(True|False), InPremium=(True|False)"
     )
 
     if not log_file.exists():
@@ -68,7 +72,10 @@ def parse_log_file(log_file: Path, hours: int = 24) -> Dict[str, any]:
         for line in f:
             # Parse timestamp
             try:
-                timestamp_str = line.split()[0] + " " + line.split()[1]
+                # Assuming format: 2026-01-25 10:00:00,000 or similar
+                parts = line.split()
+                if len(parts) < 2: continue
+                timestamp_str = parts[0] + " " + parts[1]
                 timestamp = datetime.fromisoformat(timestamp_str.replace(",", "."))
 
                 # Skip lines older than threshold
@@ -77,64 +84,44 @@ def parse_log_file(log_file: Path, hours: int = 24) -> Dict[str, any]:
             except (IndexError, ValueError):
                 continue  # Skip lines without valid timestamp
 
-            # Check for condition check logs
-            match = condition_pattern.search(line)
-            if match:
-                stats["total_checks"] += 1
-                trend, killzone, in_zone, fvgs, obs, inducements, displacements = match.groups()
-
-                # Track condition successes
-                if trend and trend != "None":
-                    stats["conditions"]["trend"] += 1
-
-                if killzone == "True":
-                    stats["conditions"]["killzone"] += 1
-
-                if in_zone == "True":
-                    stats["conditions"]["zone"] += 1
-
-                if int(fvgs) > 0 or int(obs) > 0:
-                    stats["conditions"]["fvg_ob"] += 1
-
-                if int(inducements) > 0:
-                    stats["conditions"]["inducement"] += 1
-
-                if int(displacements) > 0:
-                    stats["conditions"]["displacement"] += 1
-
-                # Count conditions met
-                conditions_met = sum(
-                    [
-                        trend and trend != "None",
-                        killzone == "True",
-                        in_zone == "True",
-                        int(fvgs) > 0 or int(obs) > 0,
-                        int(inducements) > 0,
-                        int(displacements) > 0,
-                    ]
-                )
-
-                # Track near misses (4 or 5 conditions met but no signal)
-                if conditions_met >= 4 and "No signal" in line:
-                    stats["near_misses"].append(
-                        {
-                            "timestamp": timestamp_str,
-                            "conditions_met": conditions_met,
-                            "missing": [
-                                "trend" if not (trend and trend != "None") else None,
-                                "killzone" if killzone != "True" else None,
-                                "zone" if in_zone != "True" else None,
-                                "fvg_ob" if int(fvgs) == 0 and int(obs) == 0 else None,
-                                "inducement" if int(inducements) == 0 else None,
-                                "displacement" if int(displacements) == 0 else None,
-                            ],
-                        }
-                    )
-
-            # Check for signal logs
+            # Check for signal logs (Success)
             signal_match = signal_pattern.search(line)
             if signal_match:
+                stats["total_checks"] += 1
                 stats["signals_generated"] += 1
+                side, trend, zone, fvg, ob, inducement, displacement = signal_match.groups()
+                
+                stats["conditions"]["trend"] += 1
+                stats["conditions"]["zone"] += 1
+                if fvg == "True" or ob == "True": stats["conditions"]["fvg_ob"] += 1
+                if inducement == "True": stats["conditions"]["inducement"] += 1
+                if displacement == "True": stats["conditions"]["displacement"] += 1
+                continue
+
+            # Check for specific failure logs
+            fail_match = fail_pattern.search(line)
+            if fail_match:
+                stats["total_checks"] += 1
+                side, inducement, displacement, fvg_ob = fail_match.groups()
+                
+                # Trend and Zone were OK if we reached this log
+                stats["conditions"]["trend"] += 1
+                stats["conditions"]["zone"] += 1
+                if inducement == "True": stats["conditions"]["inducement"] += 1
+                if displacement == "True": stats["conditions"]["displacement"] += 1
+                if fvg_ob == "True": stats["conditions"]["fvg_ob"] += 1
+                continue
+
+            # Check for zone/trend failure
+            zone_match = zone_fail_pattern.search(line)
+            if zone_match:
+                stats["total_checks"] += 1
+                trend, in_discount, in_premium = zone_match.groups()
+                if trend != "None" and trend != "sideways":
+                    stats["conditions"]["trend"] += 1
+                if in_discount == "True" or in_premium == "True":
+                    stats["conditions"]["zone"] += 1
+                continue
 
     return stats
 

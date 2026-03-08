@@ -3,6 +3,7 @@
 Test Binance REST API for historical candles
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
@@ -10,9 +11,11 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.data_collector import BinanceDataCollector
+from src.core.async_binance_client import AsyncBinanceClient
+from src.core.public_market_streamer import PublicMarketStreamer
 from src.utils.config_manager import ConfigManager
 
-def test_rest_api():
+async def test_rest_api():
     """Test REST API historical candles"""
     print("=" * 80)
     print("Binance REST API Test")
@@ -26,14 +29,23 @@ def test_rest_api():
     print(f"   Environment: {'Testnet' if api_config.is_testnet else 'Mainnet'}")
     print(f"   API Key: {api_config.api_key[:8]}...{api_config.api_key[-4:]}")
 
-    # Initialize collector
+    # Initialize collector with composition pattern
     print("\n2. Initializing BinanceDataCollector...")
-    collector = BinanceDataCollector(
+    binance_service = AsyncBinanceClient(
         api_key=api_config.api_key,
         api_secret=api_config.api_secret,
+        is_testnet=True
+    )
+    
+    market_streamer = PublicMarketStreamer(
         symbols=["BTCUSDT"],
         intervals=["1m"],
         is_testnet=True
+    )
+
+    collector = BinanceDataCollector(
+        binance_service=binance_service,
+        market_streamer=market_streamer
     )
     print(f"   ✅ Initialized")
 
@@ -68,5 +80,5 @@ def test_rest_api():
 
 
 if __name__ == "__main__":
-    success = test_rest_api()
+    success = asyncio.run(test_rest_api())
     sys.exit(0 if success else 1)

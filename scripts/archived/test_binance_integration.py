@@ -7,8 +7,7 @@ Tests real WebSocket connection to Binance Testnet and verifies:
 2. WebSocket connection establishment
 3. Real-time kline data streaming
 4. Message parsing accuracy
-5. Buffer management
-6. Graceful shutdown
+5. Graceful shutdown
 
 Usage:
     python scripts/test_binance_integration.py
@@ -29,6 +28,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from src.core.data_collector import BinanceDataCollector
+from src.core.async_binance_client import AsyncBinanceClient
+from src.core.public_market_streamer import PublicMarketStreamer
 from src.models.candle import Candle
 from src.utils.config_manager import ConfigManager
 
@@ -134,17 +135,27 @@ async def run_integration_test(duration_seconds: int = 30):
         logger.info(f"📊 Received: {candle.symbol} {candle.interval} | "
                    f"Close: {candle.close} | Closed: {candle.is_closed}")
 
-    # Step 4: Initialize BinanceDataCollector
-    logger.info("\nStep 2: Initializing BinanceDataCollector")
+    # Step 4: Initialize BinanceDataCollector (Composition Pattern)
+    logger.info("\nStep 2: Initializing BinanceDataCollector (Composition Pattern)")
     try:
-        collector = BinanceDataCollector(
+        binance_service = AsyncBinanceClient(
             api_key=api_config.api_key,
             api_secret=api_config.api_secret,
-            symbols=["BTCUSDT", "ETHUSDT"],  # Test with 2 symbols
-            intervals=["1m"],                 # Test with 1 minute interval
+            is_testnet=True
+        )
+        
+        market_streamer = PublicMarketStreamer(
+            symbols=["BTCUSDT", "ETHUSDT"],
+            intervals=["1m"],
             is_testnet=True,
             on_candle_callback=on_candle_received
         )
+
+        collector = BinanceDataCollector(
+            binance_service=binance_service,
+            market_streamer=market_streamer
+        )
+        
         logger.info("✅ BinanceDataCollector initialized")
         logger.info(f"   Symbols: {collector.symbols}")
         logger.info(f"   Intervals: {collector.intervals}")
@@ -183,17 +194,6 @@ async def run_integration_test(duration_seconds: int = 30):
     except Exception as e:
         logger.error(f"❌ Error during streaming: {e}", exc_info=True)
         return False
-
-    # Step 6: Verify buffer contents
-    logger.info("\nStep 6: Verifying buffer contents")
-    for symbol in collector.symbols:
-        for interval in collector.intervals:
-            buffer = collector.get_candle_buffer(symbol, interval)
-            logger.info(f"   {symbol}_{interval}: {len(buffer)} candles in buffer")
-
-            if buffer:
-                latest = buffer[-1]
-                logger.info(f"      Latest: {latest.open_time} | Close: {latest.close}")
 
     # Step 7: Print summary
     stats.print_summary()
